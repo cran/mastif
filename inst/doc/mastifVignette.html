@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<meta charset="utf-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="pandoc" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<meta name="author" content="James S. Clark" />
+
+<meta name="date" content="2019-05-18" />
+
+<title>Mast Inference and Forecasting (mastif)</title>
+
+
+
+<style type="text/css">code{white-space: pre;}</style>
+<style type="text/css">
+div.sourceCode { overflow-x: auto; }
+table.sourceCode, tr.sourceCode, td.lineNumbers, td.sourceCode {
+  margin: 0; padding: 0; vertical-align: baseline; border: none; }
+table.sourceCode { width: 100%; line-height: 100%; }
+td.lineNumbers { text-align: right; padding-right: 4px; padding-left: 4px; color: #aaaaaa; border-right: 1px solid #aaaaaa; }
+td.sourceCode { padding-left: 5px; }
+code > span.kw { color: #007020; font-weight: bold; } /* Keyword */
+code > span.dt { color: #902000; } /* DataType */
+code > span.dv { color: #40a070; } /* DecVal */
+code > span.bn { color: #40a070; } /* BaseN */
+code > span.fl { color: #40a070; } /* Float */
+code > span.ch { color: #4070a0; } /* Char */
+code > span.st { color: #4070a0; } /* String */
+code > span.co { color: #60a0b0; font-style: italic; } /* Comment */
+code > span.ot { color: #007020; } /* Other */
+code > span.al { color: #ff0000; font-weight: bold; } /* Alert */
+code > span.fu { color: #06287e; } /* Function */
+code > span.er { color: #ff0000; font-weight: bold; } /* Error */
+code > span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+code > span.cn { color: #880000; } /* Constant */
+code > span.sc { color: #4070a0; } /* SpecialChar */
+code > span.vs { color: #4070a0; } /* VerbatimString */
+code > span.ss { color: #bb6688; } /* SpecialString */
+code > span.im { } /* Import */
+code > span.va { color: #19177c; } /* Variable */
+code > span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+code > span.op { color: #666666; } /* Operator */
+code > span.bu { } /* BuiltIn */
+code > span.ex { } /* Extension */
+code > span.pp { color: #bc7a00; } /* Preprocessor */
+code > span.at { color: #7d9029; } /* Attribute */
+code > span.do { color: #ba2121; font-style: italic; } /* Documentation */
+code > span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+code > span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+</style>
+
+
+
+<link href="data:text/css;charset=utf-8,body%20%7B%0Abackground%2Dcolor%3A%20%23fff%3B%0Amargin%3A%201em%20auto%3B%0Amax%2Dwidth%3A%20700px%3B%0Aoverflow%3A%20visible%3B%0Apadding%2Dleft%3A%202em%3B%0Apadding%2Dright%3A%202em%3B%0Afont%2Dfamily%3A%20%22Open%20Sans%22%2C%20%22Helvetica%20Neue%22%2C%20Helvetica%2C%20Arial%2C%20sans%2Dserif%3B%0Afont%2Dsize%3A%2014px%3B%0Aline%2Dheight%3A%201%2E35%3B%0A%7D%0A%23header%20%7B%0Atext%2Dalign%3A%20center%3B%0A%7D%0A%23TOC%20%7B%0Aclear%3A%20both%3B%0Amargin%3A%200%200%2010px%2010px%3B%0Apadding%3A%204px%3B%0Awidth%3A%20400px%3B%0Aborder%3A%201px%20solid%20%23CCCCCC%3B%0Aborder%2Dradius%3A%205px%3B%0Abackground%2Dcolor%3A%20%23f6f6f6%3B%0Afont%2Dsize%3A%2013px%3B%0Aline%2Dheight%3A%201%2E3%3B%0A%7D%0A%23TOC%20%2Etoctitle%20%7B%0Afont%2Dweight%3A%20bold%3B%0Afont%2Dsize%3A%2015px%3B%0Amargin%2Dleft%3A%205px%3B%0A%7D%0A%23TOC%20ul%20%7B%0Apadding%2Dleft%3A%2040px%3B%0Amargin%2Dleft%3A%20%2D1%2E5em%3B%0Amargin%2Dtop%3A%205px%3B%0Amargin%2Dbottom%3A%205px%3B%0A%7D%0A%23TOC%20ul%20ul%20%7B%0Amargin%2Dleft%3A%20%2D2em%3B%0A%7D%0A%23TOC%20li%20%7B%0Aline%2Dheight%3A%2016px%3B%0A%7D%0Atable%20%7B%0Amargin%3A%201em%20auto%3B%0Aborder%2Dwidth%3A%201px%3B%0Aborder%2Dcolor%3A%20%23DDDDDD%3B%0Aborder%2Dstyle%3A%20outset%3B%0Aborder%2Dcollapse%3A%20collapse%3B%0A%7D%0Atable%20th%20%7B%0Aborder%2Dwidth%3A%202px%3B%0Apadding%3A%205px%3B%0Aborder%2Dstyle%3A%20inset%3B%0A%7D%0Atable%20td%20%7B%0Aborder%2Dwidth%3A%201px%3B%0Aborder%2Dstyle%3A%20inset%3B%0Aline%2Dheight%3A%2018px%3B%0Apadding%3A%205px%205px%3B%0A%7D%0Atable%2C%20table%20th%2C%20table%20td%20%7B%0Aborder%2Dleft%2Dstyle%3A%20none%3B%0Aborder%2Dright%2Dstyle%3A%20none%3B%0A%7D%0Atable%20thead%2C%20table%20tr%2Eeven%20%7B%0Abackground%2Dcolor%3A%20%23f7f7f7%3B%0A%7D%0Ap%20%7B%0Amargin%3A%200%2E5em%200%3B%0A%7D%0Ablockquote%20%7B%0Abackground%2Dcolor%3A%20%23f6f6f6%3B%0Apadding%3A%200%2E25em%200%2E75em%3B%0A%7D%0Ahr%20%7B%0Aborder%2Dstyle%3A%20solid%3B%0Aborder%3A%20none%3B%0Aborder%2Dtop%3A%201px%20solid%20%23777%3B%0Amargin%3A%2028px%200%3B%0A%7D%0Adl%20%7B%0Amargin%2Dleft%3A%200%3B%0A%7D%0Adl%20dd%20%7B%0Amargin%2Dbottom%3A%2013px%3B%0Amargin%2Dleft%3A%2013px%3B%0A%7D%0Adl%20dt%20%7B%0Afont%2Dweight%3A%20bold%3B%0A%7D%0Aul%20%7B%0Amargin%2Dtop%3A%200%3B%0A%7D%0Aul%20li%20%7B%0Alist%2Dstyle%3A%20circle%20outside%3B%0A%7D%0Aul%20ul%20%7B%0Amargin%2Dbottom%3A%200%3B%0A%7D%0Apre%2C%20code%20%7B%0Abackground%2Dcolor%3A%20%23f7f7f7%3B%0Aborder%2Dradius%3A%203px%3B%0Acolor%3A%20%23333%3B%0Awhite%2Dspace%3A%20pre%2Dwrap%3B%20%0A%7D%0Apre%20%7B%0Aborder%2Dradius%3A%203px%3B%0Amargin%3A%205px%200px%2010px%200px%3B%0Apadding%3A%2010px%3B%0A%7D%0Apre%3Anot%28%5Bclass%5D%29%20%7B%0Abackground%2Dcolor%3A%20%23f7f7f7%3B%0A%7D%0Acode%20%7B%0Afont%2Dfamily%3A%20Consolas%2C%20Monaco%2C%20%27Courier%20New%27%2C%20monospace%3B%0Afont%2Dsize%3A%2085%25%3B%0A%7D%0Ap%20%3E%20code%2C%20li%20%3E%20code%20%7B%0Apadding%3A%202px%200px%3B%0A%7D%0Adiv%2Efigure%20%7B%0Atext%2Dalign%3A%20center%3B%0A%7D%0Aimg%20%7B%0Abackground%2Dcolor%3A%20%23FFFFFF%3B%0Apadding%3A%202px%3B%0Aborder%3A%201px%20solid%20%23DDDDDD%3B%0Aborder%2Dradius%3A%203px%3B%0Aborder%3A%201px%20solid%20%23CCCCCC%3B%0Amargin%3A%200%205px%3B%0A%7D%0Ah1%20%7B%0Amargin%2Dtop%3A%200%3B%0Afont%2Dsize%3A%2035px%3B%0Aline%2Dheight%3A%2040px%3B%0A%7D%0Ah2%20%7B%0Aborder%2Dbottom%3A%204px%20solid%20%23f7f7f7%3B%0Apadding%2Dtop%3A%2010px%3B%0Apadding%2Dbottom%3A%202px%3B%0Afont%2Dsize%3A%20145%25%3B%0A%7D%0Ah3%20%7B%0Aborder%2Dbottom%3A%202px%20solid%20%23f7f7f7%3B%0Apadding%2Dtop%3A%2010px%3B%0Afont%2Dsize%3A%20120%25%3B%0A%7D%0Ah4%20%7B%0Aborder%2Dbottom%3A%201px%20solid%20%23f7f7f7%3B%0Amargin%2Dleft%3A%208px%3B%0Afont%2Dsize%3A%20105%25%3B%0A%7D%0Ah5%2C%20h6%20%7B%0Aborder%2Dbottom%3A%201px%20solid%20%23ccc%3B%0Afont%2Dsize%3A%20105%25%3B%0A%7D%0Aa%20%7B%0Acolor%3A%20%230033dd%3B%0Atext%2Ddecoration%3A%20none%3B%0A%7D%0Aa%3Ahover%20%7B%0Acolor%3A%20%236666ff%3B%20%7D%0Aa%3Avisited%20%7B%0Acolor%3A%20%23800080%3B%20%7D%0Aa%3Avisited%3Ahover%20%7B%0Acolor%3A%20%23BB00BB%3B%20%7D%0Aa%5Bhref%5E%3D%22http%3A%22%5D%20%7B%0Atext%2Ddecoration%3A%20underline%3B%20%7D%0Aa%5Bhref%5E%3D%22https%3A%22%5D%20%7B%0Atext%2Ddecoration%3A%20underline%3B%20%7D%0A%0Acode%20%3E%20span%2Ekw%20%7B%20color%3A%20%23555%3B%20font%2Dweight%3A%20bold%3B%20%7D%20%0Acode%20%3E%20span%2Edt%20%7B%20color%3A%20%23902000%3B%20%7D%20%0Acode%20%3E%20span%2Edv%20%7B%20color%3A%20%2340a070%3B%20%7D%20%0Acode%20%3E%20span%2Ebn%20%7B%20color%3A%20%23d14%3B%20%7D%20%0Acode%20%3E%20span%2Efl%20%7B%20color%3A%20%23d14%3B%20%7D%20%0Acode%20%3E%20span%2Ech%20%7B%20color%3A%20%23d14%3B%20%7D%20%0Acode%20%3E%20span%2Est%20%7B%20color%3A%20%23d14%3B%20%7D%20%0Acode%20%3E%20span%2Eco%20%7B%20color%3A%20%23888888%3B%20font%2Dstyle%3A%20italic%3B%20%7D%20%0Acode%20%3E%20span%2Eot%20%7B%20color%3A%20%23007020%3B%20%7D%20%0Acode%20%3E%20span%2Eal%20%7B%20color%3A%20%23ff0000%3B%20font%2Dweight%3A%20bold%3B%20%7D%20%0Acode%20%3E%20span%2Efu%20%7B%20color%3A%20%23900%3B%20font%2Dweight%3A%20bold%3B%20%7D%20%20code%20%3E%20span%2Eer%20%7B%20color%3A%20%23a61717%3B%20background%2Dcolor%3A%20%23e3d2d2%3B%20%7D%20%0A" rel="stylesheet" type="text/css" />
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Mast Inference and Forecasting (mastif)</h1>
+<h4 class="author"><em><a href="http://sites.nicholas.duke.edu/clarklab/">James S. Clark</a></em></h4>
+<h4 class="date"><em>2019-05-18</em></h4>
+
+
+<div id="TOC">
+<ul>
+<li><a href="#summary"><span style="color:darkgreen">summary</span></a></li>
+<li><a href="#mastif-inputs"><span style="color:darkgreen"><code>mastif</code> inputs</span></a></li>
+<li><a href="#simulated-data"><span style="color:darkgreen">simulated data</span></a><ul>
+<li><a href="#mastsim"><span style="color:teal"><code>mastSim</code></span></a></li>
+<li><a href="#treedata-and-xytree"><span style="color:teal"><code>treeData</code> and <code>xytree</code></span></a></li>
+<li><a href="#seeddata-and-xytrap"><span style="color:teal"><code>seedData</code> and <code>xytrap</code></span></a></li>
+<li><a href="#data-summary-and-maps"><span style="color:teal">data summary and maps</span></a></li>
+</ul></li>
+<li><a href="#model-fitting"><span style="color:teal">model fitting</span></a><ul>
+<li><a href="#output-summary-lists-and-plots"><span style="color:teal"><code>output</code> summary, lists, and plots</span></a><ul>
+<li><a href="#estimates-and-predictions-in-output"><span style="color:brown">estimates, and predictions in <code>output</code></span></a></li>
+<li><a href="#plots-of-output"><span style="color:brown">plots of <code>output</code></span></a></li>
+</ul></li>
+<li><a href="#slow-convergence"><span style="color:teal">slow convergence?</span></a></li>
+<li><a href="#multiple-seed-types-per-species"><span style="color:teal">multiple seed types per species</span></a></li>
+<li><a href="#specnames-and-seednames"><span style="color:teal"><code>specNames</code> and <code>seedNames</code></span></a></li>
+</ul></li>
+<li><a href="#mastplot-written-to-files"><span style="color:brown"><code>mastPlot</code> written to files</span></a></li>
+<li><a href="#my-data"><span style="color:darkgreen">my data</span></a><ul>
+<li><a href="#diameter-effect"><span style="color:teal">diameter effect</span></a></li>
+<li><a href="#year-and-random-effects"><span style="color:teal">year and random effects</span></a></li>
+<li><a href="#prior-parameter-values"><span style="color:teal">prior parameter values</span></a></li>
+<li><a href="#maturationfecundity-data-if-available"><span style="color:teal">maturation/fecundity data, if available</span></a></li>
+<li><a href="#when-trees-are-sampled-less-frequently-than-seeds"><span style="color:teal">when trees are sampled less frequently than seeds</span></a></li>
+<li><a href="#adding-covariates"><span style="color:teal">adding covariates</span></a></li>
+</ul></li>
+<li><a href="#flexibility"><span style="color:darkgreen">flexibility</span></a><ul>
+<li><a href="#random-individual-effects"><span style="color:teal">random individual effects</span></a></li>
+<li><a href="#random-groups-for-years-and-lags"><span style="color:teal">random groups for years and lags</span></a></li>
+<li><a href="#random-effects-when-there-are-multiple-species"><span style="color:teal">random effects when there are multiple species</span></a></li>
+</ul></li>
+<li><a href="#convergence"><span style="color:darkgreen">convergence</span></a></li>
+<li><a href="#trouble-shooting"><span style="color:darkgreen">trouble shooting</span></a></li>
+<li><a href="#references"><span style="color:darkgreen">references</span></a></li>
+</ul>
+</div>
+
+<div id="citation" class="section level4">
+<h4>citation:</h4>
+<p>Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. <em>Ecological Monographs</em>, in press.</p>
+<p><a href="http://sites.nicholas.duke.edu/clarklab/r-packages/disperse/">website</a></p>
+<p><br></p>
+</div>
+<div id="summary" class="section level2">
+<h2><span style="color:darkgreen">summary</span></h2>
+<p><code>mastif</code> uses seed traps and crop counts on trees to estimate seed productivity and dispersion. Attributes of individual trees and their local environments could explain their differences in fecundity. Inference requires information on locations of trees and seed traps and predictors (covariates and factors) that could explain source strength.</p>
+<p>Many trees are not reproductively mature, and reproductive status is often unknown. For individuals of unknown maturation status, the maturation status must be estimated together with fecundity.</p>
+<p>Predictors of fecundity include individual traits, site characteristics, climate, synchronicity with other trees, and lag effects. For studies that involve multiple plots and years, there can be effects of climate between sites and through time. There may be synchronicity between individuals both within and between plots.</p>
+<p>Observations incorporate two types of redistribution. The first type is a redistribution from species to seed types. Not all seed types can be definitely assigned to species. The contribution of trees of each species to multiple seed types must be estimated.</p>
+<p>The second redistribution from source trees to seed traps. Within a plot-year there is dependence between all seed traps induced by a redistribution kernel, which describes how seeds produced by trees are dispersed in space. Because ‘seed shadows’ of trees overlap, seeds are assigned to trees only in a probabilistic sense. The capacity to obtain useful estimates depends on the number of trees, the number of seed traps, the dispersal distances of seeds, the taxonomic specificity of seed identification, and the number of species contributing to a given seed type.</p>
+<p>In addition to covariates and factors, the process model for fecundity can involve random tree effects, random group effects (e.g., species-location), year effects, and autoregressive lags limited only by the duration of data. Dispersal estimtes can include species and site differences (Clark et al. 2013).</p>
+<p><code>mastif</code> simulates the posterior distributions of parameters and latent variables using Gibbs sampling, with direct sampling, Hamiltonian Markov chain (HMC) updates, and Metropolis updates. <code>mastif</code> is implemented in R and C++ with <code>Rcpp</code> and <code>RcppArmadillo</code> libraries.</p>
+<p><br></p>
+</div>
+<div id="mastif-inputs" class="section level1">
+<h1><span style="color:darkgreen"><code>mastif</code> inputs</span></h1>
+<p>The model requires a minimum of six inputs directly as arguments to the function <code>mastif</code>. There are two <code>formula</code>s, two <code>character vector</code>s, and four <code>data.frame</code>s:</p>
+<p><strong>Table 2</strong>. Basic inputs</p>
+<table>
+<colgroup>
+<col width="19%"></col>
+<col width="28%"></col>
+<col width="52%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="right">object</th>
+<th align="center"><code>mode</code></th>
+<th align="left">components</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="right"><code>formulaFec</code></td>
+<td align="center"><code>formula</code></td>
+<td align="left">fecundity model</td>
+</tr>
+<tr class="even">
+<td align="right"><code>formulaRep</code></td>
+<td align="center"><code>formula</code></td>
+<td align="left">maturation model</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>specNames</code></td>
+<td align="center"><code>character vector</code></td>
+<td align="left">names in column <code>species</code> of <code>treeData</code> to include in model</td>
+</tr>
+<tr class="even">
+<td align="right"><code>seedNames</code></td>
+<td align="center"><code>character vector</code></td>
+<td align="left">names of seed types to include in model: match column names in <code>seedData</code></td>
+</tr>
+<tr class="odd">
+<td align="right"><code>treeData</code></td>
+<td align="center"><code>data.frame</code></td>
+<td align="left">tree-year by variables, includes columns <code>plot</code>, <code>tree</code>, <code>year</code>, <code>diam</code>, <code>repr</code></td>
+</tr>
+<tr class="even">
+<td align="right"><code>seedData</code></td>
+<td align="center"><code>data.frame</code></td>
+<td align="left">trap-year by seed types, includes columns <code>plot</code>, <code>trap</code>, <code>year</code>, one for each <code>specNames</code></td>
+</tr>
+<tr class="odd">
+<td align="right"><code>xytree</code></td>
+<td align="center"><code>data.frame</code></td>
+<td align="left">tree by location, includes columns <code>plot</code>, <code>tree</code>, <code>x</code>, <code>y</code></td>
+</tr>
+<tr class="even">
+<td align="right"><code>xytrap</code></td>
+<td align="center"><code>data.frame</code></td>
+<td align="left">trap by location, includes columns <code>plot</code>, <code>trap</code>, <code>x</code>, <code>y</code></td>
+</tr>
+</tbody>
+</table>
+<p>I introduce additional inputs in the sections that follow, but start with this basic model.</p>
+<p><br></p>
+</div>
+<div id="simulated-data" class="section level1">
+<h1><span style="color:darkgreen">simulated data</span></h1>
+<p>Data simulation is recommended as the place to start. A simulator provides insight on how well parameters from be identified from my data. The inputs to the simulator can specify the following:</p>
+<p><strong>Table 3.</strong> Simulation inputs to <code>mastSim</code></p>
+<table>
+<thead>
+<tr class="header">
+<th align="center"><code>mastSim</code> input</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>nplot</code></td>
+<td align="left">number of plots</td>
+</tr>
+<tr class="even">
+<td align="center"><code>nyr</code></td>
+<td align="left">mean no. years per plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>ntree</code></td>
+<td align="left">mean no. trees per plot</td>
+</tr>
+<tr class="even">
+<td align="center"><code>ntrap</code></td>
+<td align="left">mean no. traps per plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>specNames</code></td>
+<td align="left">tree species codes used in <code>treeData</code> column</td>
+</tr>
+<tr class="even">
+<td align="center"><code>seedNames</code></td>
+<td align="left">seed type codes: a column name in <code>seedData</code></td>
+</tr>
+</tbody>
+</table>
+<p>Most of these inputs are stochasiticized to vary structure of each data set. Here are inputs to the simulator for a species I’ll call <code>acerRubr</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">seedNames  &lt;-<span class="st"> </span>specNames  &lt;-<span class="st"> 'acerRubr'</span>
+sim &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">nplot=</span><span class="dv">5</span>, <span class="dt">nyr=</span><span class="dv">10</span>, <span class="dt">ntree=</span><span class="dv">30</span>,  <span class="dt">ntrap=</span><span class="dv">40</span>,
+               <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames)</code></pre></div>
+<p>The <code>list sim</code> holds objects needed for simulation. Here is the simulation:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs     &lt;-<span class="st"> </span><span class="kw">mastSim</span>(sim)        <span class="co"># simulate dispersal data</span>
+seedData   &lt;-<span class="st"> </span>inputs<span class="op">$</span>seedData     <span class="co"># year, plot, trap, seed counts</span>
+treeData   &lt;-<span class="st"> </span>inputs<span class="op">$</span>treeData     <span class="co"># year, plot, tree data</span>
+xytree     &lt;-<span class="st"> </span>inputs<span class="op">$</span>xytree       <span class="co"># tree locations</span>
+xytrap     &lt;-<span class="st"> </span>inputs<span class="op">$</span>xytrap       <span class="co"># trap locations</span>
+formulaFec &lt;-<span class="st"> </span>inputs<span class="op">$</span>formulaFec   <span class="co"># fecundity model</span>
+formulaRep &lt;-<span class="st"> </span>inputs<span class="op">$</span>formulaRep   <span class="co"># maturation model</span>
+trueValues &lt;-<span class="st"> </span>inputs<span class="op">$</span>trueValues   <span class="co"># true states and parameter values</span></code></pre></div>
+<p>I first summarize these model <code>inputs</code> generated by <code>mastSim</code>.</p>
+<div id="mastsim" class="section level2">
+<h2><span style="color:teal"><code>mastSim</code></span></h2>
+<p><code>mastSim</code> generates inputs needed for model fitting with <code>mast</code>. These objects are simulated data, including the four <code>data.frame</code>s (<code>treeData</code>, <code>seedData</code>, <code>xytree</code>, <code>xytrap</code>) and formulas (<code>formulaFec</code>, <code>formulaRep</code>). Other objects are “true” parameter values and latent states in the <code>list truevalues</code> used to simulate the data (<code>fec</code>,<code>repr</code>,<code>betaFec</code>, <code>betaRep</code>, <code>upar</code>, <code>R</code>). I want to see if <code>mast</code> can recover these parameter values for the type of data I simulated.</p>
+<p>Here is a mapping of objects created by <code>mastSim</code> to the model in Clark et al. (2019):</p>
+<p><strong>Table 4.</strong> Some of the objects from the <code>list mastSim</code>.</p>
+<table>
+<thead>
+<tr class="header">
+<th align="center"><code>mastSim</code> object</th>
+<th align="center">variable</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>trueValues$fec</code></td>
+<td align="center"><span class="math inline">\(\psi_{ij,t}\)</span></td>
+<td align="left">conditional fecundity</td>
+</tr>
+<tr class="even">
+<td align="center"><code>trueValues$repr</code></td>
+<td align="center"><span class="math inline">\(\rho_{ij,t}\)</span></td>
+<td align="left">true maturation status</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>treeData$repr</code></td>
+<td align="center"><span class="math inline">\(z_{ij,t}\)</span></td>
+<td align="left">observed maturation status (with <code>NA</code>)</td>
+</tr>
+<tr class="even">
+<td align="center"><code>trueValues$betaFec</code></td>
+<td align="center"><span class="math inline">\(\beta^x\)</span></td>
+<td align="left">coefficients for fecundity</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>trueValues$betaRep</code></td>
+<td align="center"><span class="math inline">\(\beta^v\)</span></td>
+<td align="left">coefficients for maturation</td>
+</tr>
+<tr class="even">
+<td align="center"><code>trueValues$R</code></td>
+<td align="center"><span class="math inline">\(\mathbf{m}\)</span></td>
+<td align="left"><code>specNames</code> to <code>seedNames matrix</code>, rows = <span class="math inline">\(\mathbf{m}_h\)</span></td>
+</tr>
+<tr class="odd">
+<td align="center"><code>seedData$active</code></td>
+<td align="center">in <span class="math inline">\(A_{sj,t}\)</span></td>
+<td align="left">fraction of time trap is active</td>
+</tr>
+<tr class="even">
+<td align="center"><code>seedData$area</code></td>
+<td align="center">in <span class="math inline">\(A_{sj,t}\)</span></td>
+<td align="left">trap area</td>
+</tr>
+</tbody>
+</table>
+<p><code>mastSim</code> assumes that predictors of maturation and fecundity are limited to intercept and diameter. Thus, the <code>formulaFec</code> and <code>formulaRep</code> are identical. Here is fecundity:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaFec</code></pre></div>
+<p>Before fitting the model I say a bit more about input data.</p>
+</div>
+<div id="treedata-and-xytree" class="section level2">
+<h2><span style="color:teal"><code>treeData</code> and <code>xytree</code></span></h2>
+<p>The information on individual trees is held in the tree-years by variables <code>data.frame treeData</code>. Here are a few lines of <code>treeData</code> generated by <code>mastSim</code>,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">head</span>(treeData)</code></pre></div>
+<p><code>treeData</code> has a row for each tree-year. Several of these columns are required:</p>
+<p><strong><code>data.frame treeData</code> columns</strong></p>
+<table style="width:96%;">
+<colgroup>
+<col width="25%"></col>
+<col width="70%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="center"><code>treeData</code> column</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>plot</code></td>
+<td align="left">plot name</td>
+</tr>
+<tr class="even">
+<td align="center"><code>tree</code></td>
+<td align="left">identifier for each tree, unique within a plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>year</code></td>
+<td align="left">observation year</td>
+</tr>
+<tr class="even">
+<td align="center"><code>species</code></td>
+<td align="left">species name</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>diam</code></td>
+<td align="left">diameter is a predictor for fecundity in <span class="math inline">\(\mathbf{X}\)</span> and maturation in <span class="math inline">\(\mathbf{V}\)</span></td>
+</tr>
+<tr class="even">
+<td align="center"><code>repr</code></td>
+<td align="left">immature (<code>0</code>), mature (<code>1</code>), or unknown (<code>NA</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>There can be additional columns, but they are not required for model fitting. The variable <code>repr</code> is reproduction status, often <code>NA</code>.</p>
+<p>There is a corresponding <code>data.frame xytree</code> that holds tree locations.</p>
+<p><strong>Table 5.</strong> <code>data.frame xytree</code> columns</p>
+<table>
+<thead>
+<tr class="header">
+<th align="center"><code>xytree</code> column</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>plot</code></td>
+<td align="left">plot name</td>
+</tr>
+<tr class="even">
+<td align="center"><code>tree</code></td>
+<td align="left">identifier for each tree, unique within a plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>x, y</code></td>
+<td align="left">locations in the sample plot</td>
+</tr>
+</tbody>
+</table>
+<p><code>xytree</code> has fewer rows than <code>treeData</code>, because it is not repeated each year–it assumes that tree locations are fixed. They are cross-referenced by <code>plot</code> and <code>tree</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">head</span>(xytree, <span class="dv">5</span>)</code></pre></div>
+</div>
+<div id="seeddata-and-xytrap" class="section level2">
+<h2><span style="color:teal"><code>seedData</code> and <code>xytrap</code></span></h2>
+<p>Seed counts are held in the <code>data.frame seedData</code> as trap-years by seed types. Here are a few lines of <code>seedData</code>,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">head</span>(seedData)</code></pre></div>
+<p>Required columns are in Table 6.</p>
+<p><strong>Table 6.</strong> <code>data.frame seedData</code> columns</p>
+<table>
+<thead>
+<tr class="header">
+<th align="center"><code>seedData</code> column</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>plot</code></td>
+<td align="left">plot name</td>
+</tr>
+<tr class="even">
+<td align="center"><code>trap</code></td>
+<td align="left">identifier for each trap, unique within a plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>year</code></td>
+<td align="left">seed-crop year</td>
+</tr>
+<tr class="even">
+<td align="center"><code>active</code></td>
+<td align="left">fraction of collecting period that the trap was active</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>area</code></td>
+<td align="left">collection area of trap (m<span class="math inline">\(^2\)</span>)</td>
+</tr>
+<tr class="even">
+<td align="center"><code>acerRubr</code>,…</td>
+<td align="left"><code>seedNames</code> for columns with seed counts</td>
+</tr>
+</tbody>
+</table>
+<p>Seed trap location data are held in the <code>data.frame xytrap</code>.</p>
+<p><strong>Table 7.</strong> <code>data.frame xytrap</code> columns</p>
+<table>
+<thead>
+<tr class="header">
+<th align="center"><code>xytrap</code> column</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="center"><code>plot</code></td>
+<td align="left">plot name</td>
+</tr>
+<tr class="even">
+<td align="center"><code>trap</code></td>
+<td align="left">identifier for each trap, unique within a plot</td>
+</tr>
+<tr class="odd">
+<td align="center"><code>x, y</code></td>
+<td align="left">map location</td>
+</tr>
+</tbody>
+</table>
+<p>There is no year in <code>xytrap</code>, because locations are assumed to be fixed. If a seed trap location is moved during a study, simply assign it a new trap name. Then seed counts for years when it is not present are assigned <code>NA</code> (missing data) will be imputed.</p>
+<p><br></p>
+</div>
+<div id="data-summary-and-maps" class="section level2">
+<h2><span style="color:teal">data summary and maps</span></h2>
+<p>Because they are stochastic, not all simulations from <code>mastSim</code> generate data with sufficient pattern to allow model fitting. I can look at the relationship between tree diameters and seeds on a map for plot <code>mapPlot</code> and year <code>mapYear</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">dataTab &lt;-<span class="st"> </span><span class="kw">table</span>(treeData<span class="op">$</span>plot,treeData<span class="op">$</span>year)
+
+w &lt;-<span class="st"> </span><span class="kw">which</span>(dataTab <span class="op">&gt;</span><span class="st"> </span><span class="dv">0</span>,<span class="dt">arr.ind =</span> <span class="ot">TRUE</span>) <span class="co"># a plot-year with observations</span>
+w &lt;-<span class="st"> </span>w[<span class="kw">sample</span>(<span class="kw">nrow</span>(w),<span class="dv">1</span>),]
+
+mapYears &lt;-<span class="st"> </span><span class="kw">as.numeric</span>( <span class="kw">colnames</span>(dataTab)[w[<span class="dv">2</span>]] )
+mapPlot  &lt;-<span class="st"> </span><span class="kw">rownames</span>(dataTab)[w[<span class="dv">1</span>]]
+inputs<span class="op">$</span>mapPlot    &lt;-<span class="st"> </span>mapPlot
+inputs<span class="op">$</span>mapYears   &lt;-<span class="st"> </span>mapYears
+inputs<span class="op">$</span>treeSymbol &lt;-<span class="st"> </span>treeData<span class="op">$</span>diam
+inputs<span class="op">$</span>SCALEBAR   &lt;-<span class="st"> </span>T
+
+<span class="kw">mastMap</span>(inputs)</code></pre></div>
+<p>Depending on the numbers of maps I adust <code>treeScale</code> and <code>trapScale</code> to see how seed accumulation compares with tree size or fecundity. In the above map, trees are shown as green circles and traps as gray squares. The size of the circle comes from the input variable <code>treeSymbol</code>, which is set to tree diameter. I could instead set it to the ‘true’ number of seeds produced by each tree, an output from <code>mastSim</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs<span class="op">$</span>treeSymbol &lt;-<span class="st"> </span>trueValues<span class="op">$</span>fec
+inputs<span class="op">$</span>treeScale  &lt;-<span class="st"> </span><span class="dv">2</span>
+inputs<span class="op">$</span>trapScale  &lt;-<span class="st"> </span><span class="dv">1</span>
+
+<span class="kw">mastMap</span>(inputs)</code></pre></div>
+<p>Which are reproductively mature? Here are true values, showing just trees that are mature:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs<span class="op">$</span>treeSymbol &lt;-<span class="st"> </span>trueValues<span class="op">$</span>repr
+inputs<span class="op">$</span>treeScale  &lt;-<span class="st"> </span>.<span class="dv">5</span>
+<span class="kw">mastMap</span>(inputs)</code></pre></div>
+<p>To fit the data, there must be sufficient seed traps, and sources must not be so dense such that overlapping seed shadows make the individual contributions undetectable.</p>
+<p>Here is the frequency distribution of seeds (observed) and of fecundities (unknown) from the simulated data:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">par</span>( <span class="dt">mfrow=</span><span class="kw">c</span>(<span class="dv">2</span>,<span class="dv">1</span>),<span class="dt">bty=</span><span class="st">'n'</span>, <span class="dt">mar=</span><span class="kw">c</span>(<span class="dv">4</span>,<span class="dv">4</span>,<span class="dv">1</span>,<span class="dv">1</span>) )
+seedData &lt;-<span class="st"> </span>inputs<span class="op">$</span>seedData
+seedNames &lt;-<span class="st"> </span>inputs<span class="op">$</span>seedNames
+
+<span class="kw">hist</span>( <span class="kw">as.matrix</span>(seedData[,seedNames]) ,<span class="dt">nclass=</span><span class="dv">100</span>, 
+      <span class="dt">xlab =</span> <span class="st">'seed count'</span>, <span class="dt">ylab=</span><span class="st">'per trap'</span>, <span class="dt">main=</span><span class="st">''</span> )
+<span class="kw">hist</span>( trueValues<span class="op">$</span>fec,<span class="dt">nclass=</span><span class="dv">100</span>, <span class="dt">xlab =</span> <span class="st">'seeds produced'</span>, <span class="dt">ylab =</span> <span class="st">'per tree'</span>,
+      <span class="dt">main =</span> <span class="st">''</span>)</code></pre></div>
+<p>In data of this type, most seed counts and most tree fecundities are zero.</p>
+<p><br></p>
+</div>
+</div>
+<div id="model-fitting" class="section level1">
+<h1><span style="color:teal">model fitting</span></h1>
+<p>Model fitting requires specification of the number of MCMC iterations <code>ng</code> and the <code>burnin</code>. Here is an analysis using the simulated <code>inputs</code> from <code>mastSim</code> with a small number of iterations:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output   &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> inputs, <span class="dt">ng =</span> <span class="dv">3000</span>, <span class="dt">burnin =</span> <span class="dv">500</span> )</code></pre></div>
+<p>The fitted object <code>output</code> contains MCMC chains, estimates, and predictions, summarized in the next section.</p>
+<div id="output-summary-lists-and-plots" class="section level2">
+<h2><span style="color:teal"><code>output</code> summary, lists, and plots</span></h2>
+<p>Sample size, parameter estimates, goodness of fit are all provides as tables by <code>summary</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>( output )</code></pre></div>
+<p>By default, this summary is sent to the console. It can also be saved to a <code>list</code>, e.g., <code>outputSummary &lt;- summary( output )</code>.</p>
+<div id="estimates-and-predictions-in-output" class="section level3">
+<h3><span style="color:brown">estimates, and predictions in <code>output</code></span></h3>
+<p>The main objects returned by <code>mastif</code> include several lists summarized in Table 9. <code>parameters</code> are estimated as part of model fitting. <code>predictions</code> are generated by the fitted model, as predictive distributions. Note that the latent states for log fecundity <span class="math inline">\(\psi_{ij,t}\)</span> and maturation state <span class="math inline">\(\rho_{ij,t}\)</span> are both estimated and predicted.</p>
+<p><strong>Table 9.</strong> The <code>list</code> created by function <code>mast</code>.</p>
+<table>
+<colgroup>
+<col width="21%"></col>
+<col width="14%"></col>
+<col width="63%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="right"><code>list</code> in <code>output</code></th>
+<th align="center">summary</th>
+<th align="left">contents</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="right"><code>inputs</code></td>
+<td align="center">from <code>inputs</code> with additions</td>
+<td align="left">includes <code>distall</code> (trap by tree distance)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>chains</code></td>
+<td align="center">MCMC chains</td>
+<td align="left"><code>agibbs</code> (if random effects, the covariance matrix <span class="math inline">\(\mathbf{A}\)</span>), <code>bfec</code> (<span class="math inline">\(\boldsymbol{\beta}^x\)</span>), <code>brep</code> (<span class="math inline">\(\boldsymbol{\beta}^v\)</span>), <code>bygibbs</code> (<span class="math inline">\(\alpha_l\)</span> or <span class="math inline">\(\gamma_t\)</span> if <code>yearEffect</code> included), <code>rgibbs</code> (<span class="math inline">\(\mathbf{M}\)</span> if multiple seed types), <code>sgibbs</code> (<span class="math inline">\(\sigma^2\)</span>, RMSPE, deviance), <code>ugibbs</code> (<span class="math inline">\(u\)</span> parameter)</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>data</code></td>
+<td align="center">data attributes</td>
+<td align="left">intermediate objects used in fitting, prediction</td>
+</tr>
+<tr class="even">
+<td align="right"><code>fit</code></td>
+<td align="center">diagnostics</td>
+<td align="left">DIC, RMSPE, scoreStates, predictScore</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>parameters</code></td>
+<td align="center">posterior summaries</td>
+<td align="left"><code>alphaMu</code> and <code>alphaSe</code> (mean and se for <span class="math inline">\(\mathbf{A}\)</span>, if included), <code>aMu</code> and <code>aSe</code> (<span class="math inline">\(\mathbf{\beta^w}_{ij}\)</span>), <code>betaFec</code> (<span class="math inline">\(\boldsymbol{\beta}^x\)</span>), <code>betaRep</code> (<span class="math inline">\(\boldsymbol{\beta}^v\)</span>), <code>betaYrMu</code> and <code>betaYrSe</code> (mean and se for year or lag coefficients), <code>upars</code> and <code>dpars</code> (dispersal parameters <span class="math inline">\(u\)</span> and <span class="math inline">\(d\)</span>), <code>rMu</code> and <code>rSe</code> (mean and se for <span class="math inline">\(\mathbf{M}\)</span>), <code>sigma</code> (<span class="math inline">\(\sigma^2\)</span>), <code>acfMat</code> (group by lag empirical correlation or ACF), <code>pacfMat</code> (group by lag partial correlation or PACF), <code>pacfSe</code> (se for <code>pacfMat</code>), <code>pacsMat</code> (group by lag PACF for seed data)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>prediction</code></td>
+<td align="center">predictive distributions</td>
+<td align="left"><code>fecPred</code> (maturation <span class="math inline">\(\rho_{ij,t}\)</span> and fecundity <span class="math inline">\(\psi_{ij,t}\)</span> estimates and predictions), <code>seedPred</code> (seed counts per trap and predictions per m<span class="math inline">\(^2\)</span>), <code>seedPredGrid</code> predictions for seeds on the space-time prediction grid, <code>treePredGrid</code> predictions for maturation and fecundity corresponding to <code>seedPredGrid</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Prediction scores for seed-trap observations are provided in <code>output$fit</code> based on the estimated fecundities <span class="math inline">\([\mathbf{y} | \phi, \rho]\)</span> as <code>scoreStates</code> and on the estimated parameters <span class="math inline">\([\mathbf{y} | \phi, \rho][\phi, \rho| \boldsymbol{\beta}^x, \boldsymbol{\beta}^w, \dots]\)</span> as <code>predictScore</code>. The former will be substantially higher than the latter in cases where estimates of states <span class="math inline">\(\phi, \rho\)</span> can be found that predict seed data, but the variables in <span class="math inline">\(\mathbf{X}, \mathbf{V}\)</span> do not predict those states well. These proper scoring rules are bases on the log likelihood for the Poisson distribution.</p>
+<p>Predictions for a location-year prediction grid are invoked when <code>predList</code> is specified in the call to <code>mastif</code>.</p>
+</div>
+<div id="plots-of-output" class="section level3">
+<h3><span style="color:brown">plots of <code>output</code></span></h3>
+<p>Here are plots of <code>output</code>, with the <code>list plotPars</code> passing the <code>trueValues</code> for these simulated data:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">plotPars &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">trueValues =</span> trueValues)
+<span class="kw">mastPlot</span>(output, plotPars)</code></pre></div>
+<p>Because this is a simulated data set, I pass the <code>trueValues</code> in the <code>list plotPars</code>.</p>
+<p>By inspecting chains I decide that it is not converged and continue, with <code>output</code> from the previous fit being the new <code>inputs</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output   &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">5000</span>, <span class="dt">burnin =</span> <span class="dv">3000</span> )</code></pre></div>
+<p>Other arguments passed to <code>mastPlot</code> in the <code>list plotPars</code> are given as examples below and listed at <code>help(mastPlot)</code>.</p>
+<p><code>mastPlot</code> generates the following plots:</p>
+<ul>
+<li><p><code>maturation</code>: chains for maturation parameters in <span class="math inline">\(\beta^v\)</span>.</p></li>
+<li><p><code>fecundity</code>: chains for fecundity parameters in <span class="math inline">\(\beta^x\)</span>.</p></li>
+<li><p><code>dispersal parameter</code>: chains for dispersal parameter <span class="math inline">\(u\)</span>.</p></li>
+<li><p><code>variance sigma</code>: chains for error variance <span class="math inline">\(\sigma^2\)</span>, RMSPE, and deviance.</p></li>
+<li><p><code>maturation, fecundity</code>: posterior 68% (boxes) and 95% (whiskers) for <span class="math inline">\(\beta^x\)</span> and <span class="math inline">\(\beta^v\)</span>.</p></li>
+<li><p><code>maturation, fecundity by diameter</code>: estimates (dots) with <span class="math inline">\(95%\)</span> predictive means for latent states.</p></li>
+<li><p><code>seed shadow</code>: with 90% predictive interval</p></li>
+<li><p><code>prediction</code>: seed data predicted from estimates of latent maturation and fecundity (a) and from parameter estimates. If <code>trueValues</code> are supplied from <code>mastSim</code>, then panel (c) includes true versus predicted values. There is an important distinction between (a) and (b)–good predictions in (a) indicate that combinations of seed sources can be found to predict the seed data, without necessarily meaning that the process model can predict maturation and fecundity. Good predictions in (b) face the steeper challenge that the process model must predict both maturation and fecundity, which, in turn, predict seed rain.</p></li>
+<li><p><code>parameter recovery</code>: if <code>trueValues</code> are supplied from <code>mastSim</code>, then this plot is provided comparing true and estimated values for <span class="math inline">\(\beta^v\)</span> and <span class="math inline">\(\beta^x\)</span>.</p></li>
+<li><p><code>predicted fecundity, seed data</code>: maps show predicted fecundity of trees (sizes of green circles) with seed data (gray squares). If <code>predList</code> is supplied to <code>mastif</code>, then the predicted seed surface is shown as shaded contours.</p></li>
+<li><p><code>partial ACF</code>: autocorrelation function for fecundity (estimated) (a) and in seed counts (observed) (b).</p></li>
+<li><p><code>tree correlation in time</code>: pairwise correlations between trees on the same plot.</p></li>
+</ul>
+<p>The plots displayed by <code>mastPlot</code> include the MCMC chains that are not yet converged. Again, I can restart where I left off by using <code>output</code> as the <code>inputs</code> to <code>mast</code>. In addition, I predict the seed surface from the fitted model for a plot and year, as specified in <code>predList</code>.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">predList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">mapMeters =</span> <span class="dv">3</span>, <span class="dt">plots =</span> mapPlot, <span class="dt">years =</span> mapYears )
+output   &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>, 
+                    <span class="dt">predList =</span> predList)</code></pre></div>
+<p>To look closer at the predicted plot-year I generate a new map:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output<span class="op">$</span>mapPlot    &lt;-<span class="st"> </span>mapPlot
+output<span class="op">$</span>mapYears   &lt;-<span class="st"> </span>mapYears
+output<span class="op">$</span>treeScale  &lt;-<span class="st"> </span><span class="fl">1.5</span>
+output<span class="op">$</span>trapScale  &lt;-<span class="st"> </span>.<span class="dv">8</span>
+output<span class="op">$</span>PREDICT &lt;-<span class="st"> </span>T
+output<span class="op">$</span>scaleValue &lt;-<span class="st"> </span><span class="dv">20</span>
+output<span class="op">$</span>plotScale  &lt;-<span class="st"> </span><span class="dv">1</span>
+output<span class="op">$</span>COLORSCALE &lt;-<span class="st"> </span>T
+output<span class="op">$</span>LEGEND     &lt;-<span class="st"> </span>T
+  
+<span class="kw">mastMap</span>(output)</code></pre></div>
+<p>The maps show seed counts (squares) and fecundity predictions (circles). For predicted plot years there is also shown a seed prediction surface. The surface is seeds per m<span class="math inline">\(^2\)</span>.</p>
+<p>Depending on the simulation, convergence may require more iterations. The partial autocorrelation for years should be weak, because none are simulated in <code>mastSim</code>. However, actual data will contain autocorrelation. The fecundity-time correlations show modal values near zero, because simulated data do not include individual covariance. Positive spatial covariance is imposed by dispersal.</p>
+<p>To send output to a single <code>Rmarkdown</code> file and <code>html</code> or <code>pdf</code>, I use this:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">plotPars<span class="op">$</span>RMD &lt;-<span class="st"> 'pdf'</span>
+<span class="kw">mastPlot</span>(output, plotPars)</code></pre></div>
+<p>This option will generate a file <code>mastifOutput.Rmd</code>, which can be opened in Rstudio, edited, and knitted to <code>pdf</code> format. It contains data and posterior summaries generated by <code>summary</code> and <code>mastPlot</code>. This pdf will not include stand maps. Maps will be included in the <code>html</code> version, obtained by setting <code>plotPars$RMD &lt;- 'html'</code>.</p>
+<p><br></p>
+</div>
+</div>
+<div id="slow-convergence" class="section level2">
+<h2><span style="color:teal">slow convergence?</span></h2>
+<p>Seed shadow models confront convoluted likelihood surfaces, in the sense that we expect local optima. These surfaces are hard to traverse with MCMC (and impossible with HMC), because maturation status is a binary state that must be proposed and accepted together with latent fecundity. Posterior simulation can get bogged down when fecundity estimates converge for a combination of mature and immature trees that is locally but not globally optimal. Especially when there are more trees of a species than there are seed traps, we expect many iterations before the algorithm can ‘find’ the specific combination of trees that together best describe the specific combination of seed counts in many seed traps. Compounding the challenge is the fact that, because both maturation and fecundity are latent variables for each individual, the redistribution kernel must be constructed anew at each MCMC step. Yet, analysis of simulated data shows that convergence to the correct posterior distribution is common. It just may depend on finding reasonable prior parameter values (see below) and long chains.</p>
+<p>Examples in this vignette assign enough interations to show this progress toward convergence may be happening, but sufficiently few to avoid long waiting times. To evaluate convergence, consider the plots for chains of <code>sigma</code> (the residual variance <span class="math inline">\(\sigma\)</span> on log fecundity), the <code>rspse</code> (the seed count residual), and the <code>deviance</code>. Finally, the plot of seed observed vs predicted gives a sense of progress.</p>
+<p>As demonstrated above, restart <code>mastif</code> with the fitted object.</p>
+<p><br></p>
+</div>
+<div id="multiple-seed-types-per-species" class="section level2">
+<h2><span style="color:teal">multiple seed types per species</span></h2>
+<p>Often a seed type could have come from trees of more than one species. Seeds that are only identified to genus level include in <code>seedNames</code> the <code>character</code> string <code>UNKN</code>. In this simulation the three species <code>pinuTaeda</code>, <code>pinuEchi</code>, and <code>pinuVirg</code> contribute most seeds to the type <code>pinuUNKN</code>. <strong>Important:</strong> there can be only one element in <code>seedNames</code> containing the string <code>UNKN</code>.</p>
+<p>Here are some inputs for the simulation:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">specNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuTaeda'</span>,<span class="st">'pinuEchi'</span>,<span class="st">'pinuVirg'</span>)
+seedNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuTaeda'</span>,<span class="st">'pinuEchi'</span>,<span class="st">'pinuVirg'</span>,<span class="st">'pinuUNKN'</span>)
+sim    &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">nyr=</span><span class="dv">4</span>, <span class="dt">ntree=</span><span class="dv">25</span>, <span class="dt">nplot=</span><span class="dv">10</span>, <span class="dt">ntrap=</span><span class="dv">50</span>, <span class="dt">specNames =</span> specNames,
+                  <span class="dt">seedNames =</span> seedNames)</code></pre></div>
+<p>There is a <code>specNames</code>-by-<code>seedNames</code> matrix <code>M</code> that is estimated as part of the posterior distribution. For this example <code>seedNames</code> containing the string <code>UNKN</code> refers to a seed type that cannot be differentiated beyond the level of the genus <code>pinu</code>.</p>
+<p>Here is the simulation with output objects with 2/3 of all seeds identified only to genus level:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs &lt;-<span class="st"> </span><span class="kw">mastSim</span>(sim)        <span class="co"># simulate dispersal data</span>
+R      &lt;-<span class="st"> </span>inputs<span class="op">$</span>trueValues<span class="op">$</span>R <span class="co"># species to seedNames probability matrix</span>
+<span class="kw">round</span>(R, <span class="dv">2</span>)</code></pre></div>
+<p>The matrix <code>M</code> stacks the length-<span class="math inline">\(M\)</span> vectors <span class="math inline">\(\mathbf{m}'_s\)</span> discussed in Clark et al. (2019) as a species-by-seed type matrix. There is a matrix for each plot, here stacked as a single matrix. This is the matrix of values used in simulation. <code>mastif</code> will estimate this matrix as part of the posterior distribution.</p>
+<p>Here is a model fit:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> inputs, <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>) </code></pre></div>
+<p>The model summary now includes estimates for the unknown <code>M</code> as the “species to seed type matrix”:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>( output )</code></pre></div>
+<p>Output plots will include chains for estimates in <code>M</code>. There will also be estimates for each species included in <code>specNames</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">plotPars &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">trueValues =</span> inputs<span class="op">$</span>trueValues) 
+<span class="kw">mastPlot</span>(output, plotPars)</code></pre></div>
+<p>The inverse of <span class="math inline">\(\mathbf{M}\)</span> is the probability that an unknown seed of type <span class="math inline">\(m\)</span> was produced by a tree of species <span class="math inline">\(s\)</span>. These estimates are included in the plot <code>Species to undiff seed</code>.</p>
+<p>Again, the <code>.Rmd</code> file can be knitted to a <code>pdf</code> file.</p>
+<p>Here is a restart, now with <code>plots</code> and <code>years</code> specified for prediction in <code>predList</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">tab   &lt;-<span class="st"> </span><span class="kw">with</span>( inputs<span class="op">$</span>seedData, <span class="kw">table</span>(plot, year) )
+years &lt;-<span class="st"> </span><span class="kw">as.numeric</span>( <span class="kw">colnames</span>(tab)[tab[<span class="dv">1</span>,] <span class="op">&gt;</span><span class="st"> </span><span class="dv">0</span>] ) <span class="co"># years for 1st plot</span>
+predList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">plots =</span> <span class="st">'p1'</span>, <span class="dt">years =</span> years ) 
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">3000</span>, <span class="dt">burnin =</span> <span class="dv">1500</span>, 
+                  <span class="dt">predList =</span> predList)
+<span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>Chains for the <code>matrix M</code> will converge for plots where there are sufficient trees and seeds to obtain an estimate. They will not be identified on plots where one or the other are rare or absent.</p>
+<p><br></p>
+</div>
+<div id="specnames-and-seednames" class="section level2">
+<h2><span style="color:teal"><code>specNames</code> and <code>seedNames</code></span></h2>
+<p>In the many data sets where seeds of multiple species are not differentiated the undifferentiated seed type occupies a column in <code>seedData</code> having a column name that includes the string <code>UNKN</code>. For a concrete example, if <code>specNames</code> on a plot include trees in <code>treeData$species</code> with the <code>specNames pinuTaed</code> and <code>pinuEchi</code>, then many seeds might be indentified as <code>seedNames pinuUNKN</code>. In the foregoing example, estimates of the <code>matrix M</code> reflect the contributions of each species to the <code>UNKN</code> type. This could be specified in several ways:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">specNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuTaed'</span>, <span class="st">'pinuEchi'</span>)
+
+<span class="co">#seeds never differentiated:</span>
+seedNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuUNKN'</span>) 
+
+<span class="co">#one species sometimes differentiated:</span>
+seedNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuTaed'</span>, <span class="st">'pinuUNKN'</span>)    
+
+<span class="co">#both species sometimes differentiated:</span>
+seedNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'pinuTaed'</span>, <span class="st">'pinuEchi'</span>, <span class="st">'pinuUNKN'</span>)</code></pre></div>
+</div>
+</div>
+<div id="mastplot-written-to-files" class="section level1">
+<h1><span style="color:brown"><code>mastPlot</code> written to files</span></h1>
+<p>The <code>function mastPlot</code> generates summary plots of <code>output</code>. The user has access to all objects used to generate these plots, as discussed in the previous section. By default plots in <code>mastPlot</code> can be rendered to the console. If <code>plotPars$SAVEPLOTS = TRUE</code> is included in the <code>list plotPars</code> passed to <code>mastPlot</code>, then each plot is saved to a <code>.pdf</code> file. Plots can be consolidated into a single <code>.Rmd</code> file, which can be knitted to <code>.html</code> or <code>.pdf</code> with <code>plotPars$RMD = html</code> or <code>plotPars$RMD = pdf</code>.</p>
+<p><br></p>
+</div>
+<div id="my-data" class="section level1">
+<h1><span style="color:darkgreen">my data</span></h1>
+<p>For illustration I use sample data analyzed by Clark et al. (2013), with data collection that has continued through 2017. It consists of multiple years and sites.</p>
+<p>Here I load data for species with a single recognized seed type, <em>Liriodendron tulipifera</em>. Here is a map, with seed traps scaled by seed counts, and trees scaled by diameter,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/liriodendronExample.rData?raw=True&quot;</span>
+repmis<span class="op">::</span><span class="kw">source_data</span>(d)
+mapList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, 
+                 <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+                 <span class="dt">xytree =</span> xytree, <span class="dt">xytrap =</span> xytrap, <span class="dt">mapPlot =</span> <span class="st">'DUKE_EW'</span>, 
+                 <span class="dt">mapYears =</span> <span class="dv">2011</span><span class="op">:</span><span class="dv">2014</span>, <span class="dt">treeSymbol =</span> treeData<span class="op">$</span>diam, 
+                 <span class="dt">treeScale =</span> .<span class="dv">7</span>, <span class="dt">trapScale =</span> <span class="fl">1.5</span>, <span class="dt">plotScale =</span> <span class="dv">2</span>, 
+                 <span class="dt">SCALEBAR =</span> <span class="ot">TRUE</span>, <span class="dt">scaleValue=</span><span class="dv">50</span>)
+<span class="kw">mastMap</span>(mapList)</code></pre></div>
+<p>Here are a few lines of <code>treeData</code>, which has been trimmed down to this single species,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">head</span>(treeData, <span class="dv">3</span>)</code></pre></div>
+<p>Here are a few lines of <code>seedData</code>,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">head</span>(seedData, <span class="dv">3</span>)</code></pre></div>
+<div id="diameter-effect" class="section level2">
+<h2><span style="color:teal">diameter effect</span></h2>
+<p>Here I fit the model using <code>log(diam)</code>; the <code>diam</code> column will be fitted as log diameter.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaFec &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span><span class="kw">log</span>(diam))    <span class="co"># fecundity model</span>
+formulaRep &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span><span class="kw">log</span>(diam))    <span class="co"># maturation model</span>
+
+inputs   &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+                 <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, <span class="dt">xytree =</span> xytree, 
+                 <span class="dt">xytrap =</span> xytrap)
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>( formulaFec, formulaRep, <span class="dt">inputs =</span> inputs,  <span class="dt">ng =</span> <span class="dv">3000</span>, 
+                  <span class="dt">burnin =</span> <span class="dv">1000</span> )</code></pre></div>
+<p>Following this short sequence, I fit a longer one and predict one of the plots:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">predList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">mapMeters =</span> <span class="dv">10</span>, <span class="dt">plots =</span> <span class="st">'DUKE_EW'</span>, <span class="dt">years =</span> <span class="dv">2010</span><span class="op">:</span><span class="dv">2015</span> ) 
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">3000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>, 
+                  <span class="dt">predList =</span> predList )</code></pre></div>
+<p>Here are some plots followed by comments on display panels. Notice that when it progresses to the maps for plot DUKE_HW, they will include the predicted seed shadows:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>From <code>fecundity</code> chains, still more iterations are needed for convergence.</p>
+<p>The predictor <code>log(diam)</code> contributes to fecundity. <code>log(diam)</code> contributes to maturation.</p>
+<p>From <code>seed shadow</code>, seed rain beneath a 30-cm diameter tree averages near 0.2 seeds per m<span class="math inline">\(^2\)</span>.</p>
+<p>Although a combination of maturation/fecundity can be found to predict the seed data in <code>prediction</code> (part a), the process model does not well predict the maturation/fecundity combination (part b). In other words, the maturation/fecundity/dispersal aspect of the model is effective, whereas the design does not yet include variables that help explain maturation/fecundity.</p>
+<p>From the many maps in <code>predicted fecundity, seed data</code>, note that the <code>DUKE_EW</code> site includes prediction surfaces, as specfied in <code>predList</code>.</p>
+<p>Here is the summary:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>( output )</code></pre></div>
+<p>At this point in the the Gibbs sampler, the DIC and root mean square prediction error are:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output<span class="op">$</span>fit</code></pre></div>
+<p>As mentioned above, prediction scores for seed-trap observations are based on the estimated fecundities <span class="math inline">\([\mathbf{y} | \phi, \rho]\)</span> as <code>scoreStates</code> and on the estimated parameters <span class="math inline">\([\mathbf{y} | \phi, \rho][\phi, \rho| \boldsymbol{\beta}^x, \boldsymbol{\beta}^w, \dots]\)</span> as <code>predictScore</code>. The <code>TGc</code> and <code>TGd</code> parameters are the affine-transformation parameters (intercept, slope) relating the predictive variance to the error variance (Thorarinsdottir and Gneiting, 2010).</p>
+<p><br></p>
+</div>
+<div id="year-and-random-effects" class="section level2">
+<h2><span style="color:teal">year and random effects</span></h2>
+<p>Individual (tree differences) can be random and year-to-year differences can be fixed; the latter are not ‘exchangeble’. In cases where there are no predictors that explain variation among individuals the <code>formula</code> can be limited to an intercept, using <code>~ 1</code>. In this case, it can be valuable to estimate fecundity even when there are no good predictors. For this intercept-only model, random effects and/or year effects can allow for variation. Prior parameter values are supplied as discussed below.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co">#group plots in regions for year effects</span>
+region &lt;-<span class="st"> </span><span class="kw">rep</span>(<span class="st">'sApps'</span>,<span class="kw">nrow</span>(treeData))
+region[ <span class="kw">as.character</span>(treeData<span class="op">$</span>plot) <span class="op">==</span><span class="st"> 'DUKE_EW'</span> ] &lt;-<span class="st"> 'piedmont'</span>
+
+treeData<span class="op">$</span>region &lt;-<span class="st"> </span>region
+
+formulaFec   &lt;-<span class="st"> </span><span class="kw">as.formula</span>(<span class="op">~</span><span class="st"> </span>diam)
+formulaRep   &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam ) 
+yearEffect   &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">groups =</span> <span class="st">'region'</span>)
+randomEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">randGroups =</span> <span class="st">'treeID'</span>, <span class="dt">formulaRan =</span> <span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span><span class="dv">1</span> ) )
+inputs &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+               <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, 
+               <span class="dt">xytree =</span> xytree, <span class="dt">xytrap =</span> xytrap,
+               <span class="dt">priorDist =</span> <span class="dv">28</span>, <span class="dt">priorVDist =</span> <span class="dv">15</span>, <span class="dt">maxDist =</span> <span class="dv">50</span>, <span class="dt">minDist =</span> <span class="dv">15</span>,
+               <span class="dt">minDiam =</span> <span class="dv">25</span>, <span class="dt">maxF =</span> <span class="fl">1e+6</span>)
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(inputs, formulaFec, formulaRep, <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>,
+               <span class="dt">randomEffect =</span> randomEffect, <span class="dt">yearEffect =</span> yearEffect )
+<span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>Without predictors, the fitted variation is coming from random effects and year effects.</p>
+<p>To substitute year effects for AR(<span class="math inline">\(p\)</span>) effects, simply remove the argument specification of <code>p</code> in the <code>yearEffect list</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">yearEffect   &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">groups =</span> <span class="kw">c</span>(<span class="st">'species'</span>,<span class="st">'region'</span>))   <span class="co"># year effects</span></code></pre></div>
+<p><br></p>
+</div>
+<div id="prior-parameter-values" class="section level2">
+<h2><span style="color:teal">prior parameter values</span></h2>
+<p>In previous examples, the prior parameter values were past in the <code>list inputs</code>. I can also specify prior values as inputs through the <code>inputs$priorList</code> or <code>inputs$priorTable</code> holding parameters named in Table 8.</p>
+<p><strong>Table 8.</strong> Components of <code>inputs</code> with default values.</p>
+<table>
+<thead>
+<tr class="header">
+<th align="right">object</th>
+<th align="left">explanation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="right"><code>priorDist = 25</code></td>
+<td align="left">prior mean dispersal distance parameter (<span class="math inline">\(m\)</span>)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>priorVDist = 40</code></td>
+<td align="left">prior variance dispersal parameter</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>minDist = 4</code></td>
+<td align="left">minimum mean dispersal distance (<span class="math inline">\(m\)</span>)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>maxDist = 70</code></td>
+<td align="left">maximum mean dispersal distance (<span class="math inline">\(m\)</span>)</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>maxF = 1e+8</code></td>
+<td align="left">maximum fecundity (seeds per tree-year)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>minDiam = 10</code></td>
+<td align="left">minimum <code>diam</code> below which a tree can mature (<span class="math inline">\(cm\)</span>)</td>
+</tr>
+<tr class="odd">
+<td align="right"><code>maxDiam = 40</code></td>
+<td align="left">maximum <code>diam</code> above which a tree can be immature (<span class="math inline">\(cm\)</span>)</td>
+</tr>
+<tr class="even">
+<td align="right"><code>sigmaMu = 1</code></td>
+<td align="left">prior mean residual variance <span class="math inline">\(\sigma^2\)</span></td>
+</tr>
+<tr class="odd">
+<td align="right"><code>sigmaWt = sqrt(nrow(treeData))</code></td>
+<td align="left">weight on prior mean (no. of observations)</td>
+</tr>
+</tbody>
+</table>
+<p>The mean and variance of the dispersal kernel, <code>priorDist</code> and <code>priorVDist</code>, refer to the dispersal parameter <span class="math inline">\(u\)</span>, transformed to the mean distance for the dispersal kernel. The parameters <code>minDist</code> and <code>maxDist</code> place minimum and maximum bounds on <span class="math inline">\(d\)</span>.<br />
+Fecundity <span class="math inline">\(\phi\)</span> has a prior maximum value of <code>maxF</code>.</p>
+<p><code>minDiam</code> and <code>maxDiam</code> bound diameter ranges where a tree of unknown maturation status can be mature or not. This prior range is overridden by values in the <code>treeData$repr</code> column that establish an observed maturation state for a tree-year (0 - immature, 1 - mature).</p>
+<p>In general, large-seeded species, especially those that can be dispersed by vertebrates, generate noisy seed-trap data, despite the fact that the bulk of the counts still occur close to the parent, and the mean dispersal distance is relatively low. Large-seeded species produce few fruits/seeds. Long-distance dispersal cannot be estimated from inventory plots, regardless of plot size, because the fit is dominated by locally-derived seed. Consider values for maximum fecundity as low as <code>maxF = 10000</code>, minimum dispersal <code>minDist = 2</code>, and maximum dispersal <code>maxDist = 12</code>. Recall that the latter values refer to the dispersal kernel parameter value, not the maximum distance a seed can travel, which is un-constrained.</p>
+<p>Prior parameter values can be passed as a <code>list</code>, e.g.,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs<span class="op">$</span>priorList &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">minDiam =</span> <span class="dv">15</span>, <span class="dt">maxDiam =</span> <span class="dv">60</span>)</code></pre></div>
+<p>Alternatively, prior parameter values can be passed as a table, with parameters for column names for <code>specNames</code> for rownames. Here is a file holding parameter values and the <code>function mastPriors</code> to obtain a table for several species in the genus <span class="math inline">\(Pinus\)</span>,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/priorParameters.txt?raw=True&quot;</span>
+<span class="kw">download.file</span>(d, <span class="dt">destfile=</span><span class="st">&quot;priorParameters.txt&quot;</span>)
+
+specNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">&quot;pinuEchi&quot;</span>,<span class="st">&quot;pinuRigi&quot;</span>,<span class="st">&quot;pinuStro&quot;</span>,<span class="st">&quot;pinuTaed&quot;</span>,<span class="st">&quot;pinuVirg&quot;</span>)
+seedNames &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">&quot;pinuEchi&quot;</span>,<span class="st">&quot;pinuRigi&quot;</span>,<span class="st">&quot;pinuStro&quot;</span>,<span class="st">&quot;pinuTaed&quot;</span>,<span class="st">&quot;pinuVirg&quot;</span>,<span class="st">&quot;pinuUNKN&quot;</span>)
+priorTable &lt;-<span class="st"> </span><span class="kw">mastPriors</span>(<span class="st">&quot;priorParameters.txt&quot;</span>, specNames, 
+                         <span class="dt">code =</span> <span class="st">'code4'</span>, <span class="dt">genus =</span> <span class="st">'pinus'</span>)</code></pre></div>
+<p>The argument <code>code = 'code4'</code> specifies the column in <code>priorParameters.txt</code> holding the codes corresponding to <code>specNames</code>. In <code>mastif</code> the format <code>code4</code> means that names consist of the first 4 letters from the genus and species, like this: <code>pinuTaed</code>. The <code>genus</code> is provided to allow for genus-level parameters in cases where priors for individual species have not been specified in <code>priorParameters.txt</code>.</p>
+<p>For coefficients in fecundity, <code>betaPrior</code> specifies predictor effects by sign. The use of prior distributions that are flat, but truncated, is two-fold (Clark et al. 2013). First, where prior information exists, it often is limited to a range of values. For regressions coefficients (e.g., <span class="math inline">\(\boldsymbol{\beta}\)</span>) we typically have a prior belief about the sign of the effect (positive or negative), but not its magnitude or appropriate weight. Second, within bounds placed by the prior, the posterior has the shape of the likelihood, unaffected by a prior weight. Prior weight is hard to specify sensibly for this hierarchical, non-linear model.</p>
+<p>Here is an example using <code>betaPrior</code> to specify a quadratic diameter effect. First, here is a data set for <em>Pinus</em>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True&quot;</span>
+repmis<span class="op">::</span><span class="kw">source_data</span>(d)</code></pre></div>
+<p>Here I specify formulas, prior bounds for <code>diam</code> (quadratic), and fit the model:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaRep &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam )
+formulaFec &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam <span class="op">+</span><span class="st"> </span><span class="kw">I</span>(diam<span class="op">^</span><span class="dv">2</span>) )   
+
+betaPrior &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">pos =</span> <span class="st">'diam'</span>, <span class="dt">neg =</span> <span class="st">'I(diam^2)'</span>)
+                  
+inputs &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, <span class="dt">xytree =</span> xytree,
+                <span class="dt">xytrap =</span> xytrap, <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames,
+                <span class="dt">betaPrior =</span> betaPrior, <span class="dt">priorTable =</span> priorTable,
+                <span class="dt">seedTraits =</span> seedTraits)
+
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(<span class="dt">inputs =</span> inputs, formulaFec, formulaRep, 
+                 <span class="dt">ng =</span> <span class="dv">500</span>, <span class="dt">burnin =</span> <span class="dv">200</span>)
+
+<span class="co"># restart</span>
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(output, formulaFec, formulaRep, 
+                 <span class="dt">ng =</span> <span class="dv">3000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>)
+<span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>Here again, many of the seed ID maxtrix elements are well identified (trace plots labeled “<code>M matrix plot</code>”, others are uncertain due to small numbers of the different species that could contribute to a seed type. These are presented as bar and whisker plots for elements of matrix <span class="math inline">\(\mathbf{M}\)</span> (fraction of seed from a species that is counted as each seed type) in the plot labeled <code>species -&gt; seed type</code>. Bar plots show the fraction of unknown seeds that derive from each species, labeled <code>species -&gt; seed type</code>. The distribution of diameters in the data will limit the ability to estimate its effect on maturation and fecundity.</p>
+<p>Note that the estimates for fecundity coefficients, <span class="math inline">\(\boldsymbol{\beta}^x\)</span>, are positive for <code>diam</code> and negative for <code>diam^2</code>. If there is no evidence in the data for a decrease <span class="math inline">\(\frac{\partial{\psi}}{\partial{diam}}\)</span>, then the quadratic term is near zero. In this case, the predicted fecundity in the plot labelled <code>maturation, fecundity by diameter</code> will increase exponentially.</p>
+</div>
+<div id="maturationfecundity-data-if-available" class="section level2">
+<h2><span style="color:teal">maturation/fecundity data, if available</span></h2>
+<p>Most individuals produce no seed, due to resource limitation, especially light, in crowded stands. As trees increase in size and resource access they mature, and become capable of seed production. Maturation is hard to observe, so it must be modelled. In our data sets, maturation status is observed, but most values are NA; it is only assigned if certain. A value of 1 means that reproduction is observed. A value of 0 means that the entire crown is visible during the fruiting season, and it is clear that no reproduction is present. Needless to say, most observations from beneath closed canopies are NA. The observations are entered in the column <code>repr</code> in the <code>data.frame treeData</code>. Above I showed an example where <code>minDiam</code> is set as a prior that trees of smaller diameters are immature and <code>maxDiam</code> is the prior that trees above this diameter are mature.</p>
+<p><code>mastif</code> further admits estimates of cone production. The column <code>treeData$cropCount</code> refers to the cones that will open and contribute to trap counts in the year <code>treeData$year</code>. There is another column <code>treeData$cropFraction</code>, which refers to the fraction of the tree canopy that is represented by the cone count. When crop counts are used, a <code>matrix seedTraits</code> must be supplied with one row per species and a column with seeds per fruit, cone, or pod. The rownames of <code>seedTraits</code> are the <code>specNames</code>. The colname of <code>seedTraits</code> with seeds per fruit is labeled <code>seedsPerFruit</code>.</p>
+</div>
+<div id="when-trees-are-sampled-less-frequently-than-seeds" class="section level2">
+<h2><span style="color:teal">when trees are sampled less frequently than seeds</span></h2>
+<p>Seed studies often include seed collections in years when trees are not censused. For example, tree data might be collected every 2 to 5 years, whereas seed data are available as annual counts. In this case, there there are years in <code>seedData$year</code> that are missing from <code>treeData$year</code>. <code>mastif</code> needs a tree year for each trap year. If tree data are missing from some trap years, I need to constuct a complete <code>treeData data.frame</code> that includes these missing years. This amended version of <code>treeData</code> must be accessible to the user, to allow for the addition of covariates such as weather variables, soil type, and so forth.</p>
+<p>The function <code>mastFillCensus</code> allows the user to access the filled-in version of <code>treeData</code> that will be fitted by <code>mastif</code>. <code>mastFillCensus</code> accepts the same <code>list</code> of <code>inputs</code> that is passed to the function <code>mastif</code>. The missing years are inserted for each tree with interpolated diameters. The <code>list inputs</code> is returned with objects updated to include the missing census years and modified slightly for analysis by <code>mastif</code>. <code>inputs$treeData</code> can now be annotated with the covariates that will be included in the model. Here is the example from the <code>help</code> file. First I read a file that has complete years, so I randomly remove years:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># randomly remove years for this example:</span>
+years &lt;-<span class="st"> </span><span class="kw">sort</span>(<span class="kw">unique</span>(treeData<span class="op">$</span>year))
+sy    &lt;-<span class="st"> </span><span class="kw">sample</span>(years,<span class="dv">5</span>)
+treeData &lt;-<span class="st"> </span>treeData[treeData<span class="op">$</span>year <span class="op">%in%</span><span class="st"> </span>sy,]
+treeData[<span class="dv">1</span><span class="op">:</span><span class="dv">10</span>,]</code></pre></div>
+<p>Note the missing years, as is typical of mast data sets. Here is the file after filling missing years:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs   &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+                  <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, 
+                  <span class="dt">xytree =</span> xytree, <span class="dt">xytrap =</span> xytrap, <span class="dt">priorTable =</span> priorTable,
+                  <span class="dt">seedTraits =</span> seedTraits)
+inputs &lt;-<span class="st"> </span><span class="kw">mastFillCensus</span>(inputs, <span class="dt">beforeFirst=</span><span class="dv">10</span>, <span class="dt">afterLast=</span><span class="dv">10</span>)
+inputs<span class="op">$</span>treeData[<span class="dv">1</span><span class="op">:</span><span class="dv">10</span>,]</code></pre></div>
+<p>The missing <code>plotYr</code> combinations in <code>treeData</code> have been filled to match thos in <code>seedData</code>. Now columns can be added to <code>inputs$treeData</code>, as needed in <code>formulaFec</code> or <code>formulaRep</code>.</p>
+<p>In cases where tree censuses start after seed trapping begins or tree censuses end before seed trapping ends, it may be reasonable to assume that the same trees are producing seed in those years pre-trapping or post-trapping years. In these cases, <code>mastFillCensus</code> can accommodate these early and/or late seed trap data by extrapolating <code>treeData</code> <code>beforeFirst</code> years before seed trapping begins or <code>afterLast</code> years after seed tapping ends.</p>
+</div>
+<div id="adding-covariates" class="section level2">
+<h2><span style="color:teal">adding covariates</span></h2>
+<p>Continuing with the <span class="math inline">\(Pinus\)</span> example, here I want to add covariates for missing years as needed for an AR(<span class="math inline">\(p\)</span>) model, in this example <span class="math inline">\(p\)</span> = 4. First, consider the tree-years included in this sample, before and after in-filling:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># original data</span>
+<span class="kw">table</span>(treeData<span class="op">$</span>year)
+
+<span class="co"># filled census</span>
+<span class="kw">table</span>(inputs<span class="op">$</span>treeData<span class="op">$</span>year)
+<span class="kw">table</span>(seedData<span class="op">$</span>year)</code></pre></div>
+<p>Note that the infilled version of tree data in the <code>list inputs</code> has the missing years, corresponding to those included in <code>seedData</code>. Here I set up the year effects model and infill to allow for <code>p = 3</code>,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">p &lt;-<span class="st"> </span><span class="dv">3</span>
+inputs   &lt;-<span class="st"> </span><span class="kw">mastFillCensus</span>(inputs, <span class="dt">p =</span> p)
+treeData &lt;-<span class="st"> </span>inputs<span class="op">$</span>treeData</code></pre></div>
+<p>Here are regions for random effects in the AR(3) model:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">region =<span class="st"> </span><span class="kw">list</span>(<span class="dt">sApps =</span> <span class="kw">c</span>(<span class="st">&quot;CWT118&quot;</span>, <span class="st">&quot;MARSF&quot;</span>, <span class="st">&quot;MARSP&quot;</span>),
+              <span class="dt">piedmont =</span> <span class="kw">c</span>(<span class="st">&quot;DUKEBW&quot;</span>, <span class="st">&quot;DUKEEW&quot;</span>,<span class="st">&quot;DUKEFACE1&quot;</span>,<span class="st">&quot;DUKEFACE5&quot;</span>,<span class="st">&quot;DUKEFACE6&quot;</span>),
+              <span class="dt">NE =</span> <span class="kw">c</span>(<span class="st">&quot;HARVBW&quot;</span>,<span class="st">&quot;HARVS&quot;</span>))
+treeData<span class="op">$</span>region &lt;-<span class="st"> 'sApps'</span>
+<span class="cf">for</span>(j <span class="cf">in</span> <span class="dv">1</span><span class="op">:</span><span class="kw">length</span>(region)){
+  wj &lt;-<span class="st"> </span><span class="kw">which</span>( <span class="kw">as.character</span>(treeData<span class="op">$</span>plot) <span class="op">%in%</span><span class="st"> </span>region[[j]])
+  treeData<span class="op">$</span>region[wj] &lt;-<span class="st"> </span><span class="kw">names</span>(region)[j]
+}
+inputs<span class="op">$</span>treeData &lt;-<span class="st"> </span>treeData
+yearEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">groups =</span> <span class="kw">c</span>(<span class="st">'species'</span>,<span class="st">'region'</span>), <span class="dt">p =</span> p)</code></pre></div>
+<p>I add the climatic deficit (monthly precipitation minus PET) as a covariant. First, here is a data file,</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/def.csv?raw=True&quot;</span>
+<span class="kw">download.file</span>(d, <span class="dt">destfile=</span><span class="st">&quot;def.csv&quot;</span>)</code></pre></div>
+<p>The format for the file <code>dev.csv</code> is <code>plot</code> by <code>year_month</code>. I have saved it in my local directory. The function <code>mastClimate</code> returns a <code>list</code> holding three vectors, each having length equal to <code>nrow(treeData)</code>. Here is an example for the cumulative moisture deficit for the previous summer. I provide the file name, the vector of plot names, the vector of previous years, and the months of the year. To get the cumulative deficit, I use <code>FUN = 'sum'</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">treeData &lt;-<span class="st"> </span>inputs<span class="op">$</span>treeData
+deficit  &lt;-<span class="st"> </span><span class="kw">mastClimate</span>( <span class="dt">file =</span> <span class="st">'def.csv'</span>, <span class="dt">plots =</span> treeData<span class="op">$</span>plot, 
+                         <span class="dt">years =</span> treeData<span class="op">$</span>year <span class="op">-</span><span class="st"> </span><span class="dv">1</span>, <span class="dt">months =</span> <span class="dv">6</span><span class="op">:</span><span class="dv">8</span>, 
+                         <span class="dt">FUN =</span> <span class="st">'sum'</span>, <span class="dt">vname=</span><span class="st">'def'</span>)
+treeData &lt;-<span class="st"> </span><span class="kw">cbind</span>(treeData, deficit<span class="op">$</span>x)
+<span class="kw">summary</span>(deficit)</code></pre></div>
+<p>The first column in <code>deficit</code> is the variable itself for each tree-year. The second column holds the site mean value for the variable. The third column is the difference between the first two columns All three can be useful covariates, each capturing different effects (Clark et al. 2014). I could append any or all of them as columns to <code>treeData</code>.</p>
+<p>Here is an example using minimum temperature of the preceeding winter. I obtain the minimum with two calls to <code>mastClimate</code>, first for Dec of the previous year (<code>years = treeData$year - 1, months = 12</code>), then from Jan, Feb, Mar for the current year (<code>years = treeData$year, months = 1:3</code>). I then take the minimum of the two values:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="co"># include min winter temperature</span>
+d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/tmin.csv?raw=True&quot;</span>
+<span class="kw">download.file</span>(d, <span class="dt">destfile=</span><span class="st">&quot;tmin.csv&quot;</span>)
+
+<span class="co"># minimum winter temperature December through March of previous winter</span>
+
+t1 &lt;-<span class="st"> </span><span class="kw">mastClimate</span>( <span class="dt">file =</span> <span class="st">'tmin.csv'</span>, <span class="dt">plots =</span> treeData<span class="op">$</span>plot, 
+                   <span class="dt">years =</span> treeData<span class="op">$</span>year <span class="op">-</span><span class="st"> </span><span class="dv">1</span>, <span class="dt">months =</span> <span class="dv">12</span>, <span class="dt">FUN =</span> <span class="st">'min'</span>,
+                   <span class="dt">vname =</span> <span class="st">'tmin'</span>)
+t2 &lt;-<span class="st"> </span><span class="kw">mastClimate</span>( <span class="dt">file =</span> <span class="st">'tmin.csv'</span>, <span class="dt">plots =</span> treeData<span class="op">$</span>plot, 
+                   <span class="dt">years =</span> treeData<span class="op">$</span>year, <span class="dt">months =</span> <span class="dv">1</span><span class="op">:</span><span class="dv">3</span>, <span class="dt">FUN =</span> <span class="st">'min'</span>,
+                   <span class="dt">vname =</span> <span class="st">'tmin'</span>)
+tmin &lt;-<span class="st"> </span><span class="kw">apply</span>( <span class="kw">cbind</span>(t1<span class="op">$</span>x[,<span class="dv">1</span>], t2<span class="op">$</span>x[,<span class="dv">1</span>]), <span class="dv">1</span>, min)
+treeData<span class="op">$</span>tminDecJanFebMar &lt;-<span class="st"> </span>tmin
+inputs<span class="op">$</span>treeData &lt;-<span class="st"> </span>treeData</code></pre></div>
+<p>Here is a model using several of these variables:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaRep &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam )
+formulaFec &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam <span class="op">+</span><span class="st"> </span>defJunJulAugAnom <span class="op">+</span><span class="st"> </span>tminDecJanFebMar )   
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(<span class="dt">inputs =</span> inputs, formulaFec, formulaRep, 
+                 <span class="dt">yearEffect =</span> yearEffect,
+                 <span class="dt">ng =</span> <span class="dv">2500</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>)</code></pre></div>
+<p>Data for future years can be a scenario, based on assumptions of status quo in the mean and variance, an assumed rate of climate change, and so on.</p>
+<p><br></p>
+</div>
+</div>
+<div id="flexibility" class="section level1">
+<h1><span style="color:darkgreen">flexibility</span></h1>
+<p>Seed production is volatile, with order of magnitude variation from year-to-year. There is synchronicity among individuals of the same species, the “masting” phenomenon. There are large difference between individuals, that are not explained by environmental variables. In this section I discuss extensions to random effects, year effects, lag effects, and fitting multiple species having seed types that are not always identifiable to species.</p>
+<div id="random-individual-effects" class="section level2">
+<h2><span style="color:teal">random individual effects</span></h2>
+<p>Random individual effects can include random intercepts and slopes for the fecundities of each individual tree that is imputed to be in the mature state for at least 3 years. [There are no random effects on maturation, because they would be hard to identify from seed trap data for this binary response.]</p>
+<p>I include in the <code>inputs list</code> the <code>list randomEffect</code>, which includes the column name for the random group. Typically this would be a unique identifier for a tree within a plot, e.g., <code>randomEffect$randGroups = 'tree'</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">randomEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">randGroups =</span> <span class="st">'tree'</span>, 
+                     <span class="dt">formulaRan =</span> <span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam ) )</code></pre></div>
+<p>However, <code>randGroups</code> could be the plot name. This column is interpreted as a <code>factor</code>, each level being a group. Random effects will not be fitted on individuals that are in the mature state less than 3 years.</p>
+<p>The <code>formulaRan</code> is the random effects model. It includes a subset of variables specified in fecundity model <code>formulaFec</code>. [Because random effects are centered on zero, terms in <code>formulaRan</code> must already be included in the fecundity design <code>formulaFec</code>.] Here is a brief description of what’s happening:</p>
+<p>There is a design vector <span class="math inline">\(\mathbf{w}_{ij,t}\)</span> that can include all or some of the columns in <span class="math inline">\(\mathbf{x}_{ij,t}\)</span>. There is an individual-effects coefficient matrix <span class="math inline">\(\boldsymbol{\beta}^w_{ij}\)</span>, which enters the mean structure this way:</p>
+<p><span class="math display">\[\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \boldsymbol{\beta}^x + \mathbf{w}'_{ij,t} \boldsymbol{\beta}^w_{ij}, \sigma^2 \right)\]</span></p>
+<p>Here is a fit with random effects.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaFec &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam)    <span class="co"># fecundity model</span>
+formulaRep &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam)    <span class="co"># maturation model </span>
+randomEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">randGroups =</span> <span class="st">'tree'</span>, 
+                     <span class="dt">formulaRan =</span> <span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam) )
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>( formulaFec, formulaRep, <span class="dt">inputs =</span> inputs, 
+                  <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>, <span class="dt">randomEffect =</span> randomEffect )</code></pre></div>
+<p>Here is a restart:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output &lt;-<span class="st"> </span><span class="kw">mastif</span>( <span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>)
+<span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>There are several things to note:</p>
+<ul>
+<li><p>there is a new panel for <code>fixed plus random effects</code>, showing the individual combinations of intercepts and <code>diam</code> slopes.</p></li>
+<li><p>strong tradeoffs between slope and diameter in the random effects plot indicates that individual trees provide limited information on diameter effects.</p></li>
+<li><p>the <code>prediction</code> panel (b) shows some improvement, indicating that even with random effects, diameter struggles to predict maturation/fecundity.</p></li>
+</ul>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output<span class="op">$</span>fit</code></pre></div>
+</div>
+<div id="random-groups-for-years-and-lags" class="section level2">
+<h2><span style="color:teal">random groups for years and lags</span></h2>
+<p>As discussed previously, the model admits year effects and lag effects, the latter as an AR(<span class="math inline">\(p\)</span>) model. Year effects assign a coefficient to each year <span class="math inline">\(t = [1, \dots, T_j]\)</span>. Lag effects assign a coefficient to each of <span class="math inline">\(j \in \{1, \dots, p\}\)</span> plags, where the maximum lag <span class="math inline">\(p\)</span> should be substantially less than the number of years in the study. Year effects can be organized in random groups. Specification of random groups is done in the same way for year effects and for lag effects.</p>
+<p>I define random groups for year and lag effects by species, by plots, or both. When there are multiple species that contribute to the modeled seed types, I expect the year effects to depend on which species is actually producing the seed. When there are multiple plots sufficiently distant from one another, I might allow for the fact that year effects or lag effects differ by group; <code>yearEffect$groups</code> allows that they need not mast in the same years. In the example below, I’ll use the term <em>region</em> for plots in the same plotGroup.</p>
+<p>Here is a breakdown for this data set by region:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">with</span>(treeData, <span class="kw">colSums</span>( <span class="kw">table</span>(plot, region)) )</code></pre></div>
+<p>Here are year effects structured by random groups of plots, given by the column <code>region</code> in <code>treeData</code>:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">yearEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">groups =</span> <span class="st">'region'</span>)</code></pre></div>
+<p>This option will fit a year effect for both provinces and years having sufficient individuals estimated to be in the mature state. Here is the model with random year effects,</p>
+<p><span class="math display">\[\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \mathbf{\beta}^x + \gamma_t + \gamma_{g[i],t}, \sigma^2 \right)\]</span> where the year effect <span class="math inline">\(\gamma_{g[i],t}\)</span> is shared by trees in all plots defined by <code>yearEffect$province</code>, <span class="math inline">\(ij \in g\)</span>. Year effects are sampled directly from conditional posteriors.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">inputs<span class="op">$</span>treeData  &lt;-<span class="st"> </span>treeData 
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(formulaFec, formulaRep, <span class="dt">inputs =</span> inputs, 
+                 <span class="dt">ng =</span> <span class="dv">2500</span>, <span class="dt">burnin =</span> <span class="dv">500</span>, 
+                 <span class="dt">randomEffect =</span> randomEffect, <span class="dt">yearEffect =</span> yearEffect)</code></pre></div>
+<p>Here is a restart, with predictions for one of the plots:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">predList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">mapMeters =</span> <span class="dv">10</span>, <span class="dt">plots =</span> <span class="st">'DUKE_BW'</span>, <span class="dt">years =</span> <span class="dv">1998</span><span class="op">:</span><span class="dv">2014</span> ) 
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(<span class="dt">inputs =</span> output, <span class="dt">predList =</span> predList, <span class="dt">ng =</span> <span class="dv">3000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>)
+<span class="kw">mastPlot</span>(output)</code></pre></div>
+<p>Note that still more iterations are needed for convergence. Here are some comments on <code>mastPlot</code>:</p>
+<ul>
+<li><p>In the <code>dispersal parameter u</code> panel there are now year effects plotted for the two random groups <code>mtn</code> and <code>piedmont</code>.</p></li>
+<li><p>The subsequent panel <code>dispersal mean and variance</code> shows the mean and variance of random effects</p></li>
+<li><p>There is a <code>dispersal by group</code> panel showing posterior estimate for the two random groups, with scales for the parameter <span class="math inline">\(u\)</span> on the left (m<span class="math inline">\(^2\)</span>) and mean parameter <span class="math inline">\(d\)</span> on the right (m).</p></li>
+<li><p>There has been some improvement in the <code>prediction</code>, panel (b).</p></li>
+<li><p>The <code>predicted fecundity, seed data</code> maps for the plot <code>DUKE_BW</code> show seed prediction surfaces.</p></li>
+<li><p>The <code>year effect groups</code> shows year effects for random groups in <code>treeData$region</code>.</p></li>
+<li><p><code>partial ACF</code> shows partial autocorrelation by species and plot.</p></li>
+</ul>
+<p><br></p>
+</div>
+<div id="random-effects-when-there-are-multiple-species" class="section level2">
+<h2><span style="color:teal">random effects when there are multiple species</span></h2>
+<p>Most data sets have multiple seed types that complicate estimation of mast production by each species. This example considers <em>Pinus</em> spp, seeds of which cannot be confidently assigned to species. Here I load the data and generate a sample of maps from several years, including all species and seed types.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">d &lt;-<span class="st"> &quot;https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True&quot;</span>
+repmis<span class="op">::</span><span class="kw">source_data</span>(d)
+
+mapList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, 
+                 <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+                 <span class="dt">xytree =</span> xytree, <span class="dt">xytrap =</span> xytrap, <span class="dt">mapPlot =</span> <span class="st">'DUKE_EW'</span>,
+                 <span class="dt">mapYears =</span> <span class="kw">c</span>(<span class="dv">2007</span><span class="op">:</span><span class="dv">2010</span>), <span class="dt">treeSymbol =</span> treeData<span class="op">$</span>diam,
+                 <span class="dt">treeScale =</span> .<span class="dv">6</span>, <span class="dt">trapScale=</span><span class="fl">1.4</span>,
+                 <span class="dt">plotScale =</span> <span class="fl">1.2</span>, <span class="dt">LEGEND =</span> <span class="ot">TRUE</span>)
+<span class="kw">mastMap</span>(mapList)</code></pre></div>
+<p>Note the tendency for high seed accumulation (large green squares) near dense, large trees (large brown circles).</p>
+<p>In this example, I again model seed production as a function of log diameter, <code>diam</code>, now for multiple species and seed types. This is an AR(p) model, because I include the number of lag terms <code>yearEffect$p = 5</code>,</p>
+<p><span class="math display">\[\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \mathbf{\beta}^x + \sum^p_{l=1} (\alpha_l + \alpha_{g[i],l}) \psi_{ij,t-l}, \sigma^2 \right)\]</span> Only years <span class="math inline">\(p &lt; t \le T_i\)</span> are used for fitting. Samples are drawn directly from the conditional posterior distribution.</p>
+<p>In the table printed at the outset are trees by plot and year, i.e., the <code>groups</code> assigned in <code>inputs$yearEffect</code>. The zeros indicate either absence of trees or that no plots were sampled in those years. (These are not the same thing, <code>mastif</code> knows the difference).</p>
+<p>In the code below I specify formulas, AR(<span class="math inline">\(p\)</span>), and random effects, and some prior values. Due to the large number of trees, convergence is slow. Because I do not assume that trees of different species necessarily mast in the same years, I allow them to differ through random groups on the AR(<span class="math inline">\(p\)</span>) terms.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">formulaFec &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam )   <span class="co"># fecundity model</span>
+formulaRep &lt;-<span class="st"> </span><span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam )            <span class="co"># maturation model</span>
+
+yearEffect   &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">groups =</span> <span class="st">'species'</span>, <span class="dt">p =</span> <span class="dv">4</span>)   <span class="co"># AR(4)</span>
+randomEffect &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">randGroups =</span> <span class="st">'tree'</span>, 
+                     <span class="dt">formulaRan =</span> <span class="kw">as.formula</span>( <span class="op">~</span><span class="st"> </span>diam ) )
+
+inputs   &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">specNames =</span> specNames, <span class="dt">seedNames =</span> seedNames, 
+                  <span class="dt">treeData =</span> treeData, <span class="dt">seedData =</span> seedData, 
+                  <span class="dt">xytree =</span> xytree, <span class="dt">xytrap =</span> xytrap, <span class="dt">priorDist =</span> <span class="dv">20</span>,
+                  <span class="dt">priorVDist =</span> <span class="dv">5</span>, <span class="dt">minDist =</span> <span class="dv">15</span>, <span class="dt">maxDist =</span> <span class="dv">30</span>, 
+                  <span class="dt">minDiam =</span> <span class="dv">12</span>, <span class="dt">maxDiam =</span> <span class="dv">40</span>,
+                  <span class="dt">maxF =</span> <span class="fl">1e+6</span>, <span class="dt">seedTraits =</span> seedTraits)
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(formulaFec, formulaRep, <span class="dt">inputs =</span> inputs, <span class="dt">ng =</span> <span class="dv">500</span>, 
+               <span class="dt">burnin =</span> <span class="dv">100</span>, <span class="dt">yearEffect =</span> yearEffect, 
+               <span class="dt">randomEffect =</span> randomEffect)</code></pre></div>
+<p>Here is a restart:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">output &lt;-<span class="st"> </span><span class="kw">mastif</span>(<span class="dt">inputs =</span> output, <span class="dt">ng =</span> <span class="dv">2000</span>, <span class="dt">burnin =</span> <span class="dv">1000</span>)
+plotPars &lt;-<span class="st"> </span><span class="kw">list</span>(<span class="dt">MAPS =</span> <span class="ot">FALSE</span>)
+<span class="kw">mastPlot</span>(output, <span class="dt">plotPars =</span> plotPars)</code></pre></div>
+<p>Again, convergence will require more iterations. The AR(<span class="math inline">\(p\)</span>) coefficients in the <code>lag effect group</code> panel shows the coefficients by random group. They are also shown in a separate panel, with each group plotted separately. In the <code>ACF eigenvalues</code> panel are shown the eigenvalues for AR lag coefficients on the real (horizontal) and imaginary (vertical) scales with the unit circle, within which oscillations are damped. The imaginary axis describes oscillations.</p>
+<p>Here’s a restart with predictions:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">plots &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="st">'DUKE_EW'</span>,<span class="st">'CWT_118'</span>)
+years &lt;-<span class="st"> </span><span class="dv">1980</span><span class="op">:</span><span class="dv">2025</span>
+predList &lt;-<span class="st"> </span><span class="kw">list</span>( <span class="dt">mapMeters =</span> <span class="dv">10</span>, <span class="dt">plots =</span> plots, <span class="dt">years =</span> years ) 
+output &lt;-<span class="st"> </span><span class="kw">mastif</span>(<span class="dt">inputs =</span> output, <span class="dt">predList =</span> predList, <span class="dt">ng =</span> <span class="dv">3000</span>, 
+                 <span class="dt">burnin =</span> <span class="dv">1000</span>)</code></pre></div>
+<p>and updated plots:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">mastPlot</span>( output, <span class="dt">plotPars =</span> <span class="kw">list</span>(<span class="dt">MAPS =</span> <span class="ot">FALSE</span>) )</code></pre></div>
+<p>Note that convergence requires additional iterations (larger <code>ng</code>). The predictions of seed production will progressively improve with convergence.</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">mapList &lt;-<span class="st"> </span>output
+mapList<span class="op">$</span>mapPlot &lt;-<span class="st"> 'DUKE_EW'</span>
+mapList<span class="op">$</span>mapYears &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="dv">2011</span><span class="op">:</span><span class="dv">2012</span>)
+mapList<span class="op">$</span>PREDICT &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>treeScale &lt;-<span class="st"> </span><span class="fl">1.2</span>
+mapList<span class="op">$</span>trapScale &lt;-<span class="st"> </span>.<span class="dv">8</span>
+mapList<span class="op">$</span>LEGEND &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>scaleValue &lt;-<span class="st"> </span><span class="dv">50</span>
+mapList<span class="op">$</span>plotScale &lt;-<span class="st"> </span><span class="dv">2</span>
+mapList<span class="op">$</span>COLORSCALE &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>mfrow &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="dv">2</span>,<span class="dv">1</span>)
+
+<span class="kw">mastMap</span>( mapList )</code></pre></div>
+<p>Or a larger view of a single map:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">mapList<span class="op">$</span>mapPlot &lt;-<span class="st"> 'CWT_118'</span>
+mapList<span class="op">$</span>mapYears &lt;-<span class="st"> </span><span class="dv">2015</span>
+mapList<span class="op">$</span>PREDICT &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>treeScale &lt;-<span class="st"> </span><span class="fl">1.5</span>
+mapList<span class="op">$</span>trapScale &lt;-<span class="st"> </span>.<span class="dv">8</span>
+mapList<span class="op">$</span>LEGEND &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>scaleValue &lt;-<span class="st"> </span><span class="dv">50</span>
+mapList<span class="op">$</span>plotScale &lt;-<span class="st"> </span><span class="dv">2</span>
+mapList<span class="op">$</span>COLORSCALE &lt;-<span class="st"> </span>T
+mapList<span class="op">$</span>mfrow &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="dv">1</span>,<span class="dv">1</span>)
+<span class="kw">mastMap</span>( mapList )</code></pre></div>
+<p>Here is a summary of parameter estimates:</p>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>( output )</code></pre></div>
+</div>
+</div>
+<div id="convergence" class="section level1">
+<h1><span style="color:darkgreen">convergence</span></h1>
+<p>R code is highly vectorized. Unavoidable loops are written in C++ and exploit the C++ library <code>Armadillo</code>, available through <code>RcppArmadillo</code>. Alternating with Metropolis are Hamiltonian MC steps to encourage large movements.</p>
+<p>Despite extensive vectorization and C++ for cases where loops are unavoidable, convergence can be slow. A collection of plots inventoried over dozens of years can generate in excess of <span class="math inline">\(10^6\)</span> tree-year observations and <span class="math inline">\(10^4\)</span> trap year observations. There is no escaping the requirement of large numbers of indirectly sampled latent variables. If random effects are included, there are (obviously) as many random groups as there are trees. All tree fecundities must be imputed.</p>
+<p><br></p>
+</div>
+<div id="trouble-shooting" class="section level1">
+<h1><span style="color:darkgreen">trouble shooting</span></h1>
+<p>Because seed-trap studies involve multiple data sets (seed traps, trees, covariates) that are collected over a number of years and multiple sites, combining them can expose inconsistencies that are not immediately evident. Of course, a proper analysis depends on alignment of trees, seed traps, and covariates with unique tree names (<code>treeData$tree</code>) and trap names (<code>seedData$trap</code>) in each plot (<code>treeData$plot, seedData$plot</code>).</p>
+<p>Notes are displayed by <code>mastif</code> at execution summarizing aspects of the data that might trigger warnings. All of these issues have arisen in data sets I have encountered from colleagues:</p>
+<p><strong>Alignment of data frames.</strong> The unique trees in each plot supplied in <code>treeData</code> must also appear with <code>x</code> and <code>y</code> in <code>xytree</code>. The unique traps in each plot supplied in <code>seedData</code> must also appear with <code>x</code> and <code>y</code> in <code>xytrap</code>. Problems generate a note:</p>
+<p><code>Note: treeData includes trees not present in xytree</code></p>
+<p><strong>Spatial coordinates.</strong> Because tree censuses and seed traps are often done at different times, by different people, the grids often disagree. <code>Spatial range</code> tables are displayed for (x, y) coordinates in <code>xytree</code> and <code>xytrap</code>.</p>
+<p><strong>Unidentified seeds.</strong> Seeds that cannot be identified to species contain the <code>character</code> string <code>UNKN</code>. If there are species in <code>specNames</code> that do not appear in <code>seedNames</code>, then the <code>UNKN</code> seed type must be included in <code>seedNames</code> and in columns of <code>seedData</code>. For example, if <code>caryGlab, caryTome</code> appear in <code>specNames</code>, and <code>caryGlab, caryUNKN</code> appear in <code>seedNames</code> (and as columns in <code>seedData</code>), then <code>caryUNKN</code> will be the imputed fate for all seeds emanating from <code>caryOvat</code> and some seeds from <code>caryGlab</code>.</p>
+<p>This note will be displayed:</p>
+<p><code>Note: unknown seed type is caryUNKN</code></p>
+<p>If there are <code>seedNames</code> that do not appear in <code>specNames</code>, this note is given:</p>
+<p><code>Note: seedNames not in specNames and not &quot;UNKN&quot;:</code> <code>caryCord</code></p>
+<p><code>Moved caryCord to &quot;UNKN&quot; class</code></p>
+<p><strong>Design issues.</strong> The design can seem confusing, because there are multiple species on multiple plots in multiple years. There is a design matrix that can be found here for fecundity:</p>
+<p><code>output$inputs$setupData$xfec</code></p>
+<p>and here for maturation:</p>
+<p><code>output$inputs$setupData$xrep</code></p>
+<p>(Variables are standardized, because fitting is done that way, but coefficients are reported on their original scales. Unstandardized versions of design matrices are <code>xfecU</code> and <code>xrepU</code>.)</p>
+<p>There should not be missing values in the columns of <code>treeData</code> that will be used as predictors (covariates or factors). If there are missing values, a note will be generated:</p>
+<p><code>Fix missing values in these variables:</code> <code>[1] &quot;yearlyPETO.tmin1, yearlyPETO.tmin2, flowering.covs.pr.data, flowering.covs.tmin.data, s.PETO&quot;</code></p>
+<p>There can be missing seed counts in <code>seedData</code>–missing values will be imputed.</p>
+<p>A table containing the Variance Inflation Factor (VIF), range of each variable, and correlation matrix will be generated at execution. VIF values &gt; 10 and high correlations between covariates are taken as evidence of redundancy. A table will be generated for each species separately. However, in <code>xfec</code> and <code>xrep</code> they are treated as a single matrix.</p>
+<p>Year effects by random group require replication within groups. Here is a note for the AR model showing sizes of groups defined by species and region (<code>NE, piedmont, sApps</code>):</p>
+<p><code>no. trees with &gt; plag years, by group:</code></p>
+<pre><code>  `caryGlab-NE caryGlab-piedmont    caryGlab-sApps `
+  `          1               497               361 `
+  
+  `caryOvat-piedmont caryTome-piedmont    caryTome-sApps `
+  `        122               569                77 `</code></pre>
+<p><code>small group: caryGlab-NE</code></p>
+<p>There is only one tree in the <code>caryGlab-NE</code> group, suggesting insufficient replication and a different aggregation scheme.</p>
+<p>For the AR(<span class="math inline">\(p\)</span>) model, values are imputed for <span class="math inline">\(p\)</span> years before and after a tree is observed, and only trees observed for &gt; <span class="math inline">\(p\)</span> years will contribute to parameter estimates. If the study lasts 3 years, then the model should not specify <code>yearEffect$p = 5</code>. A note will be generated to inform on the number of observations included in parameter estimates:</p>
+<p><code>Number of full observations with AR model is: [1] 21235</code></p>
+<p><strong>Prediction.</strong> If <code>predList</code> is supplied, then fecundity and seed density will be predicted for specified plot-years. The size of the prediction grid is displayed as a table of prediction nodes by plot and year. Large prediction grids slow execution. To reduce the size of the grid, increase the <code>inputs$predList$mapMeters</code> (the default is 5 m by 5 m).</p>
+<p>When covariates are added as columns to <code>treeData</code>, they must align with <code>treeData$plot</code>, <code>treeData$year</code>, and, if they are tree-level covariates, with <code>treeData$tree</code>. The required column <code>treeData$diam</code> is an example of the latter.</p>
+</div>
+<div id="references" class="section level1">
+<h1><span style="color:darkgreen">references</span></h1>
+<p>Clark, JS, DM Bell, M Kwit, A Powell, and K Zhu. 2013. Dynamic inverse prediction and sensitivity analysis with high-dimensional responses: application to climate-change vulnerability of biodiversity. <em>Journal of Biological, Environmental, and Agricultural Statistics</em> 18, 376-404.</p>
+<p>Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. <em>Ecological Monographs</em>, in press.</p>
+<p>Clark, JS, S LaDeau, and I Ibanez. 2004. Fecundity of trees and the colonization-competition hypothesis, <em>Ecological Monographs</em>, 74, 415-442.</p>
+<p>Clark, JS, M Silman, R Kern, E Macklin, and J Hille Ris Lambers. 1999. Seed dispersal near and far: generalized patterns across temperate and tropical forests. <em>Ecology</em> 80, 1475-1494.</p>
+<p>Neal, R.M. 2011. MCMC using Hamiltonian dynamics. In: <em>Handbook of Markov Chain Monte Carlo</em>, edited by S. Brooks, A. Gelman, G. Jones, and X.-L. Meng. Chapman &amp; Hall / CRC Press.</p>
+<p>Thorarinsdottir, T.L. and T. Gneiting. 2010. Probabilistic forecasts of wind speed: ensemble model output statistics by using heteroscedastic censored regression. <em>J. R. Statist. Soc. A</em> 173, Part 2, 371–388.</p>
+</div>
+
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

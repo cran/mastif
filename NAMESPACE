@@ -1,0 +1,25 @@
+useDynLib(mastif, .registration = TRUE)
+
+importFrom("Rcpp", "evalCpp")
+importFrom("RANN", "nn2")
+importFrom("xtable", "xtable")
+importFrom("corrplot", "corrplot")
+importFrom("repmis", "source_data")
+importFrom("grDevices", "pdf", "rgb", "dev.copy2pdf","graphics.off")
+importFrom("grDevices", "col2rgb", "colorRampPalette", "dev.off")
+importFrom("graphics", "barplot", "bxp", "strheight","strwidth", "segments")
+importFrom("graphics", "abline", "arrows", "Axis", "axis", "boxplot", 
+           "hist", "legend", "lines", "mtext", "par", "plot", "points", "polygon",
+            "rect", "symbols", "text", "title", "contour", ".filled.contour")
+importFrom("stats", "dbinom", "dpois", "ppois", "qpois", "as.formula", "cor", "lm",
+            "cov", "density", "rgamma", "rexp", "model.frame", "model.matrix",
+            "pnorm", "qnorm", "quantile", "rnorm", "runmed",
+            "rpois", "runif", "sd", "contrasts", "dnorm", "rbinom", 
+           "relevel", "terms", "var", "toeplitz","binomial","dbeta", 
+           "glm", "arima", "predict")
+importFrom("utils", "setTxtProgressBar", "txtProgressBar", 
+           "read.table", "read.csv", "write.table")
+export(mastif, mastMap, mastPlot, mastSim, mastFillCensus, mastClimate, mastPriors)
+S3method(print, mastif)
+S3method(summary, mastif)
+

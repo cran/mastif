@@ -1,0 +1,1261 @@
+---
+title: "Mast Inference and Forecasting (mastif)"
+author: "[James S. Clark](http://sites.nicholas.duke.edu/clarklab/)"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{mastif}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+```{r outform, echo = FALSE}
+insertPlot <- function(file, caption){
+#    outputFormat = knitr::opts_knit$get("rmarkdown.pandoc.to")
+#  if(outputFormat == 'latex')
+#    paste("![ ", caption, " ](", file, ")",sep="")
+}
+bigskip <- function(){
+#  outputFormat = knitr::opts_knit$get("rmarkdown.pandoc.to")
+#  if(outputFormat == 'latex')
+#    "\\bigskip"
+#  else
+    "<br>"
+}
+```
+
+####citation:  
+Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. *Ecological Monographs*, in press.
+
+[website](http://sites.nicholas.duke.edu/clarklab/r-packages/disperse/)
+
+
+`r bigskip()`
+
+##<span style="color:darkgreen">summary</span>
+
+`mastif` uses seed traps and crop counts on trees to estimate seed productivity and dispersion.  Attributes of individual trees and their local environments could explain their differences in fecundity. Inference requires information on locations of trees and seed traps and predictors (covariates and factors) that could explain source strength.  
+
+Many trees are not reproductively mature, and reproductive status is often unknown.  For individuals of unknown maturation status, the maturation status must be estimated together with fecundity.
+
+Predictors of fecundity include individual traits, site characteristics, climate, synchronicity with other trees, and lag effects. For studies that involve multiple plots and years, there can be effects of climate between sites and through time. There may be synchronicity between individuals both within and between plots. 
+
+Observations incorporate two types of redistribution.  The first type is a redistribution from species to seed types.  Not all seed types can be definitely assigned to species. The contribution of trees of each species to multiple seed types must be estimated.
+
+The second redistribution from source trees to seed traps. Within a plot-year there is dependence between all seed traps induced by a redistribution kernel, which describes how  seeds produced by trees are dispersed in space.  Because 'seed shadows' of trees overlap, seeds are assigned to trees only in a probabilistic sense. The capacity to obtain useful estimates depends on the number of trees, the number of seed traps, the dispersal distances of seeds, the taxonomic specificity of seed identification, and the number of species contributing to a given seed type.
+
+In addition to covariates and factors, the process model for fecundity can involve random tree effects, random group effects (e.g., species-location), year effects, and autoregressive lags limited only by the duration of data. Dispersal estimtes can include species and site differences (Clark et al. 2013).  
+
+`mastif` simulates the posterior distributions of parameters and latent variables using Gibbs sampling, with direct sampling, Hamiltonian Markov chain (HMC) updates, and Metropolis updates. `mastif` is implemented in R and C++ with `Rcpp` and `RcppArmadillo` libraries.
+
+
+`r bigskip()`
+
+#<span style="color:darkgreen">`mastif` inputs</span>
+
+
+The model requires a minimum of six inputs directly as arguments to the function `mastif`.  There are two `formula`s, two `character vector`s, and four `data.frame`s:
+
+**Table 2**. Basic inputs
+
+object       | `mode`             | components
+------------:|:------------------:|:------------------------------------
+`formulaFec` | `formula`          | fecundity model
+`formulaRep` | `formula`          | maturation model
+`specNames`  | `character vector` | names in column `species` of `treeData` to include in model
+`seedNames`  | `character vector` | names of seed types to include in model: match column names in `seedData`
+`treeData`   | `data.frame`       | tree-year by variables, includes columns `plot`, `tree`, `year`, `diam`, `repr`
+`seedData`   | `data.frame`       | trap-year by seed types, includes columns `plot`, `trap`, `year`, one for each `specNames`
+`xytree`     | `data.frame`       | tree by location, includes columns `plot`, `tree`, `x`, `y`
+`xytrap`     | `data.frame`       | trap by location, includes columns `plot`, `trap`, `x`, `y`
+
+
+I introduce additional inputs in the sections that follow, but start with this basic model.
+
+`r bigskip()`
+
+#<span style="color:darkgreen">simulated data</span>
+
+
+Data simulation is recommended as the place to start.  A simulator provides insight on how well parameters from be identified from my data.  The inputs to the simulator can specify the following:
+
+**Table 3.** Simulation inputs to `mastSim`
+
+`mastSim` input | explanation
+:-----------------: | :-------------------------------------------------
+`nplot`             | number of plots
+`nyr`               | mean no. years per plot
+`ntree`             | mean no. trees per plot
+`ntrap`             | mean no. traps per plot
+`specNames`         | tree species codes used in `treeData` column
+`seedNames`         | seed type codes: a column name in `seedData`
+
+```{r getFiles, eval = FALSE, echo = FALSE}
+Rcpp::sourceCpp('../RcppFunctions/cppFns.cpp')
+source('../RFunctions/mastifFunctions.r')
+library(RANN)
+```
+
+
+Most of these inputs are stochasiticized to vary structure of each data set. Here are inputs to the simulator for a species I'll call `acerRubr`:
+
+
+```{r simSetup0, eval = FALSE}
+seedNames  <- specNames  <- 'acerRubr'
+sim <- list(nplot=5, nyr=10, ntree=30,  ntrap=40,
+               specNames = specNames, seedNames = seedNames)
+```
+
+
+
+The `list sim` holds objects needed for simulation.  Here is the simulation:
+
+```{r sim0, eval = FALSE}
+inputs     <- mastSim(sim)        # simulate dispersal data
+seedData   <- inputs$seedData     # year, plot, trap, seed counts
+treeData   <- inputs$treeData     # year, plot, tree data
+xytree     <- inputs$xytree       # tree locations
+xytrap     <- inputs$xytrap       # trap locations
+formulaFec <- inputs$formulaFec   # fecundity model
+formulaRep <- inputs$formulaRep   # maturation model
+trueValues <- inputs$trueValues   # true states and parameter values
+```
+
+
+I first summarize these model `inputs` generated by `mastSim`.
+
+##<span style="color:teal">`mastSim`</span>
+
+`mastSim` generates inputs needed for model fitting with `mast`.  These objects are simulated data, including the four `data.frame`s  (`treeData`, `seedData`, `xytree`, `xytrap`) and formulas (`formulaFec`, `formulaRep`).  Other objects are "true" parameter values and latent states in the `list truevalues` used to simulate the data (`fec`,`repr`,`betaFec`, `betaRep`, `upar`, `R`).  I want to see if `mast` can recover these parameter values for the type of data I simulated.
+
+
+Here is a mapping of objects created by `mastSim` to the model in Clark et al. (2019):
+
+**Table 4.** Some of the objects from the `list mastSim`.
+
+`mastSim` object       | variable       |explanation
+:--------------------: | :-----------------: | :---------------------------
+`trueValues$fec`       | $\psi_{ij,t}$ | conditional fecundity
+`trueValues$repr`      | $\rho_{ij,t}$ | true maturation status
+`treeData$repr`        | $z_{ij,t}$    | observed maturation status (with `NA`)
+`trueValues$betaFec`   | $\beta^x$     | coefficients for fecundity
+`trueValues$betaRep`   | $\beta^v$     | coefficients for maturation
+`trueValues$R`         | $\mathbf{m}$  | `specNames` to `seedNames matrix`, rows = $\mathbf{m}_h$
+`seedData$active`      | in $A_{sj,t}$ | fraction of time trap is active
+`seedData$area`        | in $A_{sj,t}$ | trap area
+
+`mastSim` assumes that predictors of maturation and fecundity are limited to intercept and diameter.  Thus, the `formulaFec` and `formulaRep` are identical.  Here is fecundity:
+
+```{r formulaFec, eval = FALSE}
+formulaFec
+```
+ 
+Before fitting the model I say a bit more about input data.
+
+
+##<span style="color:teal">`treeData` and `xytree`</span>
+
+
+The information on individual trees is held in the tree-years by variables `data.frame treeData`.  Here are a few lines of `treeData` generated by `mastSim`,
+
+```{r treeData0, eval = FALSE}
+head(treeData)
+```
+
+`treeData` has a row for each tree-year. Several of these columns are required:
+
+**`data.frame treeData` columns**
+
+`treeData` column  | explanation
+:---------------: | :-------------------------------------------------
+`plot`            | plot name
+`tree`            | identifier for each tree, unique within a plot
+`year`            | observation year
+`species`         | species name
+`diam`            | diameter is a predictor for fecundity in $\mathbf{X}$ and maturation in $\mathbf{V}$
+`repr`            | immature (`0`), mature (`1`), or unknown (`NA`)
+
+There can be additional columns, but they are not required for model fitting.  The variable `repr` is reproduction status, often `NA`.  
+
+There is a corresponding `data.frame xytree` that holds tree locations.
+
+**Table 5.** `data.frame xytree` columns
+
+`xytree` column   | explanation
+:---------------: | :-------------------------------------------------
+`plot`            | plot name
+`tree`            | identifier for each tree, unique within a plot
+`x, y`            | locations in the sample plot
+
+`xytree` has fewer rows than `treeData`, because it is not repeated each year--it assumes that tree locations are fixed.  They are cross-referenced by `plot` and `tree`:
+
+```{r xytree, eval = FALSE}
+head(xytree, 5)
+```
+
+##<span style="color:teal">`seedData` and `xytrap`</span>
+
+
+Seed counts are held in the `data.frame seedData` as trap-years by seed types.  Here are a few lines of `seedData`,
+
+
+```{r treeData1, eval = FALSE}
+head(seedData)
+```
+
+Required columns are in Table 6.
+
+**Table 6.** `data.frame seedData` columns
+
+`seedData` column  | explanation
+:---------------: | :-------------------------------------------------
+`plot`            | plot name
+`trap`            | identifier for each trap, unique within a plot
+`year`            | seed-crop year
+`active`          | fraction of collecting period that the trap was active
+`area`            | collection area of trap (m$^2$)
+`acerRubr`,...    | `seedNames` for columns with seed counts
+
+Seed trap location data are held in the `data.frame xytrap`.
+
+**Table 7.** `data.frame xytrap` columns
+
+`xytrap` column   | explanation
+:---------------: | :-----------------------------------------------
+`plot`            | plot name
+`trap`            | identifier for each trap, unique within a plot
+`x, y`            | map location
+
+There is no year in `xytrap`, because locations are assumed to be fixed.  If a seed trap location is moved during a study, simply assign it a new trap name.  Then seed counts for years when it is not present are assigned `NA` (missing data) will be imputed.
+
+
+`r bigskip()`
+
+##<span style="color:teal">data summary and maps</span>
+
+
+Because they are stochastic, not all simulations from `mastSim` generate data with sufficient pattern to allow model fitting.  I can look at the relationship between tree diameters and seeds on a map for plot `mapPlot` and year `mapYear`: 
+
+```{r map1a, eval = FALSE}
+dataTab <- table(treeData$plot,treeData$year)
+
+w <- which(dataTab > 0,arr.ind = TRUE) # a plot-year with observations
+w <- w[sample(nrow(w),1),]
+
+mapYears <- as.numeric( colnames(dataTab)[w[2]] )
+mapPlot  <- rownames(dataTab)[w[1]]
+inputs$mapPlot    <- mapPlot
+inputs$mapYears   <- mapYears
+inputs$treeSymbol <- treeData$diam
+inputs$SCALEBAR   <- T
+
+mastMap(inputs)
+```
+
+Depending on the numbers of maps I adust `treeScale` and `trapScale` to see how seed accumulation compares with tree size or fecundity. In the above map, trees are shown as green circles and traps as gray squares.  The size of the circle comes from the input variable `treeSymbol`, which is set to tree diameter.  I could instead set it to the 'true' number of seeds produced by each tree, an output from `mastSim`.
+
+```{r map3, eval = FALSE}
+inputs$treeSymbol <- trueValues$fec
+inputs$treeScale  <- 2
+inputs$trapScale  <- 1
+
+mastMap(inputs)
+```
+
+Which are reproductively mature?  Here are true values, showing just trees that are mature:
+
+```{r map4, eval = FALSE}
+inputs$treeSymbol <- trueValues$repr
+inputs$treeScale  <- .5
+mastMap(inputs)
+```
+
+To fit the data, there must be sufficient seed traps, and sources must not be so dense such that overlapping seed shadows make the individual contributions undetectable.
+
+Here is the frequency distribution of seeds (observed) and of fecundities (unknown) from the simulated data:
+
+```{r hist0, eval = FALSE}
+par( mfrow=c(2,1),bty='n', mar=c(4,4,1,1) )
+seedData <- inputs$seedData
+seedNames <- inputs$seedNames
+
+hist( as.matrix(seedData[,seedNames]) ,nclass=100, 
+      xlab = 'seed count', ylab='per trap', main='' )
+hist( trueValues$fec,nclass=100, xlab = 'seeds produced', ylab = 'per tree',
+      main = '')
+```
+ 
+In data of this type, most seed counts and most tree fecundities are zero.
+
+`r bigskip()`
+
+#<span style="color:teal">model fitting</span>
+
+
+Model fitting requires specification of the number of MCMC iterations `ng` and the `burnin`.    Here is an analysis using the simulated `inputs` from `mastSim` with a small number of iterations:
+
+```{r mast2, eval = FALSE}
+output   <- mastif( inputs = inputs, ng = 3000, burnin = 500 )
+```
+
+The fitted object `output` contains MCMC chains, estimates, and predictions, summarized in the next section.
+
+##<span style="color:teal">`output` summary, lists, and plots</span>
+
+Sample size, parameter estimates, goodness of fit are all provides as tables by `summary`.
+
+```{r tabPars0, eval = FALSE}
+summary( output )
+```
+
+By default, this summary is sent to the console.  It can also be saved to a `list`, e.g., `outputSummary <- summary( output )`.
+
+###<span style="color:brown">estimates, and predictions in `output`</span>
+
+
+The main objects returned by `mastif` include several lists summarized in Table 9.  `parameters` are estimated as part of model fitting.  `predictions` are generated by the fitted model, as predictive distributions.  Note that the latent states for log fecundity $\psi_{ij,t}$ and maturation state $\rho_{ij,t}$ are both estimated and predicted.
+              
+**Table 9.** The `list` created by function `mast`.
+
+`list` in `output` | summary | contents
+----------------:|:---------:|:--------------------------------------------------
+`inputs`           | from `inputs` with additions | includes `distall` (trap by tree distance)
+`chains`           | MCMC chains | `agibbs` (if random effects, the covariance matrix $\mathbf{A}$), `bfec` ($\boldsymbol{\beta}^x$), `brep` ($\boldsymbol{\beta}^v$), `bygibbs` ($\alpha_l$ or $\gamma_t$ if `yearEffect` included), `rgibbs` ($\mathbf{M}$ if multiple seed types), `sgibbs` ($\sigma^2$, RMSPE, deviance), `ugibbs` ($u$ parameter)
+`data`             | data attributes     | intermediate objects used in fitting, prediction
+`fit`              | diagnostics         | DIC, RMSPE, scoreStates, predictScore
+`parameters`       | posterior summaries | `alphaMu` and `alphaSe` (mean and se for $\mathbf{A}$, if included), `aMu` and `aSe` ($\mathbf{\beta^w}_{ij}$), `betaFec` ($\boldsymbol{\beta}^x$), `betaRep` ($\boldsymbol{\beta}^v$), `betaYrMu` and `betaYrSe` (mean and se for year or lag coefficients), `upars` and `dpars` (dispersal parameters $u$ and $d$), `rMu` and `rSe` (mean and se for $\mathbf{M}$), `sigma` ($\sigma^2$), `acfMat` (group by lag empirical correlation or ACF), `pacfMat` (group by lag partial correlation or PACF), `pacfSe` (se for `pacfMat`), `pacsMat` (group by lag PACF for seed data)
+`prediction`       | predictive distributions |  `fecPred` (maturation $\rho_{ij,t}$  and fecundity $\psi_{ij,t}$ estimates and predictions), `seedPred` (seed counts per trap and predictions per m$^2$), `seedPredGrid` predictions for seeds on the space-time prediction grid, `treePredGrid` predictions for maturation and fecundity corresponding to `seedPredGrid`.
+
+Prediction scores for seed-trap observations are provided in `output$fit` based on the estimated fecundities $[\mathbf{y} | \phi, \rho]$ as `scoreStates` and on the estimated parameters $[\mathbf{y} | \phi, \rho][\phi, \rho| \boldsymbol{\beta}^x, \boldsymbol{\beta}^w, \dots]$ as `predictScore`.  The former will be substantially higher than the latter in cases where estimates of states $\phi, \rho$ can be found that predict seed data, but the variables in $\mathbf{X}, \mathbf{V}$ do not predict those states well.  These proper scoring rules are bases on the log likelihood for the Poisson distribution.
+
+Predictions for a location-year prediction grid are invoked when `predList` is specified in the call to `mastif`.
+
+###<span style="color:brown">plots of `output`</span>
+
+Here are plots of `output`, with the `list plotPars` passing the `trueValues` for these simulated data:
+
+```{r pars, eval = FALSE}
+plotPars <- list(trueValues = trueValues)
+mastPlot(output, plotPars)
+```
+
+Because this is a simulated data set, I pass the `trueValues` in the `list plotPars`.
+
+By inspecting chains I decide that it is not converged and continue, with `output` from the previous fit being the new `inputs`:
+
+```{r, eval = FALSE}
+output   <- mastif( inputs = output, ng = 5000, burnin = 3000 )
+```
+
+Other arguments passed to `mastPlot` in the `list plotPars` are given as examples below and listed at `help(mastPlot)`.
+
+
+`mastPlot` generates the following plots:
+
+- `maturation`: chains for maturation parameters in $\beta^v$.
+
+- `fecundity`: chains for fecundity parameters in $\beta^x$.
+
+- `dispersal parameter`: chains for dispersal parameter $u$.
+
+- `variance sigma`: chains for error variance $\sigma^2$, RMSPE, and deviance.
+
+- `maturation, fecundity`: posterior 68% (boxes) and 95% (whiskers) for $\beta^x$ and $\beta^v$.
+
+- `maturation, fecundity by diameter`: estimates (dots) with $95%$ predictive means for latent states.
+
+- `seed shadow`: with 90% predictive interval
+
+- `prediction`: seed data predicted from estimates of latent maturation and fecundity (a) and from parameter estimates.  If `trueValues` are supplied from `mastSim`, then panel (c) includes true versus predicted values.  There is an important distinction between (a) and (b)--good predictions in (a) indicate that combinations of seed sources can be found to predict the seed data, without necessarily meaning that the process model can predict maturation and fecundity.  Good predictions in (b) face the steeper challenge that the process model must predict both maturation and fecundity, which, in turn, predict seed rain.
+
+- `parameter recovery`: if `trueValues` are supplied from `mastSim`, then this plot is provided comparing true and estimated values for $\beta^v$ and $\beta^x$.
+
+- `predicted fecundity, seed data`: maps show predicted fecundity of trees (sizes of green circles) with seed data (gray squares).  If `predList` is supplied to `mastif`, then the predicted seed surface is shown as shaded contours.
+
+- `partial ACF`: autocorrelation function for fecundity (estimated) (a) and in seed counts (observed) (b).
+
+- `tree correlation in time`: pairwise correlations between trees on the same plot.
+
+
+The plots displayed by `mastPlot` include the MCMC chains that are not yet converged.  Again, I can restart where I left off by using `output` as the `inputs` to `mast`.  In addition, I predict the seed surface from the fitted model for a plot and year, as specified in `predList`.
+
+```{r restart, eval = FALSE}
+predList <- list( mapMeters = 3, plots = mapPlot, years = mapYears )
+output   <- mastif( inputs = output, ng = 2000, burnin = 1000, 
+                    predList = predList)
+```
+
+
+To look closer at the predicted plot-year I generate a new map:
+
+```{r mapout, eval = FALSE}
+output$mapPlot    <- mapPlot
+output$mapYears   <- mapYears
+output$treeScale  <- 1.5
+output$trapScale  <- .8
+output$PREDICT <- T
+output$scaleValue <- 20
+output$plotScale  <- 1
+output$COLORSCALE <- T
+output$LEGEND     <- T
+  
+mastMap(output)
+```
+
+The maps show seed counts (squares) and fecundity predictions (circles).  For predicted plot years there is also shown a seed prediction surface. The surface is seeds per m$^2$.
+
+Depending on the simulation, convergence may require more iterations.  The partial autocorrelation for years should be weak, because none are simulated in `mastSim`.  However, actual data will contain autocorrelation.  The fecundity-time correlations show modal values near zero, because simulated data do not include individual covariance.  Positive spatial covariance is imposed by dispersal.
+
+To send output to a single `Rmarkdown` file and `html` or `pdf`, I use this:
+
+```{r to rmd, eval = FALSE}
+plotPars$RMD <- 'pdf'
+mastPlot(output, plotPars)
+```
+
+This option will generate a file `mastifOutput.Rmd`, which can be opened in Rstudio, edited, and knitted to `pdf` format. It contains data and posterior summaries generated by `summary` and `mastPlot`.  This pdf will not include stand maps.  Maps will be included in the `html` version, obtained by setting `plotPars$RMD <- 'html'`.
+
+`r bigskip()`
+
+##<span style="color:teal">slow convergence?</span>
+
+
+Seed shadow models confront convoluted likelihood surfaces, in the sense that we expect local optima.  These surfaces are hard to traverse with MCMC (and impossible with HMC), because maturation status is a binary state that must be proposed and accepted together with latent fecundity.  Posterior simulation can get bogged down when fecundity estimates converge for a combination of mature and immature trees that is locally but not globally optimal.  Especially when there are more trees of a species than there are seed traps, we expect many iterations before the algorithm can 'find' the specific combination of trees that together best describe the specific combination of seed counts in many seed traps. Compounding the challenge is the fact that, because both maturation and fecundity are latent variables for each individual, the redistribution kernel must be constructed anew at each MCMC step.  Yet, analysis of simulated data shows that convergence to the correct posterior distribution is common.  It just may depend on finding reasonable prior parameter values (see below) and long chains.
+
+Examples in this vignette assign enough interations to show this progress toward convergence may be happening, but sufficiently few to avoid long waiting times.  To evaluate convergence, consider the plots for chains of `sigma` (the residual variance $\sigma$ on log fecundity), the `rspse` (the seed count residual), and the `deviance`.  Finally, the plot of seed observed vs predicted gives a sense of progress.
+
+As demonstrated above, restart `mastif` with the fitted object.
+
+
+`r bigskip()`
+
+##<span style="color:teal">multiple seed types per species</span>
+
+
+Often a seed type could have come from trees of more than one species.  Seeds that are only identified to genus level include in `seedNames` the `character` string `UNKN`.   In this simulation the three species `pinuTaeda`, `pinuEchi`, and `pinuVirg` contribute most seeds to the type `pinuUNKN`.  **Important:** there can be only one element in `seedNames` containing the string `UNKN`.  
+
+
+Here are some inputs for the simulation:
+
+```{r simSetup, eval = FALSE}
+specNames <- c('pinuTaeda','pinuEchi','pinuVirg')
+seedNames <- c('pinuTaeda','pinuEchi','pinuVirg','pinuUNKN')
+sim    <- list(nyr=4, ntree=25, nplot=10, ntrap=50, specNames = specNames,
+                  seedNames = seedNames)
+```
+
+There is a `specNames`-by-`seedNames` matrix `M` that is estimated as part of the posterior distribution.  For this example `seedNames` containing the string `UNKN` refers to a seed type that cannot be differentiated beyond the level of the genus `pinu`.      
+
+Here is the simulation with output objects with 2/3 of all seeds identified only to genus level:
+
+```{r sim, eval = FALSE}
+inputs <- mastSim(sim)        # simulate dispersal data
+R      <- inputs$trueValues$R # species to seedNames probability matrix
+round(R, 2)
+```
+
+The matrix `M` stacks the length-$M$ vectors $\mathbf{m}'_s$ discussed in Clark et al. (2019) as a species-by-seed type matrix.  There is a matrix for each plot, here stacked as a single matrix. This is the matrix of values used in simulation.  `mastif` will estimate this matrix as part of the posterior distribution.
+
+Here is a model fit:
+
+
+```{r mast3, eval = FALSE}
+output <- mastif( inputs = inputs, ng = 2000, burnin = 1000) 
+```
+
+The model summary now includes estimates for the unknown `M` as the "species to seed type matrix":
+
+```{r tabPars, eval = FALSE}
+summary( output )
+```
+
+Output plots will include chains for estimates in `M`.  There will also be estimates for each species included in `specNames`:
+
+```{r pars0, eval = FALSE}
+plotPars <- list(trueValues = inputs$trueValues) 
+mastPlot(output, plotPars)
+```
+
+The inverse of $\mathbf{M}$ is the probability that an unknown seed of type $m$ was produced by a tree of species $s$.  These estimates are included in the plot `Species to undiff seed`.
+
+Again, the `.Rmd` file can be knitted to a `pdf` file.
+
+Here is a restart, now with `plots` and `years` specified for prediction in `predList`:
+
+```{r again, eval = FALSE}
+tab   <- with( inputs$seedData, table(plot, year) )
+years <- as.numeric( colnames(tab)[tab[1,] > 0] ) # years for 1st plot
+predList <- list( plots = 'p1', years = years ) 
+output <- mastif( inputs = output, ng = 3000, burnin = 1500, 
+                  predList = predList)
+mastPlot(output)
+```
+
+Chains for the `matrix M` will converge for plots where there are sufficient trees and seeds to obtain an estimate.  They will not be identified on plots where one or the other are rare or absent.
+
+`r bigskip()`
+
+##<span style="color:teal">`specNames` and `seedNames`</span>
+
+
+In the many data sets where seeds of multiple species are not differentiated the undifferentiated seed type occupies a column in `seedData` having a column name that includes the string `UNKN`.  For a concrete example, if `specNames` on a plot include trees in `treeData$species` with the `specNames pinuTaed` and `pinuEchi`, then many seeds might be indentified as `seedNames pinuUNKN`.  In the foregoing example, estimates of the `matrix M` reflect the contributions of each species to the `UNKN` type.  This could be specified in several ways:
+
+```{r, eval = FALSE}
+specNames <- c('pinuTaed', 'pinuEchi')
+
+#seeds never differentiated:
+seedNames <- c('pinuUNKN') 
+
+#one species sometimes differentiated:
+seedNames <- c('pinuTaed', 'pinuUNKN')    
+
+#both species sometimes differentiated:
+seedNames <- c('pinuTaed', 'pinuEchi', 'pinuUNKN')
+```
+
+ 
+
+#<span style="color:brown">`mastPlot` written to files</span>
+
+
+The `function mastPlot` generates summary plots of `output`.  The user has access to all objects used to generate these plots, as discussed in the previous section.  By default plots in `mastPlot` can be rendered to the console.  If `plotPars$SAVEPLOTS = TRUE` is included in the `list plotPars` passed to `mastPlot`, then each plot is saved to a `.pdf` file.  Plots can be consolidated into a single `.Rmd` file, which can be knitted to `.html` or `.pdf` with `plotPars$RMD = html` or `plotPars$RMD = pdf`.
+
+
+
+`r bigskip()`
+
+#<span style="color:darkgreen">my data</span>
+
+
+For illustration I use sample data analyzed by Clark et al. (2013), with data collection that has continued through 2017.  It consists of multiple years and sites.
+
+Here I load data for species with a single recognized seed type, *Liriodendron tulipifera*.  Here is a map, with seed traps scaled by seed counts, and trees scaled by diameter,
+
+
+```{r map21, eval = FALSE}
+d <- "https://github.com/jimclarkatduke/mast/blob/master/liriodendronExample.rData?raw=True"
+repmis::source_data(d)
+mapList <- list( treeData = treeData, seedData = seedData, 
+                 specNames = specNames, seedNames = seedNames, 
+                 xytree = xytree, xytrap = xytrap, mapPlot = 'DUKE_EW', 
+                 mapYears = 2011:2014, treeSymbol = treeData$diam, 
+                 treeScale = .7, trapScale = 1.5, plotScale = 2, 
+                 SCALEBAR = TRUE, scaleValue=50)
+mastMap(mapList)
+```
+
+Here are a few lines of `treeData`, which has been trimmed down to this single species,
+
+```{r litu1, eval = FALSE}
+head(treeData, 3)
+```
+
+Here are a few lines of `seedData`, 
+
+
+```{r litu2, eval = FALSE}
+head(seedData, 3)
+```
+
+
+
+##<span style="color:teal">diameter effect</span>
+
+
+Here I fit the model using `log(diam)`; the `diam` column will be fitted as log diameter. 
+
+```{r fit, eval = FALSE}
+formulaFec <- as.formula( ~ log(diam))    # fecundity model
+formulaRep <- as.formula( ~ log(diam))    # maturation model
+
+inputs   <- list(specNames = specNames, seedNames = seedNames, 
+                 treeData = treeData, seedData = seedData, xytree = xytree, 
+                 xytrap = xytrap)
+output <- mastif( formulaFec, formulaRep, inputs = inputs,  ng = 3000, 
+                  burnin = 1000 )
+```
+
+Following this short sequence, I fit a longer one and predict one of the plots:
+
+```{r more, eval = FALSE}
+predList <- list( mapMeters = 10, plots = 'DUKE_EW', years = 2010:2015 ) 
+output <- mastif( inputs = output, ng = 3000, burnin = 1000, 
+                  predList = predList )
+```
+
+Here are some plots followed by comments on display panels.  Notice that when it progresses to the maps for plot DUKE_HW, they will include the predicted seed shadows:
+
+```{r plotmydata1, eval = FALSE}
+mastPlot(output)
+```
+
+
+From `fecundity` chains, still more iterations are needed for convergence.
+
+The predictor `log(diam)` contributes to fecundity.  `log(diam)` contributes to maturation.
+
+From `seed shadow`, seed rain beneath a 30-cm diameter tree averages near 0.2 seeds per m$^2$.
+
+Although a combination of maturation/fecundity can be found to predict the seed data in `prediction` (part a), the process model does not well predict the maturation/fecundity combination (part b).  In other words, the maturation/fecundity/dispersal aspect of the model is effective, whereas the design does not yet include variables that help explain maturation/fecundity.
+
+From the many maps in `predicted fecundity, seed data`, note that the `DUKE_EW` site includes prediction surfaces, as specfied in `predList`.
+
+Here is the summary:
+
+```{r outpars, eval = FALSE}
+summary( output )
+```
+
+At this point in the the Gibbs sampler, the DIC and root mean square prediction error are:
+
+```{r fitSum, eval = FALSE}
+output$fit
+```
+
+As mentioned above, prediction scores for seed-trap observations are based on the estimated fecundities $[\mathbf{y} | \phi, \rho]$ as `scoreStates` and on the estimated parameters $[\mathbf{y} | \phi, \rho][\phi, \rho| \boldsymbol{\beta}^x, \boldsymbol{\beta}^w, \dots]$ as `predictScore`.  The `TGc` and `TGd` parameters are the affine-transformation parameters (intercept, slope) relating the predictive variance to the error variance (Thorarinsdottir and Gneiting, 2010). 
+
+
+`r bigskip()`
+
+
+
+##<span style="color:teal">year and random effects</span>
+
+Individual (tree differences) can be random and year-to-year differences can be fixed; the latter are not 'exchangeble'.  In cases where there are no predictors that explain variation among individuals the `formula` can be limited to an intercept, using `~ 1`.  In this case, it can be valuable to estimate fecundity even when there are no good predictors.  For this intercept-only model, random effects and/or year effects can allow for variation.  Prior parameter values are supplied as discussed below.
+
+```{r nopred, eval = FALSE}
+#group plots in regions for year effects
+region <- rep('sApps',nrow(treeData))
+region[ as.character(treeData$plot) == 'DUKE_EW' ] <- 'piedmont'
+
+treeData$region <- region
+
+formulaFec   <- as.formula(~ diam)
+formulaRep   <- as.formula( ~ diam ) 
+yearEffect   <- list(groups = 'region')
+randomEffect <- list(randGroups = 'treeID', formulaRan = as.formula( ~ 1 ) )
+inputs <- list(specNames = specNames, seedNames = seedNames, 
+               treeData = treeData, seedData = seedData, 
+               xytree = xytree, xytrap = xytrap,
+               priorDist = 28, priorVDist = 15, maxDist = 50, minDist = 15,
+               minDiam = 25, maxF = 1e+6)
+output <- mastif(inputs, formulaFec, formulaRep, ng = 2000, burnin = 1000,
+               randomEffect = randomEffect, yearEffect = yearEffect )
+mastPlot(output)
+```
+
+Without predictors, the fitted variation is coming from random effects and year effects.
+
+
+To substitute year effects for AR($p$) effects, simply remove the argument specification of `p` in the `yearEffect list`:
+
+```{r, yr, eval = FALSE}
+yearEffect   <- list(groups = c('species','region'))   # year effects
+```
+
+
+`r bigskip()`
+
+##<span style="color:teal">prior parameter values</span>
+
+
+In previous examples, the prior parameter values were past in the `list inputs`.  I can also specify prior values as inputs through the `inputs$priorList` or `inputs$priorTable` holding parameters named in Table 8.
+
+**Table 8.** Components of `inputs` with default values.
+
+object              | explanation
+-------------------:|:--------------------------------------------------------
+`priorDist = 25`    | prior mean dispersal distance parameter ($m$)
+`priorVDist = 40`   | prior variance dispersal parameter
+`minDist = 4`       | minimum mean dispersal distance ($m$)
+`maxDist = 70`      | maximum mean dispersal distance ($m$)
+`maxF = 1e+8`       | maximum fecundity (seeds per tree-year)
+`minDiam = 10`      | minimum `diam` below which a tree can mature  ($cm$)
+`maxDiam = 40`      | maximum `diam` above which a tree can be immature ($cm$)
+`sigmaMu = 1`       | prior mean residual variance $\sigma^2$ 
+`sigmaWt = sqrt(nrow(treeData))` | weight on prior mean (no. of observations)
+
+The mean and variance of the dispersal kernel, `priorDist` and `priorVDist`, refer to the dispersal parameter $u$, transformed to the mean distance for the dispersal kernel.
+The parameters `minDist` and `maxDist` place minimum and maximum bounds on $d$.     
+Fecundity $\phi$ has a prior maximum value of `maxF`.  
+
+`minDiam` and `maxDiam` bound diameter ranges where a tree of unknown maturation status can be mature or not.  This prior range is overridden by values in the `treeData$repr` column that establish an observed maturation state for a tree-year (0 - immature, 1 - mature).
+
+In general, large-seeded species, especially those that can be dispersed by vertebrates, generate noisy seed-trap data, despite the fact that the bulk of the counts still occur close to the parent, and the mean dispersal distance is relatively low.  Large-seeded species produce few fruits/seeds.  Long-distance dispersal cannot be estimated from inventory plots, regardless of plot size, because the fit is dominated by locally-derived seed.  Consider values for maximum fecundity as low as `maxF = 10000`, minimum dispersal `minDist = 2`, and maximum dispersal `maxDist = 12`.  Recall that the latter values refer to the dispersal kernel parameter value, not the maximum distance a seed can travel, which is un-constrained.
+
+Prior parameter values can be passed as a `list`, e.g., 
+
+```{r, eval = FALSE}
+inputs$priorList <- list(minDiam = 15, maxDiam = 60)
+```
+
+Alternatively, prior parameter values can be passed as a table, with parameters for column names for `specNames` for rownames.  Here is a file holding parameter values and the `function mastPriors` to obtain a table for several species in the genus $Pinus$,
+
+```{r, eval = FALSE}
+d <- "https://github.com/jimclarkatduke/mast/blob/master/priorParameters.txt?raw=True"
+download.file(d, destfile="priorParameters.txt")
+
+specNames <- c("pinuEchi","pinuRigi","pinuStro","pinuTaed","pinuVirg")
+seedNames <- c("pinuEchi","pinuRigi","pinuStro","pinuTaed","pinuVirg","pinuUNKN")
+priorTable <- mastPriors("priorParameters.txt", specNames, 
+                         code = 'code4', genus = 'pinus')
+```
+
+The argument `code = 'code4'` specifies the column in `priorParameters.txt` holding the codes corresponding to `specNames`.  In `mastif` the format `code4` means that names consist of the first 4 letters from the genus and species, like this: `pinuTaed`.  The `genus` is provided to allow for genus-level parameters in cases where priors for individual species have not been specified in `priorParameters.txt`.
+
+
+For coefficients in fecundity, `betaPrior` specifies predictor effects by sign.  The use of prior distributions that are flat, but truncated, is two-fold (Clark et al. 2013).  First, where prior information exists, it often is limited to a range of values.  For regressions coefficients (e.g., $\boldsymbol{\beta}$) we typically have a prior belief about the sign of the effect (positive or negative), but not its magnitude or appropriate weight.  Second, within bounds placed by the prior, the posterior has the shape of the likelihood, unaffected by a prior weight.  Prior weight is hard to specify sensibly for this hierarchical, non-linear model. 
+
+
+```{r, eval = FALSE, echo = FALSE}
+
+# THIS BLOCK IS OMITTED
+
+load('../combinedSites/pinus.Rdata')
+
+pl <- c('CWT_118','CWT_218','DUKE_BW','DUKE_EW','MARS_F','MARS_P')
+treeData <- treeData[treeData$plot %in% pl,]
+seedData <- seedData[seedData$plot %in% pl,]
+xytree <- xytree[xytree$plot %in% pl,]
+xytrap <- xytrap[xytrap$plot %in% pl,]
+
+count <- as.matrix(seedData[,-c(1:5)])
+count <- count[,colSums(count, na.rm = TRUE) > 0]
+count <- count[,-1]
+seedData <- cbind(seedData[,1:5],count)
+
+treeData <- treeData[,1:6]
+
+seedNames <- colnames(count)
+specNames <- sort(unique(treeData$species))
+
+save(treeData, seedData, xytree, xytrap, 
+     specNames, seedNames, file='pinusExample.rData')
+
+#load('pinusExample.rData')
+```
+
+
+Here is an example using `betaPrior` to specify a quadratic diameter effect.  First, here is a data set for *Pinus*:
+
+```{r priorBeta, eval = FALSE}
+d <- "https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True"
+repmis::source_data(d)
+```
+
+Here I specify formulas, prior bounds for `diam` (quadratic), and fit the model:
+
+```{r, eval = FALSE}
+formulaRep <- as.formula( ~ diam )
+formulaFec <- as.formula( ~ diam + I(diam^2) )   
+
+betaPrior <- list(pos = 'diam', neg = 'I(diam^2)')
+                  
+inputs <- list( treeData = treeData, seedData = seedData, xytree = xytree,
+                xytrap = xytrap, specNames = specNames, seedNames = seedNames,
+                betaPrior = betaPrior, priorTable = priorTable,
+                seedTraits = seedTraits)
+
+output <- mastif(inputs = inputs, formulaFec, formulaRep, 
+                 ng = 500, burnin = 200)
+
+# restart
+output <- mastif(output, formulaFec, formulaRep, 
+                 ng = 3000, burnin = 1000)
+mastPlot(output)
+```
+
+Here again, many of the seed ID maxtrix elements are well identified (trace plots labeled "`M matrix plot`", others are uncertain due to small numbers of the different species that could contribute to a seed type.  These are presented as bar and whisker plots for elements of matrix $\mathbf{M}$ (fraction of seed from a species that is counted as each seed type) in the plot labeled `species -> seed type`.  Bar plots show the fraction of unknown seeds that derive from each species, labeled `species -> seed type`.  The distribution of diameters in the data will limit the ability to estimate its effect on maturation and fecundity.
+
+Note that the estimates for fecundity coefficients, $\boldsymbol{\beta}^x$, are positive for `diam` and negative for `diam^2`.  If there is no evidence in the data for a decrease $\frac{\partial{\psi}}{\partial{diam}}$, then the quadratic term is near zero.  In this case, the predicted fecundity in the plot labelled `maturation, fecundity by diameter` will increase exponentially.
+
+
+##<span style="color:teal">maturation/fecundity data, if available</span>
+
+
+Most individuals produce no seed, due to resource limitation, especially light, in crowded stands.  As trees increase in size and resource access they mature, and become capable of seed production.  Maturation is hard to observe, so it must be modelled.  In our data sets, maturation status is observed, but most values are NA; it is only assigned if certain.  A value of 1 means that reproduction is observed.  A value of 0 means that the entire crown is visible during the fruiting season, and it is clear that no reproduction is present.  Needless to say, most observations from beneath closed canopies are NA.  The observations are entered in the column `repr` in the `data.frame treeData`. Above I showed an example where `minDiam` is set as a prior that trees of smaller diameters are immature and `maxDiam` is the prior that trees above this diameter are mature.
+
+`mastif` further admits estimates of cone production.  The column `treeData$cropCount` refers to the cones that will open and contribute to trap counts in the year `treeData$year`. There is another column `treeData$cropFraction`, which refers to the fraction of the tree canopy that is represented by the cone count.  When crop counts are used, a `matrix seedTraits` must be supplied with one row per species and a column with seeds per fruit, cone, or pod.  The rownames of `seedTraits` are the `specNames`.  The colname of `seedTraits` with seeds per fruit is labeled `seedsPerFruit`. 
+
+
+##<span style="color:teal">when trees are sampled less frequently than seeds</span>
+
+
+Seed studies often include seed collections in years when trees are not censused.  For example, tree data might be collected every 2 to 5 years, whereas seed data are available as annual counts.  In this case, there there are years in `seedData$year` that are missing from `treeData$year`.  `mastif` needs a tree year for each trap year.  If tree data are missing from some trap years, I need to constuct a complete `treeData data.frame` that includes these missing years.  This amended version of `treeData` must be accessible to the user, to allow for the addition of covariates such as weather variables, soil type, and so forth.
+
+The function `mastFillCensus` allows the user to access the filled-in version of `treeData` that will be fitted by `mastif`.  `mastFillCensus` accepts the same `list` of `inputs` that is passed to the function `mastif`.  The missing years are inserted for each tree with interpolated diameters.  The `list inputs` is returned with objects updated to include the missing census years and modified slightly for analysis by `mastif`.  `inputs$treeData` can now be annotated with the covariates that will be included in the model.  Here is the example from the `help` file.  First I read a file that has complete years, so I randomly remove years:
+
+```{r fill, eval = FALSE}
+
+# randomly remove years for this example:
+years <- sort(unique(treeData$year))
+sy    <- sample(years,5)
+treeData <- treeData[treeData$year %in% sy,]
+treeData[1:10,]
+
+```
+
+
+Note the missing years, as is typical of mast data sets.  Here is the file after filling missing years:
+
+```{r, removed, eval = FALSE}
+inputs   <- list( specNames = specNames, seedNames = seedNames, 
+                  treeData = treeData, seedData = seedData, 
+                  xytree = xytree, xytrap = xytrap, priorTable = priorTable,
+                  seedTraits = seedTraits)
+inputs <- mastFillCensus(inputs, beforeFirst=10, afterLast=10)
+inputs$treeData[1:10,]
+```
+
+The missing `plotYr` combinations in `treeData` have been filled to match thos in `seedData`. Now columns can be added to `inputs$treeData`, as needed in `formulaFec` or `formulaRep`.
+
+In cases where tree censuses start after seed trapping begins or tree censuses end before seed trapping ends, it may be reasonable to assume that the same trees are producing seed in those years pre-trapping or post-trapping years.  In these cases, `mastFillCensus` can accommodate these early and/or late seed trap data by extrapolating `treeData` `beforeFirst` years before seed trapping begins or `afterLast` years after seed tapping ends.  
+
+
+##<span style="color:teal">adding covariates</span>
+
+Continuing with the $Pinus$ example, here I want to add covariates for missing years as needed for an AR($p$) model, in this example $p$ = 4.  First, consider the tree-years included in this sample, before and after in-filling:
+
+```{r, treeYr table, eval = FALSE}
+# original data
+table(treeData$year)
+
+# filled census
+table(inputs$treeData$year)
+table(seedData$year)
+```
+
+Note that the infilled version of tree data in the `list inputs` has the missing years, corresponding to those included in `seedData`. Here I set up the year effects model and infill to allow for `p = 3`,
+
+```{r, treeOnly, eval = FALSE}
+p <- 3
+inputs   <- mastFillCensus(inputs, p = p)
+treeData <- inputs$treeData
+```
+
+Here are regions for random effects in the AR(3) model:
+
+```{r arr, eval = FALSE}
+region = list(sApps = c("CWT118", "MARSF", "MARSP"),
+              piedmont = c("DUKEBW", "DUKEEW","DUKEFACE1","DUKEFACE5","DUKEFACE6"),
+              NE = c("HARVBW","HARVS"))
+treeData$region <- 'sApps'
+for(j in 1:length(region)){
+  wj <- which( as.character(treeData$plot) %in% region[[j]])
+  treeData$region[wj] <- names(region)[j]
+}
+inputs$treeData <- treeData
+yearEffect <- list(groups = c('species','region'), p = p)
+```
+
+I add the climatic deficit (monthly precipitation minus PET) as a covariant.  First, here is a data file,
+```{r def, eval = FALSE}
+d <- "https://github.com/jimclarkatduke/mast/blob/master/def.csv?raw=True"
+download.file(d, destfile="def.csv")
+```
+
+The format for the file `dev.csv` is `plot` by `year_month`.  I have saved it in my local directory.  The function `mastClimate` returns a `list` holding three vectors, each having length equal to `nrow(treeData)`.  Here is an example for the cumulative moisture deficit for the previous summer.  I provide the file name, the vector of plot names, the vector of previous years, and the months of the year.  To get the cumulative deficit, I use `FUN = 'sum'`:
+
+```{r types, eval = FALSE}
+treeData <- inputs$treeData
+deficit  <- mastClimate( file = 'def.csv', plots = treeData$plot, 
+                         years = treeData$year - 1, months = 6:8, 
+                         FUN = 'sum', vname='def')
+treeData <- cbind(treeData, deficit$x)
+summary(deficit)
+```
+                   
+The first column in `deficit` is the variable itself for each tree-year.  The second column holds the site mean value for the variable.  The third column is the difference between the first two columns  All three can be useful covariates, each capturing different effects (Clark et al. 2014).  I could append any or all of them as columns to `treeData`.
+
+Here is an example using minimum temperature of the preceeding winter.  I obtain the minimum with two calls to `mastClimate`, first for Dec of the previous year (`years = treeData$year - 1, months = 12`), then from Jan, Feb, Mar for the current year (`years = treeData$year, months = 1:3`).  I then take the minimum of the two values:
+
+```{r covars, eval = FALSE}
+# include min winter temperature
+d <- "https://github.com/jimclarkatduke/mast/blob/master/tmin.csv?raw=True"
+download.file(d, destfile="tmin.csv")
+
+# minimum winter temperature December through March of previous winter
+
+t1 <- mastClimate( file = 'tmin.csv', plots = treeData$plot, 
+                   years = treeData$year - 1, months = 12, FUN = 'min',
+                   vname = 'tmin')
+t2 <- mastClimate( file = 'tmin.csv', plots = treeData$plot, 
+                   years = treeData$year, months = 1:3, FUN = 'min',
+                   vname = 'tmin')
+tmin <- apply( cbind(t1$x[,1], t2$x[,1]), 1, min)
+treeData$tminDecJanFebMar <- tmin
+inputs$treeData <- treeData
+```
+
+Here is a model using several of these variables:
+
+```{r, runClim, eval = FALSE}
+
+formulaRep <- as.formula( ~ diam )
+formulaFec <- as.formula( ~ diam + defJunJulAugAnom + tminDecJanFebMar )   
+output <- mastif(inputs = inputs, formulaFec, formulaRep, 
+                 yearEffect = yearEffect,
+                 ng = 2500, burnin = 1000)
+```
+
+Data for future years can be a scenario, based on assumptions of status quo in the mean and variance, an assumed rate of climate change, and so on.  
+
+
+`r bigskip()`
+
+#<span style="color:darkgreen">flexibility</span>
+
+
+Seed production is volatile, with order of magnitude variation from year-to-year.  There is synchronicity among individuals of the same species, the "masting" phenomenon.  There are large difference between individuals, that are not explained by environmental variables. In this section I discuss extensions to random effects, year effects, lag effects, and fitting multiple species having seed types that are not always identifiable to species.
+
+
+##<span style="color:teal">random individual effects</span>
+
+
+Random individual effects can include random intercepts and slopes for the fecundities of each individual tree that is imputed to be in the mature state for at least 3 years.  [There are no random effects on maturation, because they would be hard to identify from seed trap data for this binary response.] 
+
+I include in the `inputs list` the `list randomEffect`, which includes the column name for the random group.  Typically this would be a unique identifier for a tree within a plot, e.g., `randomEffect$randGroups = 'tree'`:
+
+```{r ranEff0, eval = FALSE}
+randomEffect <- list(randGroups = 'tree', 
+                     formulaRan = as.formula( ~ diam ) )
+```
+
+
+However, `randGroups` could be the plot name.  This column is interpreted as a `factor`, each level being a group.  Random effects will not be fitted on individuals that are in the mature state less than 3 years.
+
+The `formulaRan` is the random effects model.  It includes a subset of variables specified in fecundity model `formulaFec`. [Because random effects are centered on zero, terms in `formulaRan` must already be included in the fecundity design `formulaFec`.]  Here is a brief description of what's happening:
+
+There is a design vector $\mathbf{w}_{ij,t}$ that can include all or some of the columns in $\mathbf{x}_{ij,t}$.  There is an individual-effects coefficient matrix $\boldsymbol{\beta}^w_{ij}$, which enters the mean structure this way:
+
+$$\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \boldsymbol{\beta}^x + \mathbf{w}'_{ij,t} \boldsymbol{\beta}^w_{ij}, \sigma^2 \right)$$
+
+Here is a fit with random effects.
+
+```{r ranEff, eval = FALSE}
+formulaFec <- as.formula( ~ diam)    # fecundity model
+formulaRep <- as.formula( ~ diam)    # maturation model 
+randomEffect <- list(randGroups = 'tree', 
+                     formulaRan = as.formula( ~ diam) )
+output <- mastif( formulaFec, formulaRep, inputs = inputs, 
+                  ng = 2000, burnin = 1000, randomEffect = randomEffect )
+```
+
+Here is a restart:
+```{r ranEff2, eval = FALSE}
+output <- mastif( inputs = output, ng = 2000, burnin = 1000)
+mastPlot(output)
+```
+
+There are several things to note:
+
+
+- there is a new panel for `fixed plus random effects`, showing the individual combinations of intercepts and `diam` slopes.  
+
+- strong tradeoffs between slope and diameter in the random effects plot indicates that individual trees provide limited information on diameter effects.
+
+- the `prediction` panel (b) shows some improvement, indicating that even with random effects, diameter struggles to predict maturation/fecundity.
+
+
+```{r fitSum2, eval = FALSE}
+output$fit
+```
+
+
+
+##<span style="color:teal">random groups for years and lags</span>
+
+
+As discussed previously, the model admits year effects and lag effects, the latter as an AR($p$) model.  Year effects assign a coefficient to each year $t = [1, \dots, T_j]$.  Lag effects assign a coefficient to each of $j \in \{1, \dots, p\}$ plags, where the maximum lag $p$ should be substantially less than the number of years in the study.  Year effects can be organized in random groups.  Specification of random groups is done in the same way for year effects and for lag effects.
+
+I define random groups for year and lag effects by species, by plots, or both. When there are multiple species that contribute to the modeled seed types,  I expect the year effects to depend on which species is actually producing the seed.  When there are multiple plots sufficiently distant from one another, I might allow for the fact that year effects or lag effects differ by group; `yearEffect$groups` allows that they need not mast in the same years.  In the example below, I'll use the term *region* for plots in the same plotGroup.
+
+Here is a breakdown for this data set by region:
+
+```{r regtab, eval = FALSE}
+with(treeData, colSums( table(plot, region)) )
+```
+
+Here are year effects structured by random groups of plots, given by the column `region` in `treeData`:
+
+```{r yrpl, eval = FALSE}
+yearEffect <- list(groups = 'region')
+```
+
+This option will fit a year effect for both provinces and years having sufficient individuals estimated to be in the mature state.  Here is the model with random year effects,
+
+
+$$\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \mathbf{\beta}^x + \gamma_t + \gamma_{g[i],t}, \sigma^2 \right)$$
+where the year effect $\gamma_{g[i],t}$ is shared by trees in all plots defined by `yearEffect$province`, $ij \in g$.  Year effects are sampled directly from conditional posteriors.
+
+
+```{r fit3, eval = FALSE}
+inputs$treeData  <- treeData 
+output <- mastif(formulaFec, formulaRep, inputs = inputs, 
+                 ng = 2500, burnin = 500, 
+                 randomEffect = randomEffect, yearEffect = yearEffect)
+```
+
+Here is a restart, with predictions for one of the plots:
+
+```{r moreYR, eval = FALSE}
+predList <- list( mapMeters = 10, plots = 'DUKE_BW', years = 1998:2014 ) 
+output <- mastif(inputs = output, predList = predList, ng = 3000, burnin = 1000)
+mastPlot(output)
+```
+
+
+Note that still more iterations are needed for convergence.  Here are some comments on `mastPlot`:
+
+- In the `dispersal parameter u` panel there are now year effects plotted for the two random groups `mtn` and `piedmont`.
+
+- The subsequent panel `dispersal mean and variance` shows the mean and variance of random effects
+
+- There is a `dispersal by group` panel showing posterior estimate for the two random groups, with scales for the parameter $u$ on the left (m$^2$) and mean parameter $d$ on the right (m).
+
+- There has been some improvement in the `prediction`, panel (b).
+
+- The `predicted fecundity, seed data` maps for the plot `DUKE_BW` show seed prediction surfaces.
+
+- The `year effect groups` shows year effects for random groups in `treeData$region`.
+
+- `partial ACF` shows partial autocorrelation by species and plot.
+
+
+`r bigskip()`
+
+##<span style="color:teal">random effects when there are multiple species</span>
+
+
+
+Most data sets have multiple seed types that complicate estimation of mast production by each species.  This example considers *Pinus* spp, seeds of which cannot be confidently assigned to species.  Here I load the data and generate a sample of maps from several years, including all species and seed types.
+
+
+
+```{r map2, eval = FALSE}
+d <- "https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True"
+repmis::source_data(d)
+
+mapList <- list( treeData = treeData, seedData = seedData, 
+                 specNames = specNames, seedNames = seedNames, 
+                 xytree = xytree, xytrap = xytrap, mapPlot = 'DUKE_EW',
+                 mapYears = c(2007:2010), treeSymbol = treeData$diam,
+                 treeScale = .6, trapScale=1.4,
+                 plotScale = 1.2, LEGEND = TRUE)
+mastMap(mapList)
+```
+
+Note the tendency for high seed accumulation (large green squares) near dense, large trees (large brown circles).
+
+
+In this example, I again model seed production as a function of log diameter, `diam`, now for multiple species and seed types.  This is an AR(p) model, because I include the number of lag terms `yearEffect$p = 5`,
+
+
+$$\log \psi_{ij,t} \sim N \left( \mathbf{x}'_{ij,t} \mathbf{\beta}^x + \sum^p_{l=1} (\alpha_l + \alpha_{g[i],l}) \psi_{ij,t-l}, \sigma^2 \right)$$
+Only years $p < t \le T_i$ are used for fitting.  Samples are drawn directly from the conditional posterior distribution.
+
+
+
+In the table printed at the outset are trees by plot and year, i.e., the `groups` assigned in `inputs$yearEffect`.  The zeros indicate either absence of trees or that no plots were sampled in those years.  (These are not the same thing, `mastif` knows the difference).
+
+
+
+
+In the code below I specify formulas, AR($p$), and random effects, and some prior values.  Due to the large number of trees, convergence is slow. Because I do not assume that trees of different species necessarily mast in the same years, I allow them to differ through random groups on the AR($p$) terms.
+
+
+```{r fit0, eval = FALSE}
+formulaFec <- as.formula( ~ diam )   # fecundity model
+formulaRep <- as.formula( ~ diam )            # maturation model
+
+yearEffect   <- list(groups = 'species', p = 4)   # AR(4)
+randomEffect <- list(randGroups = 'tree', 
+                     formulaRan = as.formula( ~ diam ) )
+
+inputs   <- list( specNames = specNames, seedNames = seedNames, 
+                  treeData = treeData, seedData = seedData, 
+                  xytree = xytree, xytrap = xytrap, priorDist = 20,
+                  priorVDist = 5, minDist = 15, maxDist = 30, 
+                  minDiam = 12, maxDiam = 40,
+                  maxF = 1e+6, seedTraits = seedTraits)
+output <- mastif(formulaFec, formulaRep, inputs = inputs, ng = 500, 
+               burnin = 100, yearEffect = yearEffect, 
+               randomEffect = randomEffect)
+```
+ 
+Here is a restart:
+ 
+```{r moreAR, eval = FALSE}
+output <- mastif(inputs = output, ng = 2000, burnin = 1000)
+plotPars <- list(MAPS = FALSE)
+mastPlot(output, plotPars = plotPars)
+```
+ 
+Again, convergence will require more iterations. The AR($p$) coefficients in the `lag effect group` panel shows the coefficients by random group.  They are also shown in a separate panel, with each group plotted separately.  In the `ACF eigenvalues` panel are shown the eigenvalues for AR lag coefficients on the real (horizontal) and imaginary (vertical) scales with the unit circle, within which oscillations are damped.  The imaginary axis describes oscillations.
+ 
+ 
+ Here's a restart with predictions:
+
+```{r moreYR2, eval = FALSE}
+plots <- c('DUKE_EW','CWT_118')
+years <- 1980:2025
+predList <- list( mapMeters = 10, plots = plots, years = years ) 
+output <- mastif(inputs = output, predList = predList, ng = 3000, 
+                 burnin = 1000)
+```
+
+and updated plots:
+
+```{r yrPlot, eval = FALSE}
+mastPlot( output, plotPars = list(MAPS = FALSE) )
+```
+
+
+Note that convergence requires additional iterations (larger `ng`).  The predictions of seed production will progressively improve with convergence.
+
+
+```{r onemap, eval = FALSE}
+mapList <- output
+mapList$mapPlot <- 'DUKE_EW'
+mapList$mapYears <- c(2011:2012)
+mapList$PREDICT <- T
+mapList$treeScale <- 1.2
+mapList$trapScale <- .8
+mapList$LEGEND <- T
+mapList$scaleValue <- 50
+mapList$plotScale <- 2
+mapList$COLORSCALE <- T
+mapList$mfrow <- c(2,1)
+
+mastMap( mapList )
+```
+
+Or a larger view of a single map:
+
+```{r onemap1, eval = FALSE}
+mapList$mapPlot <- 'CWT_118'
+mapList$mapYears <- 2015
+mapList$PREDICT <- T
+mapList$treeScale <- 1.5
+mapList$trapScale <- .8
+mapList$LEGEND <- T
+mapList$scaleValue <- 50
+mapList$plotScale <- 2
+mapList$COLORSCALE <- T
+mapList$mfrow <- c(1,1)
+mastMap( mapList )
+```
+
+
+Here is a summary of parameter estimates:
+
+```{r outpars0, eval = FALSE}
+summary( output )
+```
+
+
+#<span style="color:darkgreen">convergence</span>
+
+
+R code is highly vectorized.  Unavoidable loops are written in C++ and exploit the C++ library `Armadillo`, available through `RcppArmadillo`.  Alternating with Metropolis are Hamiltonian MC steps to encourage large movements.
+
+Despite extensive vectorization and C++ for cases where loops are unavoidable, convergence can be slow.  A collection of plots inventoried over dozens of years can generate in excess of $10^6$ tree-year observations and $10^4$ trap year observations.  There is no escaping the requirement of large numbers of indirectly sampled latent variables.  If random effects are included, there are (obviously) as many random groups as there are trees.  All tree fecundities must be imputed.  
+
+
+`r bigskip()`
+
+
+#<span style="color:darkgreen">trouble shooting</span>
+
+Because seed-trap studies involve multiple data sets (seed traps, trees, covariates) that are collected over a number of years and multiple sites, combining them can expose inconsistencies that are not immediately evident.  Of course, a proper analysis depends on alignment of trees, seed traps, and covariates with unique tree names (`treeData$tree`) and trap names (`seedData$trap`) in each plot (`treeData$plot, seedData$plot`).  
+
+Notes are displayed by `mastif` at execution summarizing aspects of the data that might trigger warnings.  All of these issues have arisen in data sets I have encountered from colleagues:
+
+**Alignment of data frames.** The unique trees in each plot supplied in `treeData` must also appear with `x` and `y` in `xytree`.  The unique traps in each plot supplied in `seedData` must also appear with `x` and `y` in `xytrap`.  Problems generate a note:
+
+`Note: treeData includes trees not present in xytree`
+
+
+**Spatial coordinates.**  Because tree censuses and seed traps are often done at different times, by different people, the grids often disagree.  `Spatial range`  tables are displayed for (x, y) coordinates in `xytree` and `xytrap`.
+
+**Unidentified seeds.**  Seeds that cannot be identified to species contain the `character` string `UNKN`.  If there are species in `specNames` that do not appear in `seedNames`, then the `UNKN` seed type must be included in `seedNames` and in columns of `seedData`.  For example, if `caryGlab, caryTome` appear in `specNames`, and `caryGlab, caryUNKN` appear in `seedNames` (and as columns in `seedData`), then `caryUNKN` will be the imputed fate for all seeds emanating from `caryOvat` and some seeds from `caryGlab`.  
+
+This note will be displayed:
+
+`Note: unknown seed type is caryUNKN`
+
+If there are `seedNames` that do not appear in `specNames`, this note is given:
+
+`Note: seedNames not in specNames and not "UNKN":`
+`caryCord`
+
+   `Moved caryCord to "UNKN" class`
+   
+**Design issues.** The design can seem confusing, because there are multiple species on multiple plots in multiple years.  There is a design matrix that can be found here for fecundity:
+
+`output$inputs$setupData$xfec`
+
+and here for maturation:
+
+`output$inputs$setupData$xrep`
+
+(Variables are standardized, because fitting is done that way, but coefficients are reported on their original scales.  Unstandardized versions of design matrices are `xfecU` and `xrepU`.)
+
+There should not be missing values in the columns of `treeData` that will be used as predictors (covariates or factors).  If there are missing values, a note will be generated:
+
+
+`Fix missing values in these variables:`
+`[1] "yearlyPETO.tmin1, yearlyPETO.tmin2, flowering.covs.pr.data, flowering.covs.tmin.data, s.PETO"`
+
+There can be missing seed counts in `seedData`--missing values will be imputed.
+
+A table containing the Variance Inflation Factor (VIF), range of each variable, and correlation matrix will be generated at execution.  VIF values > 10 and high correlations between covariates are taken as evidence of redundancy.  A table will be generated for each species separately.  However, in `xfec` and `xrep` they are treated as a single matrix.
+
+Year effects by random group require replication within groups.  Here is a note for the AR model showing sizes of groups defined by species and region (`NE, piedmont, sApps`):
+
+`no. trees with > plag years, by group:`
+
+      `caryGlab-NE caryGlab-piedmont    caryGlab-sApps `
+      `          1               497               361 `
+      
+      `caryOvat-piedmont caryTome-piedmont    caryTome-sApps `
+      `        122               569                77 `
+
+`small group: caryGlab-NE`
+
+There is only one tree in the `caryGlab-NE` group, suggesting insufficient replication and a different aggregation scheme.
+
+For the AR($p$) model, values are imputed for $p$ years before and after a tree is observed, and only trees observed for > $p$ years will contribute to parameter estimates.  If the study lasts 3 years, then the model should not specify `yearEffect$p = 5`.  A note will be generated to inform on the number of observations included in parameter estimates:
+
+`Number of full observations with AR model is: [1] 21235`
+
+**Prediction.**  If `predList` is supplied, then fecundity and seed density  will be predicted for specified plot-years.  The size of the prediction grid is displayed as a table of prediction nodes by plot and year.  Large prediction grids slow execution.  To reduce the size of the grid, increase the `inputs$predList$mapMeters` (the default is 5 m by 5 m).
+
+
+When covariates are added as columns to `treeData`, they must align with `treeData$plot`, `treeData$year`, and, if they are tree-level covariates, with `treeData$tree`.  The required column `treeData$diam` is an example of the latter.
+
+
+
+#<span style="color:darkgreen">references</span>
+
+
+Clark, JS, DM Bell, M Kwit, A Powell, and K Zhu. 2013. Dynamic inverse prediction and sensitivity analysis with high-dimensional responses: application to climate-change vulnerability of biodiversity.  *Journal of Biological, Environmental, and Agricultural Statistics* 18, 376-404.
+
+Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. *Ecological Monographs*, in press.
+
+Clark, JS, S LaDeau, and I Ibanez. 2004. Fecundity of trees and the colonization-competition hypothesis, *Ecological Monographs*, 74, 415-442.
+
+Clark, JS, M Silman, R Kern, E Macklin, and J Hille Ris Lambers. 1999. Seed dispersal near and far: generalized patterns across temperate and tropical forests.  *Ecology* 80, 1475-1494.
+
+Neal, R.M. 2011. MCMC using Hamiltonian dynamics. In: *Handbook of Markov Chain Monte Carlo*, edited by S. Brooks, A. Gelman, G. Jones, and X.-L. Meng. Chapman & Hall / CRC Press. 
+
+Thorarinsdottir, T.L. and T. Gneiting. 2010. Probabilistic forecasts of wind speed: ensemble model output statistics by using heteroscedastic censored regression. *J. R. Statist. Soc. A* 173, Part 2, 371–388.
+
+
+
+
+
