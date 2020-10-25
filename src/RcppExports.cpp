@@ -7,8 +7,25 @@
 using namespace Rcpp;
 
 // kernYrRcpp
-arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, arma::uvec years, arma::uvec seedyear, arma::uvec treeyear, arma::uvec seedrow, arma::uvec treecol);
-RcppExport SEXP _mastif_kernYrRcpp(SEXP dmatSEXP, SEXP fecSEXP, SEXP yearsSEXP, SEXP seedyearSEXP, SEXP treeyearSEXP, SEXP seedrowSEXP, SEXP treecolSEXP) {
+arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, arma::uvec seedrow, arma::uvec treecol, arma::uvec plotyrs, arma::uvec treeplotYr, arma::uvec seedplotYr);
+RcppExport SEXP _mastif_kernYrRcpp(SEXP dmatSEXP, SEXP fecSEXP, SEXP seedrowSEXP, SEXP treecolSEXP, SEXP plotyrsSEXP, SEXP treeplotYrSEXP, SEXP seedplotYrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type dmat(dmatSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type fec(fecSEXP);
+    Rcpp::traits::input_parameter< arma::uvec >::type seedrow(seedrowSEXP);
+    Rcpp::traits::input_parameter< arma::uvec >::type treecol(treecolSEXP);
+    Rcpp::traits::input_parameter< arma::uvec >::type plotyrs(plotyrsSEXP);
+    Rcpp::traits::input_parameter< arma::uvec >::type treeplotYr(treeplotYrSEXP);
+    Rcpp::traits::input_parameter< arma::uvec >::type seedplotYr(seedplotYrSEXP);
+    rcpp_result_gen = Rcpp::wrap(kernYrRcpp(dmat, fec, seedrow, treecol, plotyrs, treeplotYr, seedplotYr));
+    return rcpp_result_gen;
+END_RCPP
+}
+// kernYrRcppOld
+arma::mat kernYrRcppOld(arma::mat dmat, arma::mat fec, arma::uvec years, arma::uvec seedyear, arma::uvec treeyear, arma::uvec seedrow, arma::uvec treecol);
+RcppExport SEXP _mastif_kernYrRcppOld(SEXP dmatSEXP, SEXP fecSEXP, SEXP yearsSEXP, SEXP seedyearSEXP, SEXP treeyearSEXP, SEXP seedrowSEXP, SEXP treecolSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -19,7 +36,7 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< arma::uvec >::type treeyear(treeyearSEXP);
     Rcpp::traits::input_parameter< arma::uvec >::type seedrow(seedrowSEXP);
     Rcpp::traits::input_parameter< arma::uvec >::type treecol(treecolSEXP);
-    rcpp_result_gen = Rcpp::wrap(kernYrRcpp(dmat, fec, years, seedyear, treeyear, seedrow, treecol));
+    rcpp_result_gen = Rcpp::wrap(kernYrRcppOld(dmat, fec, years, seedyear, treeyear, seedrow, treecol));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -128,6 +145,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_mastif_kernYrRcpp", (DL_FUNC) &_mastif_kernYrRcpp, 7},
+    {"_mastif_kernYrRcppOld", (DL_FUNC) &_mastif_kernYrRcppOld, 7},
     {"_mastif_byRcpp", (DL_FUNC) &_mastif_byRcpp, 6},
     {"_mastif_tnormRcpp", (DL_FUNC) &_mastif_tnormRcpp, 4},
     {"_mastif_trMVNmatrixRcpp", (DL_FUNC) &_mastif_trMVNmatrixRcpp, 7},

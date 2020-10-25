@@ -22,13 +22,13 @@ Seed production is estimated from censuses of trees and seed collections from tr
   \tabular{ll}{
   Package: \tab mastif\cr
   Type: \tab Package\cr
-  Version: \tab 1.0\cr
-  Date: \tab 2019-5-18\cr
+  Version: \tab 1.0.1\cr
+  Date: \tab 2020-10-19\cr
   License: \tab GPL (>= 2)\cr
   URL: \tab http://sites.nicholas.duke.edu/clarklab/code/\cr
   }
   
-The package mastif estimates productivity of trees and dispersion of seed observed at seed traps, using information on locations of sources and detectors, and covariates that could explain source strength.  Data sets of this type are common and used to understand a range of processes related to seed dispersal, masting, environmental controls on reproduction, sex ratio, and allocation.
+The package mastif estimates fecundity of trees and dispersion of seed observed at seed traps, using information on locations of sources and detectors, and covariates that could explain source strength.  Data sets of this type are common and used to understand a range of processes related to seed dispersal, masting, environmental controls on reproduction, sex ratio, and allocation.
 
 Posterior simulation is done by Gibbs sampling.  Analysis is done by these functions:
 
@@ -48,7 +48,7 @@ Posterior simulation is done by Gibbs sampling.  Analysis is done by these funct
   Author: James S Clark, \email{jimclark@duke.edu}
 }
 \references{
-Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. Ecological Monographs, in press.
+Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. Ecological Monographs, e01381.
 }
 \keyword{ package }
 \seealso{

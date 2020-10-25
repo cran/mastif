@@ -1,4 +1,5 @@
 
+
 treesNearTraps <- function(tdata, xytree, xytrap, meters = 60){
   
   # retain only trees within meters of the closest seed trap
@@ -124,14 +125,21 @@ buildSpecByPlot <- function(cnames, mat, plot){
 dbetaBinom <- function(y, n, p, sd, log = FALSE){
   
   # sd is sqrt(var) of beta(p|a, b), not of betaBinomial
-  tiny <- 1e-5
+  # not normalized for n
+  
+  
   n[ n < y ] <- y[n < y]
+  bb <- n*0
   
-  a  <- p^2/sd/sd*(1 - p) - p
+  ww <- which(sd == 0)
+  if(length(ww) > 0)bb[ww] <- dbinom(y[ww], n[ww], p[ww], log=T)
+  
+  ww <- which(sd > 0)
+  tiny <- 1e-5
+  a    <- p[ww]^2/sd[ww]/sd[ww]*(1 - p[ww]) - p[ww]
   a[a < tiny] <- tiny
-  b  <- a*(1/p - 1)
-  
-  bb <- lchoose(n, y) + lbeta(y + a, n - y + b) - lbeta(a, b)
+  b  <- a*(1/p[ww] - 1)
+  bb[ww] <- lchoose(n[ww], y[ww]) + lbeta(y[ww] + a, n[ww] - y[ww] + b) - lbeta(a, b)
   
   if(log)return(bb)
   
@@ -233,14 +241,14 @@ mastIDmatrix <- function(treeData, seedData, genus,
   }else{
     trows <- which(treeData$species %in% specNames)
   }
-  if(length(trows) == 0)stop('specNames not found in treeData')
+  if(length(trows) == 0)stop('\nspecNames not found in treeData\n')
   
   if(is.null(seedNames)){
     scols  <- which( startsWith( colnames(seedData), substr(genus,1,4) ) )
   }else{
     scols <- which(colnames(seedData) %in% seedNames)
   }
-  if(length(scols) == 0)stop('seedNames not found in seedData')
+  if(length(scols) == 0)stop('\nseedNames not found in seedData\n')
   
   snames <- colnames(seedData)[scols]
   
@@ -339,6 +347,8 @@ mastPriors <- function(file, specNames, code, genus = 'NULL'){
   # if only 'genus', then a single vector returned
   # code columns in priorParameters.txt are 'code...'
   
+  specNames <- as.character(specNames)
+  
   ns <- length(specNames)
   
   if( endsWith(file, '.txt') )
@@ -410,10 +420,10 @@ buildSeedByPlot <- function(sdata, snames){
 }
 
 mastClimate <- function( file, plots, years, months, FUN = 'mean', 
-                         vname = character(0)){
+                         vname = '', lastYear = 2021){
   
   # return covariate for a vector of plots and years
-  # vname variable name
+  # vname variable name; special treatment of 'degDays'
   # plots and years are vectors of the same length
   # months is a vector in (1, 12)
   
@@ -423,7 +433,7 @@ mastClimate <- function( file, plots, years, months, FUN = 'mean',
   if(length(tform) == 0)ffrom <- grep('.txt', file)
   
   if(length(fform) == 0 & length(tform) == 0)
-    stop('file must be .csv or .txt format')
+    stop('\nfile must be .csv or .txt format\n')
 
   if(length(tform) > 0)data <- read.csv(file, header  = TRUE, row.names=1)
   if(length(fform) > 0)data <- read.table(file, header  = TRUE, row.names=1)
@@ -447,18 +457,18 @@ mastClimate <- function( file, plots, years, months, FUN = 'mean',
   mo  <- as.numeric( tmp[,2] )
   yd  <- sort(unique(yr))
   
-  n.ahead <- max(years) - max(yd)
+  my <- max(years)
+  n.ahead <- my - max(yd)
   nyr     <- length(yd) + max( c(0, n.ahead) )
   
   if(n.ahead > 0){
+    
     lastyr <- max(yr)
     lastmo <- max(mo)
-    
     yseq   <- (lastyr + 1):(lastyr + n.ahead)
-    
     mseq   <- (lastmo + 1):(lastmo + 12)
-    ymore <- rep( yseq, each = 12 )
-    mmore <- rep( mseq, n.ahead )
+    ymore  <- rep( yseq, each = 12 )
+    mmore  <- rep( mseq, n.ahead )
     
     wk <- which(mseq > 12)             # data do not end in december
     if(length(wk) > 0){
@@ -473,10 +483,14 @@ mastClimate <- function( file, plots, years, months, FUN = 'mean',
 
     yr <- c(yr, ymore)
     mo <- c(mo, mmore)
+    
+    dmore <- matrix(NA, nrow(data),length(ymore))
+    colnames(dmore) <- paste(ymore,'_',mmore,sep='')
+    data <- cbind(data, dmore)
   }
   
   yd <- sort(unique(yr))
-  xx <- numeric(0)
+  xx <- aa <- numeric(0)  # hold mean and monthly anomaly
   wy <- match(yr, yd)
   wm <- match(mo, 1:12)
   
@@ -489,78 +503,79 @@ mastClimate <- function( file, plots, years, months, FUN = 'mean',
     if(length(wj) == 0){
       xx <- cbind(xx, rep(NA, nyr))
       missing <- c(missing, allPlots[j])
+      stop( paste('plot',allPlots[j],'is missing from',file) )
       next
     }
     
     dj   <- data[wj,] 
     if(is.list(dj))dj <- unlist(dj)
     
-    if(n.ahead > 0){  # predict forward
+    wf     <- which(is.finite(dj))
+    nahead <- length(dj) - max(wf)
+    dj     <- dj[1:max(wf)]
+    
+    if(nahead > 0){  # predict forward
       fitAR <-  arima(dj, order = c(2, 0, 0), 
                       seasonal = list(order = c(1, 0, 0), period = 12))
-      ptmp  <- predict(fitAR, n.ahead = 12*n.ahead)
-      ptmp  <- ptmp$pred + rnorm(12*n.ahead, 0, ptmp$se) 
+      ptmp  <- predict(fitAR, n.ahead = nahead)
+      ptmp  <- ptmp$pred + rnorm(nahead, 0, ptmp$se) 
       dj    <- c(dj, signif(ptmp, 3))
     }
     
     mmat <- matrix(NA, nyr, 12)
     mmat[ cbind(wy, wm) ] <- dj
-    mvec <- suppressWarnings(
-      apply(mmat[,months, drop = FALSE], 1, FUN, na.rm  = TRUE)
-    )
+    
+    monthMu   <- colMeans(mmat, na.rm=T)  # monthly means over all years
+    monthAnom <- t(t(mmat) - monthMu)
+    
+    if( vname == 'degDays' ){
+      mvec <- mmat
+      mvec[ mvec < 0 ] <- 0
+      mvec <- 30*rowSums(mvec, na.rm=T)
+      avec <- mvec*0
+    }else{
+      mvec <- suppressWarnings(
+        apply(mmat[,months, drop = FALSE], 1, FUN, na.rm  = TRUE)
+      )
+      avec <- suppressWarnings(
+        apply(monthAnom[,months, drop = FALSE], 1, FUN, na.rm  = TRUE)
+      )
+    }
     xx   <- cbind(xx, mvec)
+    aa   <- cbind(aa, avec)
   }
+  
   
   if(length(missing) > 0){
     pmiss <- paste0( missing, collapse=', ')
     warning( paste('\nMissing plots in covariate file:\n', pmiss) )
   }
   
-  colnames(xx) <- allPlots
+  colnames(xx) <- colnames(aa) <- allPlots
   xx[!is.finite(xx)] <- NA
+  aa[!is.finite(aa)] <- NA
   
   if(PREC)xx[xx < 0] <- 0
   
-  plotMean <- matrix( colMeans(xx, na.rm  = TRUE), nrow(xx), ncol(xx), byrow  = TRUE)
-  plotAnom <- xx - plotMean
+  iy <- match(years, yd)
+  ip <- match(plots, colnames(xx))
   
-  wy  <- match(years, yd)
-  wp  <- match(plots, colnames(xx))
-  wfy <- which( is.finite(wy) & is.finite(wp) )
+  yy   <- xx[ cbind(iy, ip) ]
+  anom <- aa[ cbind(iy, ip) ]
+  
+  site <- signif( apply(xx, 2, mean, na.rm=T)[ip], 4)
+  tc   <- paste0(num2Month(months), collapse='')
+  
+  xm <- signif(cbind(yy, site, anom), 4)
+  colnames(xm) <- paste(vname, tc, c('','SiteMean','Anom'), sep='')
+  
+  xm[,3] <- xm[,1] - xm[,2]
   
   if(length(missing) > 0){
-    miss <- unique( columnPaste(plots[-wfy], years[-wfy], '_') )
-    pmiss <- paste0( miss, collapse=', ')
+  #  miss <- unique( columnPaste(plots[-wfy], years[-wfy], '_') )
+  #  pmiss <- paste0( miss, collapse=', ')
     warning( paste('\nMissing plot_years in covariate file:\n', pmiss) )
   }
-  
-  noYr <- sort(unique(years[!is.finite(wy)]))
-  noPl <- sort(unique(years[!is.finite(wp)]))
-  
-  tmp <- rep(NA, length(years))
-
-  mu <- ann <- tmp
-  tmp[wfy] <- xx[ cbind(wy[wfy], wp[wfy]) ]
-  
-  miss <- which(!is.finite(tmp))
-  if(length(miss) > 0){
-    pmiss <- unique( columnPaste(plots[miss], years[miss], '_') )
-    if(length(pmiss) > 10)pmiss <- sort(unique(years[miss]))
-    pmiss <- paste0( pmiss, collapse=', ')
-    warning( paste('\nMissing plot_years in covariate file:\n', pmiss) )
-  }
-  mu[wfy]  <- plotMean[ cbind(wy[wfy], wp[wfy]) ]
-  ann[wfy] <- plotAnom[ cbind(wy[wfy], wp[wfy]) ]
-    
-  tmp <- matrix(tmp,ncol=1)
-  mu  <- matrix(mu,ncol=1)
-  ann <- matrix(ann,ncol=1)
-  
-  tc  <- paste0(num2Month(months), collapse='')
-  colnames(tmp) <- tc
-  
-  xm <- signif(cbind(tmp, mu, ann), 3)
-  colnames(xm) <- paste(vname, tc, c('','SiteMean','Anom'), sep='')
 
   list(x = xm, missingPlots = missing)
 }
@@ -738,7 +753,7 @@ trimCharVec <- function(cvec, string=NULL, good=NULL, bad=NULL){
   wf <- which(is.finite(wm))
   if(length(wf) < length(wm)){
     if(STOP){
-      stop(paste('duplicates in', xcol))
+      stop(paste('\nduplicates in', xcol))
     }else{
       kword <- paste('Values have been trimmed in ', xcol,'.',sep='')
       xmat1 <- xmat1[wf,]
@@ -850,14 +865,14 @@ cleanSeedData <- function(sdata, xytrap, seedNames, verbose){
   
   wna <- which(is.na(sdata$active) )
   if(length(wna) > 0){
-    kword <- 'Some active values are undefined in seedData.'
+    kword <- 'Some values are undefined in seedData$active.'
     if(verbose)cat( paste('\nNote: ', kword, '\n', sep='') )
     words <- paste(words, kword)
     sdata$active[wna] <- 0
   }
   wna <- which(is.na(sdata$area))
   if(length(wna) > 0)
-    stop('\nSome area values undefined or zero in seedData\n')
+    stop('\nSome values undefined or zero in seedData$area\n')
   
   sdata  <- .fixNamesVector( c('plot','trap'), sdata, MODE='character')
   xytrap <- .fixNamesVector( c('plot','trap'), xytrap, MODE='character')
@@ -951,79 +966,122 @@ cleanTreeData <- function(tdata, xytree, specNames){
 cleanInputs <- function(inputs, beforeFirst = 4,
                         afterLast = 4, p = 0, verbose = FALSE){
   
+  xytree <- xytrap <- sdata <- NULL
+  
   SEEDDATA <- TRUE
+  if( !'seedData' %in% names(inputs) )SEEDDATA <- FALSE
+  
   SEEDCENSOR <- TREESONLY <- FALSE   # censored counts with 'seedNames_min', 'seedNames_max'
   censMin <- censMax <- NULL
-  minDiam <- 0
+  #minDiam <- 0
   words <- character(0)
+  cropCols <- c('cropCount','cropMin','cropMax')
   
-  if('minDiam' %in% names(inputs))minDiam <- inputs$minDiam[1]
-  
-  tdata  <- inputs$treeData
-  sdata  <- inputs$seedData
-  xytree <- inputs$xytree
-  xytrap <- inputs$xytrap
+  tdata        <- inputs$treeData
+  specNames    <- inputs$specNames
   combineSpecs <- inputs$combineSpecs
-  combineSeeds <- inputs$combineSeeds
-  seedNames    <- inputs$seedNames
-  censMin    <- inputs$censMin
-  censMax    <- inputs$censMax
+  tdata$plot   <- .fixNames(tdata$plot, all  = TRUE, MODE='character')$fixed
+  tdata$year   <- as.numeric(tdata$year)
+  tdata$year   <- factor2integer(tdata$year)
+  tdata        <- tdata[as.character(tdata$species) %in% specNames,]
+  tdata$tree   <- .fixNames(tdata$tree, all  = TRUE, MODE='character')$fixed
+  tdata$treeID <- columnPaste(tdata$plot, tdata$tree)
+  priorTable   <- inputs$priorTable
   
-  if('TREESONLY' %in% names(inputs))TREESONLY <- inputs$TREESONLY
-  
-  tdata$plot  <- .fixNames(tdata$plot, all  = TRUE, MODE='character')$fixed
-  xytree$plot <- .fixNames(xytree$plot, all  = TRUE, MODE='character')$fixed
-  tdata$year  <- as.numeric(tdata$year)
-  sdata$year  <- as.numeric(sdata$year)
-  tdata$year  <- factor2integer(tdata$year)
-  sdata$year  <- factor2integer(sdata$year)
+  if(!is.null(priorTable)){
+    minDiam <- priorTable[tdata$species, 'minDiam']
+    maxDiam <- priorTable[tdata$species, 'maxDiam']
+    maxFec  <- priorTable[tdata$species, 'maxFec']
+  }else{
+    if(verbose){
+      cat( '\nNote: missing priorTable, used defaults for minDiam, maxDiam, maxFec' )
+    }
+    minDiam <- rep(10, nrow(tdata))
+    maxDiam <- rep(40, nrow(tdata))
+    maxFec  <- rep(1e+8, nrow(tdata))
+  }
   
   ww <- which(is.na(tdata$year))
-  if(length(ww) > 0)stop('treeData$year has NAs')
+  if(length(ww) > 0)
+    stop('treeData$year has NAs')
+  if(min(tdata$year) < 1700)
+    stop('treeData$year < 1700')
   
-  if(min(tdata$year) < 1700)stop('treeData$year < 1700')
-
+  tdata  <- tdata[order(tdata$plot, tdata$tree, tdata$year),]
   
-  plotInput <- sort(unique(c(tdata$plot,sdata$plot)))
-  pname <- .fixNames(plotInput,all  = TRUE, MODE='character')$fixed
+  plotInput <- sort(unique(tdata$plot))
+  
+  if(SEEDDATA){
+    
+    xytree        <- inputs$xytree
+    xytree$plot   <- .fixNames(xytree$plot, all  = TRUE, MODE='character')$fixed
+    xytree        <- xytree[order(xytree$plot, xytree$tree),]
+    xytree$treeID <- columnPaste(xytree$plot, xytree$tree)
+    
+    sdata  <- inputs$seedData
+    xytrap <- inputs$xytrap
+    combineSeeds <- inputs$combineSeeds
+    seedNames    <- inputs$seedNames
+    censMin      <- inputs$censMin
+    censMax      <- inputs$censMax
+    sdata$year   <- as.numeric(sdata$year)
+    sdata$year   <- factor2integer(sdata$year)
+    plotInput    <- sort(unique(c(tdata$plot,sdata$plot)))
+    xytrap$plot  <- .fixNames(xytrap$plot, all  = TRUE, MODE='character')$fixed
+    sdata$plot   <- .fixNames(sdata$plot, all  = TRUE, MODE='character')$fixed
+    xytrap$trap  <- .fixNames(xytrap$trap, all  = TRUE, MODE='character')$fixed
+    sdata$trap   <- .fixNames(sdata$trap, all  = TRUE, MODE='character')$fixed
+    
+    
+    ww <- which(is.na(xytree$x) | is.na(xytree$y))
+    if(length(ww) > 0)xytree <- xytree[-ww,]
+    
+    ww <- which(is.na(xytrap$x) | is.na(xytrap$y))
+    if(length(ww) > 0)xytrap <- xytrap[-ww,]
+    
+    ww <- which(!xytrap$plot %in% sdata$plot)
+    if(length(ww) > 0){
+      nop   <- unique( xytrap$plot[ww] )
+      sdata <- sdata[!sdata$plot %in% nop,]
+    }
+  }
+  
+  pname <- .fixNames(plotInput, all  = TRUE, MODE='character')$fixed
   names(plotInput) <- pname
   
   specNames <- .fixNames(inputs$specNames, all  = TRUE, MODE='character')$fixed
   
   if(length(which(duplicated(c(specNames)))) > 0)stop('duplicate specNames')
   
-  tdata  <- tdata[order(tdata$plot, tdata$tree, tdata$year),]
-  xytree <- xytree[order(xytree$plot, xytree$tree),]
-  
-  if(is.null(sdata))SEEDDATA <- FALSE
-  
   tmp <- combineSpecies(tdata$species, specNames, combineSpecs)
   tdata$species <- tmp$species
   specNames     <- tmp$specNames
   
-  tdata <- tdata[as.character(tdata$species) %in% specNames,]
-  tdata$tree  <- .fixNames(tdata$tree, all  = TRUE, MODE='character')$fixed
-  xytree$plot <- .fixNames(xytree$plot, all  = TRUE, MODE='character')$fixed
   
-  tdata$treeID  <- columnPaste(tdata$plot, tdata$tree)
-  xytree$treeID <- columnPaste(xytree$plot, xytree$tree)
-  
-  # must have traps or fecundity
+  # must have traps or crop count
   ll <- !tdata$treeID %in% xytree$treeID
   ww <- which(ll)
-  if(length(ww) > 0){
-    if('cropFraction' %in% colnames(tdata)){
-      ff <- is.finite(tdata$cropFraction)
-      ww <- which( ll & !ff )
-      if(length(ww) > 0){
-        tdata <- tdata[-ww,]
-      }
-      ww <- which(!tdata$treeID %in% xytree$treeID)
-      if(length(ww) > 0){
-        tdata <- rbind(tdata[-ww,],tdata[ww,])# TREESONLY moved to end
-      }
-    }else{           # if no cropFraction, remove trees without traps
-      tdata <- tdata[-ww,]
+  
+  
+  if( length(ww) > 0 ){
+    
+    wc <- tdata$treeID %in% xytree$treeID
+    
+    if( 'cropCount' %in% colnames(tdata) ){
+      wc <- wc | is.finite(tdata$cropCount) 
+   }
+    if('cropMin' %in% colnames(tdata) ){
+      wc <- wc | is.finite(tdata$cropMin)
+    }
+    
+    wk <- which(!wc)
+  
+    if(length(wk) > 0){
+      tdata <- tdata[-wk,]
+    }
+    wk <- which(!tdata$treeID %in% xytree$treeID)
+    if(length(wk) > 0){
+      tdata <- rbind(tdata[-wk,],tdata[wk,])   # TREESONLY moved to end
     }
   }
   
@@ -1068,10 +1126,10 @@ cleanInputs <- function(inputs, beforeFirst = 4,
     plotTrapYr <- columnPaste(sdata$trapID, sdata$year, '_')
     
     rnames <- columnPaste(sdata$trapID, sdata$year, '_')
-  
+    
     rownames(sdata) <- rnames
     
-    if(is.null(censMin)){   # if censMin not built yet
+    if( is.null(censMin) ){   # if censMin not built yet
       sall <- c(seedNames, paste(seedNames, '_min',sep=''),
                 paste(seedNames,'_max',sep=''))
       countCols <- countCols[countCols %in% sall] 
@@ -1088,28 +1146,43 @@ cleanInputs <- function(inputs, beforeFirst = 4,
     if(length(psave) == 0)stop('tree and seed data not from same plots')
     sdata     <- sdata[sdata$plot %in% psave,]
     xytrap    <- xytrap[xytrap$plot %in% psave,]
-   
+    
     # treesOnly
-    ww <- which(!tdata$plot %in% sdata$plot)
+    ww <- which(!tdata$plot %in% sdata$plot)    # not on a seed trap plot
     
     if(length(ww) > 0){
-      if( !'cropFraction' %in% colnames(tdata) ){
+      
+      # if no crop counts, retain only trapped plots
+      
+      wcrop <- which(cropCols %in% colnames(tdata))
+      
+      if( length(wcrop) == 0 ){
         tdata     <- tdata[tdata$plot %in% psave,]
-      }else{
-        ww <- which(!tdata$plot %in% sdata$plot &
-                    is.finite(tdata$cropFraction))
-        if(length(ww) == 0){
-          tdata     <- tdata[tdata$plot %in% psave,]
-        }else{
-          wm <- which(!tdata$plot %in% sdata$plot &
-                        !is.finite(tdata$cropFraction))
-          if(length(wm) > 0){
-            tdata <- tdata[-wm,]
-          }else{
-            tdata <- rbind(tdata[-ww,],tdata[ww,])
-            TREESONLY <- TRUE
-          }
+      }else{                                  # there are crop counts
+        
+        # not on trapped plots, but finite crop counts: keep but move to bottom
+        w1 <- !tdata$plot %in% sdata$plot
+        w2 <- rep(FALSE, length(w1))
+        for(m in wcrop){
+          w2[ is.finite( tdata[,cropCols[m]] ) ] <- TRUE
         }
+        wk <- which(w1 & w2)
+        
+    #    wk <- which(!tdata$plot %in% sdata$plot &
+    #                (is.finite(tdata$cropCount) | is.finite(tdata$cropMin) | is.finite(tdata$cropMax)))
+    #    if(length(wk) == 0){
+    #      tdata     <- tdata[tdata$plot %in% psave,]
+    #    }else{
+    #      wm <- which(!tdata$plot %in% sdata$plot &
+    #                    !is.finite(tdata$cropCount) & 
+    #                    !is.finite(tdata$cropMin) & !is.finite(tdata$cropMax))
+    #      if(length(wm) > 0){
+    #        tdata <- tdata[-wm,]
+    #      }else{
+            if(length(wk) > 0)tdata <- rbind(tdata[-wk,],tdata[wk,])
+            TREESONLY <- TRUE
+    #      }
+    #    }
       }
     }
     
@@ -1132,23 +1205,20 @@ cleanInputs <- function(inputs, beforeFirst = 4,
     }
     
     # trees with fecundity estimates
-    
     if(TREESONLY){
-      wf <- which(is.finite(tdata$cropFraction))
+      wf <- which(is.finite(tdata$cropCount))
       womit <- womit[!womit %in% wf]
     }
     
     if(length(womit) > 0)tdata <- tdata[-womit,]
     
     # censor inactive traps
-    
     seedNames <- .fixNames(inputs$seedNames, all  = TRUE, MODE='character')$fixed
     
     ww <- which(!seedNames %in% colnames(sdata))
     if(length(ww) > 0)seedNames <- seedNames[-ww]
     
     #fix seed names in censored columns
-    
     ntype <- length(seedNames)
     scens <- .multivarChainNames( c('min', 'max'), seedNames )
     wcens <- which(scens %in% colnames(sdata))   # data input as censored
@@ -1205,14 +1275,13 @@ cleanInputs <- function(inputs, beforeFirst = 4,
       slo <- matrix(0, nrow(sdata), length(stypes))  
       colnames(slo) <- stypes
       snew <- shi <- slo 
-
-      # censored rows:
       
+      # censored rows:
       ms <- match(stypes, seedNames)
       wf <- which(is.finite(ms))
       
       snew[,stypes[ms[wf]]] <- as.matrix(sdata[,stypes[ms[wf]]])
- 
+      
       # uncensored rows
       scensName <- .replaceString(scens, '_min', '')
       slo[,scensName] <- as.matrix(sdata[,scens])
@@ -1234,7 +1303,7 @@ cleanInputs <- function(inputs, beforeFirst = 4,
       colnames(censMin)[1] <- colnames(censMax)[1] <- 'srow'
       censMin[is.na(censMin)] <- 0
       censMax[is.na(censMax)] <- censMin[is.na(censMax)]
-
+      
       colnames(censMin) <- colnames(censMax) <- 
         .fixNames(colnames(censMin), all  = TRUE, MODE='character')$fixed
       
@@ -1293,16 +1362,17 @@ cleanInputs <- function(inputs, beforeFirst = 4,
     sdata$trapID <- columnPaste(sdata$plot, sdata$trap)
   }
   
-  tmp <- cleanTreeData(tdata, xytree, specNames)
-  tdata     <- tmp$tdata
-  xytree    <- tmp$xytree
-  specNames <- tmp$specNames
-  words     <- paste(words, tmp$words)
-  
-  # subset data
-  plots  <- sort(unique(tdata$plot))
+  plots     <- sort(unique(tdata$plot))
   
   if(SEEDDATA){
+    
+    tmp <- cleanTreeData(tdata, xytree, specNames)
+    tdata     <- tmp$tdata
+    xytree    <- tmp$xytree
+    specNames <- tmp$specNames
+    words     <- paste(words, tmp$words)
+    plots     <- sort(unique(tdata$plot))
+    
     wseed <- which(sdata$plot %in% plots)
     sdata  <- sdata[wseed,]
     xytrap <- xytrap[xytrap$plot %in% plots,]
@@ -1311,34 +1381,39 @@ cleanInputs <- function(inputs, beforeFirst = 4,
       censMin <- tmp$censMin
       censMax <- tmp$censMax
     }
-  }
-  
-  # check coordinates
-  ntt     <- table(xytree$plot)
-  utt     <- tapply(xytree$x, xytree$plot, range)
-  tplots   <- .fixNames(names(utt))$fixed
-  metersX <- matrix( round(unlist(utt)), ncol=2, byrow  = TRUE )
-  colnames(metersX) <- c('minX', 'maxX')
-  dx <- apply(metersX,1,diff)
-  
-  metersY <- matrix( round(unlist(tapply(xytree$y, xytree$plot, range))), ncol=2,
-                     byrow  = TRUE )
-  colnames(metersY) <- c('minY', 'maxY')
-  dy <- apply(metersY,1,diff)
-  
-  ha <- round(apply(metersX,1,diff)*apply(metersY,1,diff)/10000, 2)
-  metersX <- cbind(metersX, dx)
-  metersY <- cbind(metersY, dy)
-  
-  mmm <- cbind(metersX, metersY)
-  rownames(mmm) <- tplots
-  mmm <- cbind(ntt[tplots],mmm)
-  colnames(mmm)[1] <- 'trees'
-  
-  if(verbose){
-    if(max(ha) > 100)cat('\nNote: plot area from xytree > 100 ha? See below:')
-    cat('\n\nSpatial range for trees (dx, dy): \n')
-    print(cbind(mmm))
+    
+    # check coordinates
+    ntt    <- table(xytree$plot)
+    utt    <- tapply(xytree$x, xytree$plot, range)
+    tplots <- .fixNames(names(utt))$fixed
+    metersX <- matrix( round(unlist(utt)), ncol=2, byrow  = TRUE )
+    colnames(metersX) <- c('minX', 'maxX')
+    dx <- apply(metersX,1,diff)
+    
+    metersY <- matrix( round(unlist(tapply(xytree$y, xytree$plot, range))), ncol=2,
+                       byrow  = TRUE )
+    colnames(metersY) <- c('minY', 'maxY')
+    dy <- apply(metersY,1,diff)
+    
+    ha <- round(apply(metersX,1,diff)*apply(metersY,1,diff)/10000, 2)
+    metersX <- cbind(metersX, dx)
+    metersY <- cbind(metersY, dy)
+    
+    
+    mmm <- cbind(metersX, metersY)
+    rownames(mmm) <- tplots
+    mmm <- cbind(ntt[tplots],mmm)
+    colnames(mmm)[1] <- 'trees'
+    
+    if(verbose){
+      if(max(ha) > 100)cat('\nNote: plot area from xytree > 100 ha? See below:')
+      cat('\n\nSpatial range for trees (dx, dy): \n')
+      print(cbind(mmm))
+    }
+    
+  }else{
+    
+    tdata$plotYr  <- columnPaste(tdata$plot, tdata$year,'_')
   }
   
   if(TREESONLY){
@@ -1417,24 +1492,32 @@ cleanInputs <- function(inputs, beforeFirst = 4,
     words <- paste(words, kword)
   }
   
+  minDiam <- priorTable[tdata$species, 'minDiam']
+  maxDiam <- priorTable[tdata$species, 'maxDiam']
+  maxFec  <- priorTable[tdata$species, 'maxFec']
+  
+  if(is.null(minDiam))minDiam <- 5
+  if(is.null(maxDiam))maxDiam <- 50
+  if(is.null(maxFec))maxFec <- 1e+6
+  
   
   wna <- which(tdata$diam > minDiam)
   if(length(wna) == 0){
     stop(paste('\nno trees > minDiam:\n ',minDiam,sep=''))
   }
   
-  xytree <- .trimRows(xytree, tdata, 'treeID')[[1]]
+  if(SEEDDATA)xytree <- .trimRows(xytree, tdata, 'treeID')[[1]]
   
   if('repr' %in% names(tdata)){
     rr <- suppressWarnings( range(tdata$repr,na.rm  = TRUE) )
     
     if(rr[1] == 1 & sum(rr, na.rm  = TRUE) == nrow(tdata)){
-      kword <- ' All trees declared to be reproductive.'
+      kword <- ' All trees declared to be reproductive in treeData$repr.'
       warning(paste('\nNote: ', kword, '\n', sep='') )
       words <- paste( words, kword )
     }
     if(rr[2] == 0 & sum(rr, na.rm  = TRUE) == nrow(tdata)){
-      kword <- ' All trees declared to be immature.'
+      kword <- ' All trees declared to be immature in treeData$repr.'
       warning(paste('\nNote: ', kword, '\n', sep='') )
       words <- paste( words, kword )
       tdata$repr[tdata$diam < minDiam] <- NA
@@ -1491,21 +1574,23 @@ cleanInputs <- function(inputs, beforeFirst = 4,
   
   # duplicated tree years
   ty <- with(tdata, table(treeID, year) )
+  treeYr <- columnPaste(tdata$treeID, tdata$year,'_')
   
   if(max(ty) > 1){
     wm <- which(ty > 1,arr.ind  = TRUE)
     cw <- unique(rownames(wm))
     cy <- paste0( cw , collapse=', ')
-    kword <- paste( ' Removed treeData$tree with duplicate years:\n', cy )
+    
+    wn <- which(!duplicated(treeYr))
+    tdata <- tdata[wn,]
+    
+    kword <- paste( ' Removed treeData$tree with duplicate years:', cy )
     if(verbose)cat(paste('\nNote: ', kword, '\n', sep='') )
     words <- paste( words, kword )
     words <- paste(words, kword)
-    tdata <- tdata[!as.character(tdata$treeID) %in% cw,]
+ #   tdata <- tdata[!as.character(tdata$treeID) %in% cw,]
   }
   
-  tmp <- .trimRows(xytree, tdata, 'treeID')
-  xytree <- tmp$mat1
-  words  <- paste(words, tmp$words)
   
   # after tdata$year extended by p, beforeFirst, afterLast, 
   # remove traps beyond range(tdata$year) by plot
@@ -1513,7 +1598,12 @@ cleanInputs <- function(inputs, beforeFirst = 4,
   # sdata <- trimPlotYr(tdata, sdata, beforeFirst, afterLast, p)
   
   years <- range( tdata$year ) 
-  if(SEEDDATA)years <- range(c(years, sdata$year))
+  if(SEEDDATA){
+    tmp <- .trimRows(xytree, tdata, 'treeID')
+    xytree <- tmp$mat1
+    words  <- paste(words, tmp$words)
+    years <- range(c(years, sdata$year))
+  }
   years <- min(years):max(years)
   
   # too rare
@@ -1523,7 +1613,7 @@ cleanInputs <- function(inputs, beforeFirst = 4,
   
   if(length(wna) == length(specNames))
     stop( paste('All species too rare: ', paste0(names(wna),collapse=', '), sep='') )
-
+  
   if(length(wna) > 0){               # species too rare
     
     bad   <- names(specTab)[wna]
@@ -1633,15 +1723,15 @@ cleanInputs <- function(inputs, beforeFirst = 4,
   
   
   tdata$plotyr <- match( tdata$plotYr, plotYears )
-  
-  xytree    <- xytree[xytree$treeID %in% tdata$treeID,]
-  specNames <- sort(unique(as.character(tdata$species)))
-  
-  plots <- sort(unique(as.character(tdata$plot)))
+  specNames    <- sort(unique(as.character(tdata$species)))
+  plots        <- sort(unique(as.character(tdata$plot)))
   
   # seedNames, specNames
   
   if(SEEDDATA){
+    
+    xytree    <- xytree[xytree$treeID %in% tdata$treeID,]
+    
     gg <- grep('UNKN',seedNames)
     
     if(length(gg) > 0){
@@ -1730,18 +1820,21 @@ cleanInputs <- function(inputs, beforeFirst = 4,
   
   if(is.null(tdata$obs))tdata$obs <- 1
   
-  inputs$xytrap    <- xytrap
-  inputs$seedNames <- seedNames
+
   inputs$treeData  <- tdata
-  inputs$seedData  <- sdata
-  inputs$xytree    <- xytree
   inputs$specNames <- specNames
   inputs$plotInput <- plotInput
   inputs$inwords   <- words
-
-  inputs$censMin <- censMin
-  inputs$censMax <- censMax
   inputs$TREESONLY <- TREESONLY
+  
+  if(SEEDDATA){
+    inputs$xytrap    <- xytrap
+    inputs$seedNames <- seedNames
+    inputs$seedData  <- sdata
+    inputs$xytree    <- xytree
+    inputs$censMin <- censMin
+    inputs$censMax <- censMax
+  }
 
   inputs
 }
@@ -1806,9 +1899,12 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
   # p       - if AR(p > 0) model, fills p yr before and after tree observed
   
   words <- character(0)
-  SEEDCENSOR <- TREESONLY <- FALSE
+  SEEDCENSOR <- TREESONLY <- FILLED <- FALSE
   SEEDDATA   <- TRUE
   if(!'seedData' %in% names(inputs))SEEDDATA <- FALSE
+  priorTable <- NULL
+  
+  if('FILLED' %in% names(inputs))return(inputs)
   
   AR <- FALSE
   if(p > 0){
@@ -1818,10 +1914,7 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
     if(verbose)cat( '\n', kword, '\n' )
   }
   
-  inputs$seedData$year <- factor2integer(inputs$seedData$year)
   inputs$treeData$year <- factor2integer(inputs$treeData$year)
-  
-  inputs$seedData$plot <- .fixNames(inputs$seedData$plot, all  = TRUE, 'character')$fixed
   inputs$treeData$plot <- .fixNames(inputs$treeData$plot, all  = TRUE, 'character')$fixed
   
   ss <- tapply(inputs$treeData$year, 
@@ -1830,11 +1923,15 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
   censusYr <- matrix( unlist(ss), ncol=2, byrow  = TRUE )
   rownames(censusYr) <- sn
   
-  ss <- tapply(inputs$seedData$year, 
-               list(plot = inputs$seedData$plot),range)
-  sn <- names(ss)
-  trapYr <- matrix( unlist(ss), ncol=2, byrow  = TRUE )
-  rownames(trapYr) <- sn
+  if(SEEDDATA){
+    inputs$seedData$year <- factor2integer(inputs$seedData$year)
+    inputs$seedData$plot <- .fixNames(inputs$seedData$plot, all  = TRUE, 'character')$fixed
+    ss <- tapply(inputs$seedData$year, 
+                 list(plot = inputs$seedData$plot),range)
+    sn <- names(ss)
+    trapYr <- matrix( unlist(ss), ncol=2, byrow  = TRUE )
+    rownames(trapYr) <- sn
+  }
   
   inputs    <- cleanInputs(inputs, beforeFirst, afterLast, p, verbose = verbose)
   specNames <- inputs$specNames
@@ -1849,20 +1946,37 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
   TREESONLY <- inputs$TREESONLY
   rownames(tdata) <- columnPaste(tdata$treeID,tdata$year,'_')
   
+  # rare species removed in cleanInputs, 
+  #    now determine if there are still cropCounts/cropMin
+  if('cropCount' %in% colnames(tdata)){
+    rc <- suppressWarnings( max(tdata$cropCount, na.rm=T) )
+    if(rc < 0){
+      CONES <- FALSE
+      tdata <- tdata[,!colnames(tdata) %in% 
+                               c('cropCount','cropFraction','cropFractionSd')]
+    }
+    rc <- suppressWarnings( max(tdata$cropMin, na.rm=T) )
+    if(rc < 0){
+      CONES <- FALSE
+      tdata <- tdata[,!colnames(tdata) %in% 
+                       c('cropMin','cropMax')]
+    }
+  }
+  
   if(!is.null(censMin))SEEDCENSOR <- TRUE
   
-  plots <- sort(unique( as.character(tdata$plot) ))
-  plots <- .fixNames(plots, all  = TRUE)$fixed
-  nplot <- length(plots)
+
+  years   <- range( tdata$year[tdata$obs == 1] )  
+  plots   <- sort( unique(as.character(tdata$plot)) )
+  nplot   <- length(plots)
+  nyr     <- length(years)
   
-  sdata$obs     <- 1
-  tdata$obsTrap <- addObsTrap(tdata, sdata)
-  
-  
-  years <- range( tdata$year[tdata$obs == 1] )  
-  
-  if(SEEDDATA)years <- range( c(years, sdata$year) )
-  
+  if(SEEDDATA){
+    sdata$obs     <- 1
+    tdata$obsTrap <- addObsTrap(tdata, sdata)
+    years   <- range( c(years, sdata$year) )
+    trapIDs <- sort( unique(as.character(sdata$trapID)) )
+  }
   
   years <- years[1]:years[2]
   allYears <- (min(years) - p):(max(years) + p)
@@ -1876,15 +1990,59 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
   if('repSd' %in% names(tdata))vtypes$repSd = 'ij'
   if('province' %in% names(tdata))vtypes$province = 'i'
   
-  if('fecMin' %in% names(tdata)){
-    vtypes$fecMin = 'ij'
-    fecMin <- tdata$fecMin
-    names(fecMin) <- tdata$plotTreeYr
+  
+  fecMin <- fecMax <- cropMin <- cropMax <- NULL
+  
+  
+  if( 'cropMin' %in% names(tdata) ){ # if censored classes, then fecMin, fecMax already provided
+    vtypes$cropMin = 'ij'
+    cropMin <- tdata$cropMin
+    names(cropMin) <- rownames(tdata)
+    
+    wcrop <- which( is.finite(cropMin) )
+    if(!'fecMin' %in% colnames(tdata)){
+      tdata$fecMin <- NA
+    }
+    mcrop <- which( !is.finite(tdata$fecMin[wcrop]) )
+    
+    if( 'seedTraits' %in% names(inputs) & length(mcrop) > 0 ){  
+      fecMin <- tdata$cropMin[wcrop]*inputs$seedTraits[ tdata$species[wcrop], 'seedsPerFruit' ]
+      tdata$fecMin[wcrop[mcrop]] <- fecMin[mcrop]
+      names(fecMin) <- rownames(tdata)
+      if(verbose)cat(paste('\nNote: cropMin values without fecMin--used seedsPerFruit\n') )
+    }
   }
-  if('fecMax' %in% names(tdata)){
+  if('cropMax' %in% names(tdata)){
+    vtypes$cropMax = 'ij'
+    cropMax <- tdata$cropMax
+    names(cropMax) <- rownames(tdata)
+    
+    wcrop <- which( is.finite(cropMax) )
+    if(!'fecMax' %in% colnames(tdata)){
+      tdata$fecMax <- NA
+    }
+    mcrop <- which( !is.finite(tdata$fecMax[wcrop]) )
+    
+    if( 'seedTraits' %in% names(inputs) & length(mcrop) > 0 ){
+      fecMax <- tdata$cropMax*inputs$seedTraits[ tdata$species, 'seedsPerFruit' ]
+      fecMax[fecMax < 1] <- 1
+      tdata$fecMax[wcrop[mcrop]] <- fecMax[mcrop]
+      tdata$fecMax <- fecMax
+      names(fecMax) <- rownames(tdata)
+      if(verbose)cat(paste('\nNote: cropMax values without fecMax--used seedsPerFruit\n') )
+    }
+  }
+  
+  if('priorTable' %in% names(inputs)){
+    if('fecMax' %in% colnames(priorTable)){
+      mf <- inputs$priorTable[tdata$species,'maxFec']
+      tdata$fecMax[ tdata$fecMax > mf ] <- mf[ tdata$fecMax > mf ]
+    }
+  }
+  if('fecMax' %in% colnames(tdata)){
     vtypes$fecMax = 'ij'
     fecMax <- tdata$fecMax
-    names(fecMax) <- tdata$plotTreeYr
+    names(fecMax) <- rownames(tdata)
   }
   
   wnull <- which(is.null(vtypes))
@@ -1892,117 +2050,115 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
     for(k in 1:length(wnull)) vtypes[[k]] <- 'ij'
   }
   
-  treeIDs <- sort( unique(as.character(tdata$treeID)) )
-  trapIDs <- sort( unique(as.character(sdata$trapID)) )
-  plots   <- sort( unique(as.character(tdata$plot)) )
-  nplot   <- length(plots)
-  nyr     <- length(years)
+  # gap years for individuals
   
-  ww <- which(!as.character(sdata$plotYr) %in% 
-                as.character(tdata$plotYr) ) #traps without tree data
+  ww   <- numeric(0)
+  if(length(table(tdata$year)) > 1){
+    ttab <- table(tdata$treeID, tdata$year)
+    wmin <- apply(ttab, 1, which.max)
+    wmax <- apply(ttab[,ncol(ttab):1], 1, which.max)
+    wmax <- c(ncol(ttab):1)[wmax]
+    wtot <- rowSums(ttab)
+    ww   <- which(wmax > wmin & wtot < (wmax - wmin))
+  }
   
-  if(length(ww) > 0 | AR){  # fill missing tree years
+  if(SEEDDATA){                                 # traps without tree data
+    kk <- which(!as.character(sdata$plotYr) %in% 
+                  as.character(tdata$plotYr) )
+    ww <- sort( unique(c(ww,kk) ))
+  }
+    
+  treeID  <- tdata$treeID
+  treeIDs <- treeID[ !duplicated(treeID) ]
+  
+  if( length(ww) > 0 | AR ){  # fill missing tree years
     
     yrSeq <- years
     if(AR)yrSeq <- allYears
     ijFull <- numeric(0)
     nyr    <- length(yrSeq)
     
-    ijIndex <- cbind( match(as.character(tdata$treeID), treeIDs),
-                      match(tdata$year, yrSeq) )
+    mm <- match(as.character(tdata$treeID), treeIDs)
+    ijIndex <- cbind( mm, match(tdata$year, yrSeq) )
     
-    for(j in 1:nplot){
+    matFull <- matrix(0 , length(treeIDs), nyr)
+    rownames(matFull) <- treeIDs
+    matFull[ ijIndex ] <- 1
+    
+    # seed years by plot
+    if(SEEDDATA){  
       
-      wt <- which(as.character(tdata$plot) == plots[j])
-      ws <- which(as.character(sdata$plot) == plots[j])
-      
-      tj <- tdata[drop = FALSE,wt,]
-      rt <- rs <- range(tj$year)
-      pt <- match( range( rt ), yrSeq ) 
-      ps <- match( range( rs ), yrSeq )
-      
-      censusRange <- table(tj$year)
-      
-      censusRange <- censusRange[ which(censusRange > .8*max(censusRange)) ]# full-census years
-      censusRange <- as.numeric(names(censusRange))
-      
-      last <- max(censusRange, na.rm  = TRUE)
-      
-      if(length(ws) > 0){
-        sj <- sdata[ws,]
-        rs <- range(sj$year)
-        ps <- match( range( rs ), yrSeq )
+      kjIndex <- numeric(0)
+      splot <- unique(sdata$plot)
+      tplot <- columnSplit(treeIDs,'-')[,1]
+      for(m in 1:length(splot)){
+        wm <- which(tplot == splot[m])
+        my <- range( sdata$year[ sdata$plot == splot[m] ] )
+        my <- match(my, yrSeq)
+        my <- my[1]:my[length(my)]
+        km <- as.matrix( expand.grid(wm,my) )
+        kjIndex <- rbind( kjIndex, km )
       }
+      matFull[ kjIndex ] <- 1
+    }
       
-      tID <- as.character(tj$treeID)  # trees in plot[j]
-      jID <- unique(tID)
-      ii  <- match( as.character(tID), jID)
-      tii <- match(as.character(jID), treeIDs)
-      jj  <- match(tj$year, yrSeq)
-      
-      pindex <- cbind( ii, jj )
-      
-      imat <- matrix(0, length(jID), length(yrSeq))
-      imat[pindex] <- pindex[,2]
-      colnames(imat) <- yrSeq
-      
-      imat[imat == 0] <- NA
-      mini <- apply(imat,1,min,na.rm  = TRUE) - beforeFirst
-      mini[mini < ps[1]] <- ps[1]
-      mini <- mini - p
-      mini[mini < 1] <- 1
-      
-      maxt <- apply(imat,1,max,na.rm  = TRUE)
-      gone <- which(yrSeq[maxt] < last)
-      
-      maxi <- maxt + afterLast             # present at last census
-      maxi[maxi > ps[2]] <- ps[2]
-      maxi <- maxi + p
-      maxi[gone] <- maxt[gone]             # gone before last census
-      maxi[maxi > nyr] <- nyr
-      
-      for(i in 1:length(mini)){
-        ik <- c(mini[i]:maxi[i])
-        ik <- cbind(tii[i],ik)
-        ijFull <- rbind(ijFull, ik)
-      }
+    # years for p lags
+    ijp <- ijIndex
+    ijp[,2] <- ijp[,2] + p
+    ijp <- ijp[ ijp[,2] <= nyr, ]
+    matFull[ ijp ] <- 1
+    ijp <- kjIndex
+    ijp[,2] <- ijp[,2] + p
+    ijp <- ijp[ ijp[,2] <= nyr, ]
+    matFull[ ijp ] <- 1
+    
+    ijp <- ijIndex
+    ijp[,2] <- ijp[,2] - p
+    ijp <- ijp[ ijp[,2] > 0, ]
+    matFull[ ijp ] <- 1
+    ijp <- kjIndex
+    ijp[,2] <- ijp[,2] - p
+    ijp <- ijp[ ijp[,2] > 0, ]
+    matFull[ ijp ] <- 1
+    
+    ymat  <- matrix( yrSeq, length(treeIDs), nyr, byrow=T)
+    first <- apply( matFull, 1, which.max )
+    last  <- apply( ymat*matFull, 1, which.max )
+    
+    for(k in 1:nyr){
+      wk <- which( k >= first & k <= last )
+      matFull[wk,k] <- 1
     }
     
-    tdata$times <- match(tdata$year, allYears)
-    sdata$times <- match(sdata$year, allYears)
+    ijFull <- which(matFull == 1, arr.ind=T)
     
-    vtypes    <- getVarType(colnames(tdata), tdata, ijIndex[,1], ijIndex[,2]) 
-    vtypes$obs <- 'ij'
-    vtypes$times <- 'j'
-    vtypes$diam <- 'ij'
-    vtypes$repr <- 'ij'
-    vtypes$obs <- 'ij'
+    tdata$times <- match(tdata$year, allYears)
+    if(SEEDDATA)sdata$times <- match(sdata$year, allYears)
+    
+    vtypes    <- getVarType(colnames(tdata), tdata, i=tdata$treeID, j = tdata$year) 
+    vtypes$obs   <- 'ij'
+  #  vtypes$times <- 'j'
+    vtypes$diam  <- 'ij'
+    vtypes$repr  <- 'ij'
+    vtypes$obs   <- 'ij'
+    vtypes$year  <- 'time'
     if('cropCount' %in% colnames(data))vtypes$cropCount <- 'none'
     if('cropFraction' %in% colnames(data))vtypes$cropFraction <- 'none'
     if('cropFractionSd' %in% colnames(data))vtypes$cropFractionSd <- 'none'
     if('fecMin' %in% colnames(data))vtypes$fecMin <- 'none'
     if('fecMax' %in% colnames(data))vtypes$fecMax <- 'none'
     
-    jtimes <- 1:nyr
-    tpy <- as.character(tdata$plotTreeYr)
+   # jtimes <- 1:nyr
     
-    if('fecMax' %in% names(tdata)){
-      fecMax <- tdata$fecMax
-      names(fecMax) <- tdata$plotTreeYr
-    }
-    if('fecMin' %in% names(tdata)){
-      fecMin <- tdata$fecMin
-      names(fecMin) <- tdata$plotTreeYr
-    }
-    
-    tmp <- fillMissing(vtypes, tdata, icol = 'treeID', jcol = 'times', 
-                       jtimes = jtimes, ijIndex = ijIndex, ijFull = ijFull)
-    
+    tmp <- fillMissing(variables = vtypes, data = tdata, icol = 'treeID', jcol = 'year', 
+                       jtimes = allYears, ijFull = ijFull)
     data <- tmp$data
-    data$year <- allYears[ data$times ]
+    
+   # data$year <- allYears[ data$times ]
     data$plot      <- as.character(data$plot)
     data$tree      <- as.character(data$tree)
-    rownames(data) <- columnPaste(data$treeID,data$year, '_')
+    rnames         <- columnPaste(data$treeID,data$year, '_')
+    rownames(data) <- rnames
     data$diam      <- round(data$diam,1)
     
     if('province' %in% colnames(data)){
@@ -2016,11 +2172,16 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
     wm <- match(rownames(data), rownames(tdata))
     wf <- which(is.finite(wm))
     
+    data$repr <- NA
+    if('repr' %in% colnames(tdata))data$repr[wf] <- tdata$repr[wm[wf]]
+    
     if('cropCount' %in% colnames(data)){
+      
       data$cropCount <- data$cropFraction <- data$cropFractionSd <- NA
       
       data$cropCount[wf]    <- ceiling( tdata$cropCount[wm[wf]] )
-      data$cropFraction[wf] <- tdata$cropFraction[wm[wf]]
+      if('cropFraction' %in% colnames(tdata))data$cropFraction[wf] <- tdata$cropFraction[wm[wf]]
+
       if(!'cropFractionSd' %in% colnames(data))data$cropFractionSd <- NA
       
       if('cropFractionSd' %in% colnames(tdata)){
@@ -2030,10 +2191,8 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
       if(length(wmm) > 0){
         data$cropFractionSd[wmm] <- .2*dbeta(data$cropFraction[wmm], .1,2) + 1e-3
       }
+      data$repr[data$cropCount > 0] <- 1
     }
-    
-    data$repr <- NA
-    if('repr' %in% colnames(tdata))data$repr[wf] <- tdata$repr[wm[wf]]
     
     tdata        <- data
     tdata$obs    <- as.numeric(as.character(tdata$obs))
@@ -2041,27 +2200,29 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
     tdata$plotYr <- columnPaste(tdata$plot,tdata$year,'_') 
     tdata$treeID <- as.character(tdata$treeID)
     
-    xytree <- .trimRows(xytree, tdata, 'treeID')[[1]]   # trees having too few years
-    
-    ss <- tapply(sdata$year, list(plot = sdata$plot),range)    
-    sn <- names(ss)
-    trapYr <- matrix( unlist(ss), ncol=2, byrow  = TRUE )
-    rownames(trapYr) <- sn
-    
-    tdata$obsTrap <- tdata$obs <- 0
-    for(j in 1:nplot){
-      kj <- as.character(tdata$plot) == plots[j]
-      wj <- which(kj)
-      if(!plots[j] %in% rownames(trapYr))next
-      yr <- (trapYr[plots[j],1]):(trapYr[plots[j],2])
-      tdata$obsTrap[wj] <- 0
-      tdata$obsTrap[kj & (tdata$year %in% yr)] <- 1
-      tdata$obs[kj & (tdata$year %in% yr)] <- 1
+    if(SEEDDATA){
+      xytree <- .trimRows(xytree, tdata, 'treeID')[[1]]   # trees having too few years
+      
+      ss <- tapply(sdata$year, list(plot = sdata$plot),range)    
+      sn <- names(ss)
+      trapYr <- matrix( unlist(ss), ncol=2, byrow  = TRUE )
+      rownames(trapYr) <- sn
+      
+      tdata$obsTrap <- tdata$obs <- 0
+      for(j in 1:nplot){
+        kj <- as.character(tdata$plot) == plots[j]
+        wj <- which(kj)
+        if(!plots[j] %in% rownames(trapYr))next
+        yr <- (trapYr[plots[j],1]):(trapYr[plots[j],2])
+        tdata$obsTrap[wj] <- 0
+        tdata$obsTrap[kj & (tdata$year %in% yr)] <- 1
+        tdata$obs[kj & (tdata$year %in% yr)] <- 1
+      }
+      sdata <- trimPlotYr(tdata, sdata, beforeFirst, afterLast, p)
     }
     
     tdata$obs[is.finite(tdata$cropFraction)] <- 1
-    
-    sdata <- trimPlotYr(tdata, sdata, beforeFirst, afterLast, p)
+    tdata$obs[is.finite(tdata$cropMin)] <- 1
     
     if(SEEDCENSOR){
       tmp <- trimCens(sdata, censMin, censMax)
@@ -2072,30 +2233,47 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
     plotYears <- sort(unique(c(as.character(tdata$plotYr), 
                                as.character(sdata$plotYr))))
     tdata$plotyr <- match( as.character(tdata$plotYr), plotYears )
-    sdata$plotyr <- match( as.character(sdata$plotYr), plotYears )
+    if(SEEDDATA)sdata$plotyr <- match( as.character(sdata$plotYr), plotYears )
     
     rownames(tdata) <- columnPaste(tdata$treeID, tdata$year, '_')
     
-    if('fecMin' %in% names(tdata)){
-      wm <- match(names(fecMin),tdata$plotTreeYr)
+    if(!'repr' %in% colnames(tdata))tdata$repr <- NA
+    
+    if('fecMin' %in% names(tdata) & !is.null(fecMin)){
+      wm <- match(names(fecMin), rownames(tdata))
       wf <- which(is.finite(wm))
       tdata$fecMin <- NA
       tdata$fecMin[wm[wf]] <- fecMin[wf]
     }
-    if('fecMax' %in% names(tdata)){
-      wm <- match(names(fecMax),tdata$plotTreeYr)
+    if('fecMax' %in% names(tdata) & !is.null(fecMax)){
+      wm <- match(names(fecMax), rownames(tdata))
       wf <- which(is.finite(wm))
       tdata$fecMax <- NA
       tdata$fecMax[wm[wf]] <- fecMax[wf]
     }
+    if('cropMin' %in% names(tdata)){
+      wm <- match(names(cropMin), rownames(tdata))
+      wf <- which(is.finite(wm))
+      tdata$cropMin <- NA
+      tdata$cropMin[wm[wf]] <- cropMin[wf]
+      tdata$repr[tdata$cropMin > 0] <- 1
+    }
+    if('cropMax' %in% names(tdata)){
+      wm <- match(names(cropMax), rownames(tdata))
+      wf <- which(is.finite(wm))
+      tdata$cropMax <- NA
+      tdata$cropMax[wm[wf]] <- cropMax[wf]
+      tdata$repr[tdata$cropMax > 0] <- 1
+    }
   }
+  
   
   allYears <- sort(unique(tdata$year))
   
   tdata$times <- match(tdata$year, allYears)
   sdata$times <- match(sdata$year, allYears)
   
-  if(TREESONLY){
+  if(TREESONLY & SEEDDATA){
     ww <- which(!tdata$plot %in% sdata$plot)
     if(length(ww) > 0){
       tdata <- rbind(tdata[-ww,],tdata[ww,])
@@ -2105,15 +2283,20 @@ mastFillCensus <- function(inputs, beforeFirst = 15,
   attr(tdata, 'plag') <- p
   
   inputs$treeData  <- tdata
-  inputs$seedData  <- sdata
   inputs$xytree    <- xytree
-  inputs$xytrap    <- xytrap
   inputs$specNames <- specNames
-  inputs$seedNames <- seedNames
   inputs$inwords   <- words
   inputs$TREESONLY <- TREESONLY
-  inputs$censMin   <- censMin
-  inputs$censMax   <- censMax
+  
+  if(SEEDDATA){
+    inputs$seedData  <- sdata
+    inputs$xytrap    <- xytrap
+    inputs$seedNames <- seedNames
+    inputs$censMin   <- censMin
+    inputs$censMax   <- censMax
+  }
+  
+  inputs$FILLED <- T
   
   inputs
 }
@@ -2157,24 +2340,36 @@ HMC <- function (ff, fMin, fMax, ep, L, tree, sdat, ug,
     # for Hamiltonian
     nseed <- ncol(R)
     fq <- exp(q)
-    fq[fq > fMax] <- fMax[fq > fMax]
-    fq[fq < fMin] <- fMin[fq < fMin]
     
-    if(SAMPR | nseed > 1){
+    ww <- which(fq > fMax)
+    vv <- which(fq > fMax)
+    
+    fq[ww] <- fMax[ww]
+    fq[vv] <- fMin[vv]
+    
+    
+    if( SAMPR | nseed > 1 ){
       fq <- matrix(fq,length(fq),ncol=ncol(R))*R[drop = FALSE,tree$specPlot,]
     }else{
       fq <- matrix(fq,ncol=1)
     }
     
     uvec <- ug[1]
-    if(USPEC)uvec <- ug[ attr(distance,'species') ]
     
-    dmat <- t(uvec/pi/(uvec + t(distance)^2)^2)
+    if(USPEC){
+      uvec <- matrix( ug[attr(distance, 'species')], nrow(distance), ncol(distance) )
+    }
+    
+    dmat <- uvec/pi/(uvec + distance^2)^2
     dmat[dmat < 1e-8] <- 0
+    dmat[is.na(dmat)] <- 0
     
-    lambda <- kernYrRcpp(dmat, fq*zz, years = obsYr, seedyear = sdat$year,
-                         treeyear = tree$year, seedrow = sdat$drow,
-                         treecol = tree$dcol)
+    
+    plotyrs <- unique(sdat$plotyr)
+    
+    lambda <- kernYrRcpp(dmat, fq*zz, seedrow = sdat$drow,
+                         treecol = tree$dcol, plotyrs, 
+                         treeplotYr = tree[,'plotyr'], seedplotYr = sdat[,'plotyr'])
     ss <- as.matrix(sdat[,seedNames])
     lambda[lambda < 1e-6] <- 1e-6
     
@@ -2209,19 +2404,23 @@ HMC <- function (ff, fMin, fMax, ep, L, tree, sdat, ug,
   activeArea <- sdat$area
   
   # half step for momentum 
-  p <- p - ep*getU(q, U = F)/2
+  
+  p <- p - ep*getU(q, U = FALSE)/2
+  
   
   # Alternate full steps for position and momentum
   wall <- 1:length(q)
   
   for (i in 1:L){
+    
     q[wall] <- q[wall] + ep[wall]*p[wall]  
-    if(i < L)p[wall] <- p[wall] - ep[wall]*getU(q, U = F)[wall] 
+    
+    if(i < L)p[wall] <- p[wall] - ep[wall]*getU(q, U = FALSE)[wall] 
     wall <- which(q < log(fMax))
   }
   
   # half step for momentum end
-  p <- p - ep*getU(q, U = F)/2
+  p <- p - ep*getU(q, U = FALSE)/2
   
   # Negate momentum at end of trajectory to make proposal symmetric
   p <- -p
@@ -2350,14 +2549,18 @@ getVarType <- function(vnames, data, i, j){
   i <- match(i, id)
   j <- match(j, yr)
   
+  ij <- cbind(i, j)
+  
+  
   vnew <- vector('list',length(vnames))
   names(vnew) <- vnames
   
   for(k in 1:length(vnames)){
+    
     cj <- data[,vnames[k]]
     if(is.factor(cj))cj <- as.character(cj)
-    mj <- matrix(NA, ni,ny)
-    mj[ cbind(i, j) ] <- cj
+    mj <- matrix(NA, ni, ny)
+    mj[ ij ] <- cj
     
     rr <- suppressWarnings( apply(mj,1,range,na.rm  = TRUE) )
     rc <- suppressWarnings( apply(mj,2,range,na.rm  = TRUE) )
@@ -2464,8 +2667,7 @@ msarSetup <- function(data, plag, icol, jcol, gcol = NULL, yeGr,
   
   tpy <- as.character(columnPaste(data$treeID,data$year))
   
-  tmp <- fillMissing(vtypes, data, icol, jcol, 
-                      jtimes = jall, ijIndex = ijFull, ijFull = ijFull)
+  tmp <- fillMissing(vtypes, data, icol, jcol, ijFull)
   data   <- tmp$data
   naVars <- tmp$naVars
   tpn    <- as.character(columnPaste(data$treeID,data$year))
@@ -2496,34 +2698,33 @@ msarSetup <- function(data, plag, icol, jcol, gcol = NULL, yeGr,
        groupByInd = wideGroup, betaYr = betaYr, plag = plag)
 }
 
-fillMissing <- function(variables, data, icol, jcol, jtimes,
-                        ijIndex = NULL, ijFull=NULL){
+fillMissing <- function(variables, data, icol, jcol, 
+                        jtimes, ijFull = NULL){
   
-  # ijIndex is location in i by j matrix
   # ijFull is location in i by j matrix that includes added obs
-  # jtimes - integer
   
   if(!is.data.frame(data))data <- as.data.frame(data, stringsAsFactors = F)
   
   if(!'obs' %in% colnames(data))data$obs <- 1
   
-  ###################33333
- # ii <- ijIndex[,1]
- # jj <- ijIndex[,2]
- # iall <- unique(ii)
+  id <- data[ ,icol]
+  it <- data[ ,jcol]
+
   
- # if(is.null(ijFull))ijFull <- ijIndex
-  #######################
+  ids <- unique(id)
   
-  ii <- ijIndex[,1]
-  jj <- ijIndex[,2]
-  iall <- unique(ii)
+  rt <- range( c(jtimes, it) )
+  jtimes <- rt[1]:rt[2]
   
+  ijIndex <- cbind( match(id, ids), match(it, jtimes) )
+  ijIndex <- ijIndex[ order(ijIndex[,1], ijIndex[,2]), ]
+  
+  if(is.null(ijFull))ijFull <- ijIndex
+  ijFull <- ijFull[ order(ijFull[,1], ijFull[,2]), ]
   
   ny <- length(jtimes)
-  ni <- max(iall)
-  
- # emat <- matrix(NA,ni, ny)
+  ni <- length(ids)
+
   newData <- vector('list',ncol(data))
   names(newData) <- names(data)
   ffact <- which( sapply(data, is.factor) )
@@ -2531,20 +2732,24 @@ fillMissing <- function(variables, data, icol, jcol, jtimes,
   
   for(k in 1:ncol(data)){           #expand to pre- and post-data
     
-    jmat  <- matrix(NA,ni,ny,byrow  = TRUE)
+    jmat  <- matrix(NA, ni, ny)
     
     vtype <- variables[names(data)[k]]
     tinySlope <- .00001
     
-    kvar <- data[,k]
+    kvar <- data[ ,k]
     sigFig <- getSigFig(kvar[1])
     
     if(k %in% ffact)kvar <- as.character(kvar)
     
     
-    jmat[ cbind(ii,jj) ]  <- kvar
+    jmat[ ijIndex ]  <- kvar
     w0 <- which( is.na(jmat),arr.ind   = TRUE)
     w1 <- which(!is.na(jmat),arr.ind   = TRUE )
+    
+    if(vtype == 'time'){
+      jmat <- matrix( jtimes, ni, ny, byrow=TRUE)
+    }
     
     if(vtype == 'i'){
       w1 <- w1[!duplicated(w1[,1]),]
@@ -2562,23 +2767,33 @@ fillMissing <- function(variables, data, icol, jcol, jtimes,
         jmat[ w0 ] <- jmat[ w2 ]
       }
     }
-    if(vtype == 'ij'){            # use trend
+    if( vtype == 'ij' ){            # use trend
       if( is.numeric(kvar) & !all(is.na(kvar)) ){
-        rr   <- range(jmat,na.rm   = TRUE)
+        minVal <- suppressWarnings( apply(jmat, 1, min, na.rm=T) )
+        maxVal <- suppressWarnings( apply(jmat, 1, max, na.rm=T) )
+        
         INCREASING <- FALSE
+        
         if( colnames(data)[k] == 'diam'){
+          
           tinySlope <- .005
-          rr[1] <- rr[1] - .5
-          rr[2] <- rr[2] + .5
-          if(rr[1] < .1)rr[1] <- .1
+          minVal[ minVal < .25 ] <- .25
+          
+          zz <- which(minVal >= maxVal)
+          if(length(zz) > 0){
+            minVal[zz] <- minVal[zz] - .1*ny
+            maxVal[zz] <- maxVal[zz] + .1*ny
+          }
+          minVal[ minVal < .1 ] <- .1
+            
           INCREASING <- TRUE
         }
         if( colnames(data)[k] == 'repMu'){
           INCREASING <- TRUE
-          rr <- c(0,1)
+          minVal <- 0
+          maxVal <- 1
         }
-        if(rr[2] <= rr[1])rr[2] <- rr[1] + .01
-        jmat <- .interpRows(jmat, INCREASING=INCREASING,minVal=rr[1],maxVal=rr[2],
+        jmat <- .interpRows(jmat, INCREASING=INCREASING, minVal=minVal, maxVal=maxVal,
                             defaultValue=NULL,tinySlope=tinySlope) 
       }else{
         naVars <- c(naVars, colnames(data)[k])
@@ -2593,7 +2808,8 @@ fillMissing <- function(variables, data, icol, jcol, jtimes,
   
   xdata <- data.frame(newData, stringsAsFactors = F)
   rownames(xdata) <- NULL
-#  xdata <- xdata[order(xdata[,icol],xdata[,jcol]),]
+  
+  
   list(data = xdata, naVars = naVars)
 }
 
@@ -2622,6 +2838,13 @@ fillMissing <- function(variables, data, icol, jcol, jtimes,
   znow[last0first1[,'all0'] == 1, ] <- 0
   znow[last0first1[,'all1'] == 1, ] <- 1
   
+  wna <- which(is.na(znow))
+  if(length(wna) > 0){
+    znow[wna] <- 0
+    znow <- t( apply( znow, 1, cumsum ) )
+    znow[znow > 1] <- 1
+  }
+  
   list(zmat = znow, matYr = new)
 }
 
@@ -2631,26 +2854,35 @@ fillMissing <- function(variables, data, icol, jcol, jtimes,
   ncols <- length(labels)
   if(is.null(colLabs))colLabs <- rep('black',ncols)
   
-  xaxp <- par('xaxp')
-  da <- diff(xaxp[1:2])
-  at <- xadj + (da/ncols/2 + xaxp[1] + c(0:ncols)*da/(xaxp[3] + 1))[1:ncols]
+  at <- boxPars$xtick
+  if(is.matrix(at))at <- colMeans( at )
   
-  at <- (xaxp[1] + c(0:ncols)*da/ncols)[-1]
-  at <- at - diff(at)[1]/2
+  yfig <- par('usr')[3:4]
+  dy   <- diff(yfig)
+  yloc <- boxPars$stats[1,]
+  pos  <- 2
   
-  yends <- boxPars$stats[c(1,nrow(boxPars$stats)),]
-  yfig  <- par('usr')[3:4]
-  dy    <- diff(yfig)
-  dends <- rbind(yfig[1] - yends[1,], yfig[2] - yends[2,])
-  sides <- apply( abs(dends), 2, which.max)
-  wt  <- which(sides == 1)
-  if(length(wt) > 0)text(at[wt], yends[1,wt] - dy/20,labels[wt], 
-                         offset = -.1,
-                         col=colLabs[wt], pos=2, srt=90, cex = cex)
-  wt  <- which(sides == 2)
-  if(length(wt) > 0)text(at[wt], yends[2,wt] + dy/20,labels[wt], 
-                         offset = -.1,
-                         col=colLabs[wt], pos=4, srt=90, cex = cex)
+  if(length(at) > 1){
+    yends <- boxPars$stats[c(1,nrow(boxPars$stats)),]
+    dends <- rbind(yfig[1] - yends[1,], yfig[2] - yends[2,])
+    sides <- apply( abs(dends), 2, which.max)
+    wt  <- which(sides == 1)
+    yloc <- yends[1,]
+    pos  <- 2
+  }
+  
+  text( at, yloc - dy/20,labels, 
+        offset = -.1,
+        col=colLabs, pos = pos, srt=90, cex = cex)
+  
+  
+  #if(length(wt) > 0)text(at[wt], yends[1,wt] - dy/20,labels[wt], 
+  #                       offset = -.1,
+  #                       col=colLabs[wt], pos=2, srt=90, cex = cex)
+ # wt  <- which(sides == 2)
+ # if(length(wt) > 0)text(at[wt], yends[2,wt] + dy/20,labels[wt], 
+ #                        offset = -.1,
+ #                        col=colLabs[wt], pos=4, srt=90, cex = cex)
 }
 
 getBins <- function(xx, nbin=15, pow=1){
@@ -2687,10 +2919,11 @@ plotCoeffs <- function(beta, bchain, burnin, ng, specNames, specCol, cex=.8,
   ylim[1] <- ylim[1] - .7*diff(ylim)
   ylim[2] <- ylim[2] + .7*diff(ylim)
   
-  boxPars <- .boxCoeffs(bc, specNames, xaxt='n',
+  boxPars <- .boxCoeffs( chain = bc, snames = specNames, xaxt = 'n',
                         xlab = xlab, ylab='', ylim=ylim,
                         cols = specCol[specNames], addSpec = '')
-  .boxCoeffsLabs( boxPars, specNames, specCol[specNames], cex=cex)
+  
+  .boxCoeffsLabs( boxPars, specNames, specCol[specNames], cex=cex, xadj=1/nspec/2 )
   .plotLabel('intercept','bottomleft', cex = cex)
   
   bnint <- numeric(0)
@@ -2743,8 +2976,6 @@ plotCoeffs <- function(beta, bchain, burnin, ng, specNames, specCol, cex=.8,
   t1   <- output$inputs$specNames[1]
   
   fname <- paste(t1,t2,'report.Rmd',sep='_')
-  
-  # print(fname)
   
   tmp <- readLines('tmp.md')
   rmdOut <- file(fname, "w")
@@ -2832,10 +3063,11 @@ mastPlot <- function(output, plotPars = NULL){
     
   SAVEPLOTS <- SEEDCENSOR <- FALSE
   YR <- AR <- RANDOM <- TV <- SAMPR <- PREDICT <- SPACETIME <- FALSE
+  SEEDDATA <- TRUE
   
   RMD <- NULL
-  CONSOLE <- TRUE
-  CONES <- FALSE
+  CONSOLE <- RMAT <- TRUE
+  CONES <- POINTS <- FALSE
   caption <- character(0)
   
   data <- treeData <- priorUgibbs <- fecPred <- plotDims <- seedTraits <-
@@ -2875,6 +3107,12 @@ mastPlot <- function(output, plotPars = NULL){
     plag <- ncol(data$arList$betaYr)
   }
   
+  if(!'seedData' %in% names(inputs)){
+    SEEDDATA <- FALSE
+  }else{
+    if(length(seedData) == 0)SEEDDATA <- FALSE
+  }
+  
   if(!is.null(plotPars)){
     for(k in 1:length(plotPars))assign( names(plotPars)[k], plotPars[[k]] )
     if( 'trueValues' %in% names(plotPars)  ){
@@ -2892,6 +3130,9 @@ mastPlot <- function(output, plotPars = NULL){
   specNames <- output$inputs$specNames
   seedNames <- output$inputs$seedNames
   if('rgibbs' %in% names(output$chains))SAMPR <- TRUE
+  if(!RMAT)SAMPR <- FALSE
+
+  
   if('randomEffect' %in% names(output$inputs)){
     RANDOM <- TRUE
     for(k in 1:length(randomEffect))
@@ -2910,6 +3151,7 @@ mastPlot <- function(output, plotPars = NULL){
     }
     yeGr <- as.character(output$data$setupYear$yeGr)
     if(is.null(yeGr))yeGr <- output$data$setupData$yeGr
+ #   yeGr <- .replaceString(yeGr, ' ', '')
     bygibbsR <- .orderChain(bygibbsR, yeGr)
     if(ncol(ugibbs) > 1)ugibbs <- .orderChain(ugibbs, specNames)
   }
@@ -2942,7 +3184,7 @@ mastPlot <- function(output, plotPars = NULL){
   tdata <- output$inputs$treeData
   sdata <- output$inputs$seedData
   
-  xfecu2s <- output$data$setupData$xfecu2
+  xfecu2s <- output$data$setupData$xfecu2s
   xrepu2s <- output$data$setupData$xrepu2s
   
   xfecs2u <- output$data$setupData$xfecs2u
@@ -2955,6 +3197,11 @@ mastPlot <- function(output, plotPars = NULL){
   xrep <- output$data$setupData$xrep
   Qf   <- ncol(xfec)/nspec
   Qr   <- ncol(xrep)/nspec
+  
+  if( !is.matrix(pacfMat) )pacfMat <- t( as.matrix( pacfMat ) )
+ # if( !is.matrix(pacsMat) )pacsMat <- t( as.matrix( pacsMat ) )
+  if( !is.matrix(pacfSe) )pacfSe <- t( as.matrix( pacfSe ) )
+  
   
   
   ###############
@@ -2973,7 +3220,7 @@ mastPlot <- function(output, plotPars = NULL){
   
   captions <- character(0)
   
-  sumOut <- summary.mastif( output, verbose = F )
+  sumOut <- summary.mastif( output, verbose = FALSE )
   
   if(!is.null(RMD)){
     ww <- which(!names(sumOut) == 'words')
@@ -2999,7 +3246,6 @@ mastPlot <- function(output, plotPars = NULL){
   if(is.null(yeGr))yeGr <- 'all'
   
   nspec  <- length(specNames)
-  ntype  <- length(seedNames)
   years  <- sort(unique(tdata$year))
   nyr    <- length(years)
   ngroup <- length(yeGr)
@@ -3008,16 +3254,19 @@ mastPlot <- function(output, plotPars = NULL){
   
   tmp1 <- as.character(tdata$plot)
   tmp2 <- tdata$year
-  if(!is.null(seedPredGrid)){
-    PREDICT <- TRUE
-    tmp1 <- c(tmp1, as.character(seedPredGrid$plot))
-    tmp2 <- c(tmp2, seedPredGrid$year)
+  
+  if(SEEDDATA){
+    ntype  <- length(seedNames)
+    if(!is.null(seedPredGrid)){
+      PREDICT <- TRUE
+      tmp1 <- c(tmp1, as.character(seedPredGrid$plot))
+      tmp2 <- c(tmp2, seedPredGrid$year)
+    }
   }
   
   plotYrTable <- table(plot = tmp1, year = tmp2)
   rm(tmp1)
   rm(tmp2)
-  
   
   cfun <- colorRampPalette( c('#66c2a5','#fc8d62','#8da0cb') )
   specCol <- cfun(nspec)
@@ -3039,59 +3288,82 @@ mastPlot <- function(output, plotPars = NULL){
     if(!ff)dir.create(outFolder)
   }
   
-  USPEC <- TRUE
-  
-  if(ncol(ugibbs) == 1)USPEC <- FALSE
   
   ########### MCMC chains
   
   if(is.null(RMD)) graphics.off()
   
   refVals <- NULL
-  
- # if(TV)refVals <- inputs$trueValues$betaRep
+
   words <- .chainPlot(chains$brep, burnin, 'maturation', ngLab, burnLab,
              refVals = refVals, CONSOLE, RMD, SAVEPLOTS, outFolder)
   
   bfecFit   <- chains$bfec[,!colnames(chains$bfec) %in% notFit, drop = FALSE]
   words <- .chainPlot(bfecFit, burnin, 'fecundity', ngLab, burnLab, 
              refVals = refVals, CONSOLE, RMD, SAVEPLOTS, outFolder)
-
-  ALLONE <- FALSE
-  if(USPEC)ALLONE <- TRUE
   
-  sord <- order( colMeans(chains$ugibbs[drop = FALSE,burnin:nrow(ugibbs),]), decreasing   = TRUE) 
-  sord <- colnames(ugibbs)[sord]
-  if(TV){
-    refVals <- inputs$trueValues$upar[sord]
-    if(is.na(refVals))refVals <- inputs$trueValues$upar
-  }
+  # species with estimated seed dispersal
+  trapSpec <- tapply(tdata$fit, tdata$species, sum)
   
-  intval <- priorTable[drop = FALSE, sord, c('priorU','priorVU','minU','maxU')]
-  colnames(intval) <- c('mean','var','min','max')
-  ylim <- range(ugibbs[,sord])
+  trapSpec <- names(trapSpec)[ trapSpec > 10 ]
+  trapSpec <- trapSpec[ trapSpec %in% colnames(ugibbs) ]
+  if(length(trapSpec) == 0)trapSpec <- colnames(ugibbs)
   
-  ql <- min( qnorm(.05,intval[,'mean'],sqrt(intval[,'var'])) )
-  qh <- max( qnorm(.95,intval[,'mean'],sqrt(intval[,'var'])) )
-
-  if(ylim[1] > ql)ylim[1] <- ql
-  if(ylim[2] < qh)ylim[2] <- qh
+  if(SEEDDATA){
     
-  words <- .chainPlot(chains$ugibbs[,sord,drop = FALSE], burnin,
-                      label = 'dispersal parameter u (with prior)',
-                      ngLab = ngLab, burnLab = burnLab, refVals = refVals, CONSOLE, 
-                      RMD, SAVEPLOTS, outFolder, ALLONE  = TRUE, cols = specCol, 
-                      ylim = ylim, intval=intval)
-  
-  if(USPEC){
-    words <- .chainPlot(chains$priorUgibbs, burnin, 'dispersal mean and variance', 
-                        ngLab, burnLab,
-                        refVals = NULL, CONSOLE, RMD, SAVEPLOTS, outFolder)
+    USPEC <- TRUE
+    if(ncol(ugibbs) == 1)USPEC <- FALSE
+    
+    ALLONE <- FALSE
+    if(USPEC)ALLONE <- TRUE
+    
+  #  ugibbs  <- chains$ugibbs[burnin:ng,trapSpec,drop = FALSE]
+    
+    sord <- order( colMeans(ugibbs), decreasing   = TRUE) 
+    sord <- colnames(ugibbs)[sord]
+    ugibbs <- ugibbs[,sord,drop=FALSE]
+    
+    if(TV){
+      refVals <- inputs$trueValues$upar[sord]
+      if(is.na(refVals))refVals <- inputs$trueValues$upar
+    }
+    
+    intval <- priorTable[drop = FALSE, sord, c('priorU','priorVU','minU','maxU')]
+    colnames(intval) <- c('mean','var','min','max')
+    ylim <- range(ugibbs)
+    
+    ql <- min( qnorm(.05,intval[,'mean'],sqrt(intval[,'var'])) )
+    qh <- max( qnorm(.95,intval[,'mean'],sqrt(intval[,'var'])) )
+    
+    if(ylim[1] > ql)ylim[1] <- ql
+    if(ylim[2] < qh)ylim[2] <- qh
+    
+    words <- .chainPlot(ugibbs, burnin,
+                        label = 'dispersal parameter u (with prior)',
+                        ngLab = ngLab, burnLab = burnLab, refVals = refVals, CONSOLE, 
+                        RMD, SAVEPLOTS, outFolder, ALLONE  = TRUE, cols = specCol, 
+                        ylim = ylim, intval=intval)
+    if(USPEC){
+      words <- .chainPlot(chains$priorUgibbs, burnin, 'dispersal mean and variance', 
+                          ngLab, burnLab,
+                          refVals = NULL, CONSOLE, RMD, SAVEPLOTS, outFolder)
+    }
+    
+    words <- .chainPlot(chains$sgibbs, 
+                        burnin, 'variance sigma', ngLab, burnLab,
+                        refVals = NULL, CONSOLE, RMD, 
+                        SAVEPLOTS, outFolder)
+  }else{
+    words <- .chainPlot(chains$sgibbs[,1,drop = FALSE], 
+                        burnin, 'variance sigma', ngLab, burnLab,
+                        refVals = NULL, CONSOLE, RMD, 
+                        SAVEPLOTS, outFolder)
   }
-  
-  words <- .chainPlot(chains$sgibbs, burnin, 'variance sigma', ngLab, burnLab,
-                      refVals = NULL, CONSOLE, RMD, 
-             SAVEPLOTS, outFolder)
+  if(ncol(ugibbs) > 1){
+    sord <- order( colMeans(ugibbs), decreasing   = FALSE) 
+    sord <- colnames(ugibbs)[sord]
+    ugibbs <- ugibbs[,sord,drop=FALSE]
+  }
 
 ############ R matrix
   
@@ -3327,6 +3599,7 @@ mastPlot <- function(output, plotPars = NULL){
   }
   
   ##############################
+  
   if(RANDOM){
     
     aMu <- parameters$aMu
@@ -3355,11 +3628,20 @@ mastPlot <- function(output, plotPars = NULL){
   ########### coefficients
   
   if(SAVEPLOTS)pdf( file=.outFile(outFolder,'fecundityCoeffs.pdf') )
+
+  fitCols <- colnames(xfecu2s)
   
   # standardized betas
-  bfecStnd <- bfec%*%t(xfecu2s)
+  bfecStnd <- bfec*0
+  bfecStnd[,fitCols] <- bfec[,fitCols]%*%t(xfecu2s)
   brepStnd <- brep%*%t(xrepu2s)
   colnames(brepStnd) <- colnames(brep)
+  
+  wss <- grep('species', colnames(bfecStnd))
+  wff <- grep('species', rownames(betaFec))
+  
+  if(length(wss) > 0 & length(wff) == 0)
+    rownames(betaFec) <- colnames(bfecStnd)
   
   if(nspec == 1){
               
@@ -3394,7 +3676,8 @@ mastPlot <- function(output, plotPars = NULL){
     rr <- rownames(betaFec)
     if(length(notFit) > 0)rr <- rr[!rr %in% notFit]
 
-    plotCoeffs(betaRep, brepStnd, burnin, ng, specNames, specCol, cex=.85,
+    plotCoeffs(beta = betaRep, bchain = brepStnd, burnin, ng, 
+               specNames, specCol, cex=.85,
                xlab = 'Maturation')
     
     plotCoeffs(betaFec[rr,], bfecStnd[,rr], burnin, ng, specNames, specCol, cex=.85,
@@ -3402,8 +3685,7 @@ mastPlot <- function(output, plotPars = NULL){
     mtext('Standardardized estimates',side=2, outer  = TRUE)
   }
   
-  if(CONSOLE)
-    readline('fecundity, maturation -- return to continue ')
+  if(CONSOLE)readline('fecundity, maturation -- return to continue ')
   if(SAVEPLOTS)dev.off( )
   
   if(is.null(RMD)){
@@ -3414,22 +3696,15 @@ mastPlot <- function(output, plotPars = NULL){
     caption <- c(caption, words)
   }
   
+  
+ 
+  
   ############ maturation, fecundity
   
-  if(SAVEPLOTS)pdf( file=.outFile(outFolder,'maturation.pdf') )
+  obsRows  <- which(tdata$obs == 1)
   
-  mfrow <- c(nspec,2)
-  par(mfrow=mfrow, bty='n', mar=c(1,3,.5,1),  oma=c(3,2,1.2,1))
-  
-  ymax <- quantile(fecPred$fecPredMu[obsRows],.7)
-  ym   <- max( c(sqrt(ymax), 20) )
-  tt   <- sqrtSeq(ym)
-  at   <- tt$at
-  labs <- tt$labs
-  xlim <- c(0, max(tdata$diam, na.rm  = TRUE))
-  
-  nsim <- 1000
-  lseq <- seq(0, 1, length=150)
+  nsim <- 500
+  lseq <- seq(0, 1, length=1000)
   lseq <- cumsum(lseq*(1 - lseq))
   lseq <- lseq/max(lseq)
   lseq <- lseq[!duplicated(lseq)]
@@ -3443,23 +3718,30 @@ mastPlot <- function(output, plotPars = NULL){
     fss   <- specNames[ apply(xftmp[obsRows,], 1, which.max) ]
   }
   
+  # simulate first to evaluate scale
+  
+  mrList <- vector('list',nspec)
+  names(mrList) <- specNames
+  drList <- srList <- arList <- mrList
+
+  xmax <- ymax <- 0
+  
   for(j in 1:nspec){
     
     fspec  <- fecPred[obsRows,]
-    
     wrow   <- which(fss == specNames[j])
     fspec  <- fspec[wrow,]
     pspec  <- fspec$plot
     mspec  <- fspec$matrEst
     dspec  <- fspec$diam
     
-  #  xrspec <- xrep[obsRows[wrow],]
-  #  xfspec <- xfec[obsRows[wrow],]
+    # plot up to last 5 trees
+    qd <- 5/length(dspec)
+    dtops <- quantile(dspec, 1 - qd)
     
     xrspec <- xrep[rownames(fspec),]
     xfspec <- xfec[rownames(fspec),]
     
-   
     pspec <- as.character(pspec)
     pall  <- sort(unique(pspec))
     
@@ -3492,12 +3774,22 @@ mastPlot <- function(output, plotPars = NULL){
     fcols <- fcols[fcol]
     bcols <- bcols[rcol]
     
+    grf <- grep(':diam:',fcols)
+    if(length(grf) > 0)fcols <- fcols[-grf]
+    grf <- grep('diam:',fcols)
+    if(length(grf) > 0)fcols <- fcols[-grf]
+    
+    grb <- grep(':diam:',bcols)
+    if(length(grf) > 0)bcols <- bcols[-grf]
+    grf <- grep('diam:',bcols)
+    if(length(grf) > 0)bcols <- bcols[-grf]
+    
     xtmu <- matrix(colMeans(ftt), nrow(ftt), ncol(ftt), byrow  = TRUE)
     gcol <- grep('diam',colnames(ftt))
     
-    rk <- mk <- sk   <- matrix(NA, ntt, nsim)
+    rk <- mk <- ak <- sk   <- matrix(NA, ntt, nsim)
     
-    for(k in 1:nsim){
+    for(k in 1:nsim){  # predict maturation, fecundity
       
       ss <- sqrt( sgibbs[ksamp[k],1] )
       bf <- bfecStnd[ksamp[k],fcols, drop = FALSE] 
@@ -3512,12 +3804,55 @@ mastPlot <- function(output, plotPars = NULL){
       
       mk[,k] <- pnorm( xtt[,bcols]%*%t( brepStnd[ksamp[k],bcols, drop = FALSE] ) )
       muk <- ftt[,fcols]%*%t( bf )
-   #   sk[,k] <- exp( muk + rnorm(ntt, 0, ss) )*mk[,k]
+      #   sk[,k] <- exp( muk + rnorm(ntt, 0, ss) )*mk[,k]
       
       sk[,k] <- exp( muk )*mk[,k]
+      ak[,k] <- exp( muk + rnorm(ntt, 0, ss) )*mk[,k]
     }
-    mr <- apply( mk, 1, quantile, c(.5, .05, .95) )
-    sr <- sqrt(apply( sk, 1, quantile, c(.5, .05, .95) ))
+    
+    wd <- which(dtt <= dtops)
+    
+    mrList[[j]] <- apply( mk[wd,], 1, quantile, c(.5, .05, .95) )  # 90% credible interval for maturation
+    srList[[j]] <- apply( sk[wd,], 1, quantile, c(.5, .05, .95) )  # for 90% credible interval on fecundity
+    arList[[j]] <- apply( ak[wd,], 1, quantile, c(.5, .05, .95) )  # for 90% predictive interval
+    drList[[j]] <- dtt[wd]
+    ymax <- max( c(ymax, srList[[j]][1,]) )
+    xmax <- max( c(xmax, dtops) )
+    
+    colnames(srList[[j]]) <- dtt[wd]
+    
+  }
+  diamFec <- srList
+  
+  if(SAVEPLOTS)pdf( file=.outFile(outFolder,'maturation.pdf') )
+  
+  mfrow <- c(nspec,2)
+  par(mfrow=mfrow, bty='n', mar=c(1,3,.5,3),  oma=c(3,2,1.2,2))
+  
+
+  ym   <- max( c(1.1*sqrt(ymax), 20) )  # sets vertical scale
+  tt   <- sqrtSeq(ym)
+  at   <- tt$at
+  labs <- tt$labs
+  xlim <- c(0, max(tdata$diam, na.rm  = TRUE))
+  npat <- 5
+  if(nspec > 4)npat <- 4
+  if(nspec > 7)npat <- 3
+  
+  # sqrt scale
+  for(j in 1:nspec){
+    
+    fspec  <- fecPred[obsRows,]
+    wrow   <- which(fss == specNames[j])
+    fspec  <- fspec[wrow,]
+    pspec  <- fspec$plot
+    mspec  <- fspec$matrEst
+    dspec  <- fspec$diam
+    
+    mr <- mrList[[j]]
+    sr <- sqrt( srList[[j]] )
+    ar <- sqrt( arList[[j]] ) # plot on sqrt scale
+    dtt <- drList[[j]]
     
     xaxt <- 'n'
     if(j == nspec)xaxt <- 's'
@@ -3530,17 +3865,13 @@ mastPlot <- function(output, plotPars = NULL){
     fj <- mspec
     wj <- which(fj < .001 | fj > .999)
     fj[wj] <- jitter(fj[wj],.15)
-    points(dspec,fj, pch=16, col=.getColor(plotCol[pspec],.3),
-           cex=.3)
+    if(POINTS)points(dspec,fj, pch=16, col=.getColor(plotCol[pspec],.3),
+                     cex=.3)
     
-    .shadeInterval( dspec[ttt], t(mr[2:3,]) , col=
+    .shadeInterval( dtt, t(mr[2:3,]) , col=
                       .getColor('tan', .1) )
     lines(dtt, mr[1,], col='white', lwd=5)
     lines(dtt, mr[1,], lwd=2)
-    
-
-    jplot <- plots[plots %in% pspec]
-    legend('bottomright',jplot,text.col=plotCol[jplot],bty='n')
     
     if(j == 1)title('Maturation')
     
@@ -3549,25 +3880,56 @@ mastPlot <- function(output, plotPars = NULL){
     xaxt <- 'n'
     if(j == nspec)xaxt <- 's'
     
+    # histogram of diameter polygon getpoly
+    
     plot(NULL, xlim=xlim, ylim=range(at), xlab='', ylab='', 
          xaxt = xaxt, yaxt='n')
     if(j < nspec)axis(1, labels = FALSE)
     axis(2, at = at, labels = labs)
     
-    points(dspec,sqrt(fpp), pch=16, col=.getColor(plotCol[pspec],.3),
-           cex=.3)
     
-    .shadeInterval( dspec[ttt], t(sr[2:3,]) , col=
+    tov  <- hist(fspec$diam, nclass=20, plot = FALSE)
+    ovec <- tov$count
+    
+    tmp <- .getPoly(tov$breaks[-1],ovec)
+    cnt <- tmp[2,]
+    cnt <- log10(cnt)
+    cnt[cnt < 0] <- 0
+    
+    pmax   <- .4
+    pscale <- pmax*max(at)/(1 + max(cnt))
+    polygon( tmp[1,], pscale*cnt, col=.getColor(specCol[specNames[j]],.3), lwd=2, 
+             border=specCol[specNames[j]])
+    
+    pat <- max(cnt/pmax) + 1
+    mpat <- floor( pat )
+    
+    pat <- seq(0, mpat, length= npat )
+    lpat <- round(10^pat,-2)
+    if(lpat[2] == 0)lpat <- round(10^pat,-1)
+    if(lpat[2] == 0)lpat <- round(10^pat,0)
+    apat <- pat*max(at)/mpat
+    axis(side=4, at=apat, labels = lpat)
+    abline(h=apat, col=.getColor(specCol[specNames[j]],.3),lty=2,
+           lwd=2)
+    
+    if(POINTS)points(dspec,sqrt(fpp), pch=16, col=.getColor(plotCol[pspec],.3),
+                     cex=.5)
+    
+    .shadeInterval( dtt, t(ar[2:3,]) , col=
+                      .getColor('wheat', .1) )
+    .shadeInterval( dtt, t(sr[2:3,]) , col=
                       .getColor('tan', .01) )
     
-    lines(dspec[ttt], sr[1,], col='white', lwd=6)
-    lines(dspec[ttt], sr[1,], lwd=2)
+    lines(dtt, sr[1,], col='white', lwd=6)
+    lines(dtt, sr[1,], lwd=2)
     
     if(nspec > 1).plotLabel(specNames[j])
     if(j == 1)title('Fecundity')
   }
   mtext('Diameter (cm)', side=1, line=1, outer  = TRUE)
   mtext('Probability', side=2, line=0, outer  = TRUE)
+  mtext('log trees', side=4, line=0, outer  = TRUE)
   
   if(CONSOLE)
     readline('maturation, fecundity by diameter -- return to continue ')
@@ -3577,233 +3939,6 @@ mastPlot <- function(output, plotPars = NULL){
     graphics.off()
   }else{
     words <- paste( 'Predictive distribution for maturation, fecundity from posterior (shaded intervals) and latent states (dots) ' )
-    message( words )
-    caption <- c(caption, words)
-  }
-  
-  ############ dispersal
-  
-  udat <- ugibbs[burnin:ng,,drop = FALSE]
-  
-    cols <- specCol[specNames]
-  
-  upars <- parameters$upars
-  
-  if(ncol(udat) > 1){
-    
-    if( is.null(rownames(upars)) )rownames(upars) <- 'mean'
-    
-    if(SAVEPLOTS)pdf( file=.outFile(outFolder,'dispersalCoeffs.pdf') )
-    
-    ncc <- ncol(udat)
-    sideMar <- min( c(3, 3 + 10/ncc) )
-    
-    par(mfrow=c(1,1), mar=c(3,5,5,4), bty='n', oma=c(2,sideMar,1,sideMar))
-    
-    ylim <- range(udat)
-    ylim[1] <- .75*ylim[1]
-    ylim[2] <- 1.25*ylim[2]
-    
-    ylab1 <- expression( paste(hat(u),' (', plain(m)^2, ')') )
-    ylab2 <- expression( paste('Kernel mean ', bar(d), ' (m)') )
-    
-    tmp <- .boxplotQuant( udat, xaxt='n', add = F, xlim = NULL, 
-                          ylab=ylab1, ylim = ylim, boxwex=.6,
-                          outline = FALSE, col=.getColor(cols,.3), 
-                          border=cols, xaxt='n',lty=1, boxfill=NULL )
-    abline(h=upars['mean',3:4], lty=2, lwd=2, col='grey')
-    .boxCoeffsLabs( tmp, names(cols), cols, cex=.8)
-    
-    rr <- range( pi*sqrt(udat)/2 )
-    rm <- -1
-    by <- 10
-    if(diff(rr) < 20){
-      by <- 5
-      rm <- 0
-    }
-    if(diff(rr) < 10){
-      by <- 2
-      rr[1] <- rr[1] - 1
-      rr[2] <- rr[2] + 1
-    }
-    
-    rr <- round(rr, rm)
-    rr <- seq(rr[1],rr[2], by=by)
-    
-    axis(4, at = (2*rr/pi)^2, labels = rr )
-    mtext(ylab2, 4, line=0, outer  = TRUE)
-    abline(v=par('usr')[1:2])
-    
-    if(CONSOLE)
-      readline('dispersal by group -- return to continue ')
-    if(SAVEPLOTS)dev.off( )
-    if(is.null(RMD)){
-      graphics.off()
-    }else{
-      words <- paste( 'Posterior estimates for dispersal parameters' )
-      message( words )
-      caption <- c(caption, words)
-    }
-  }
-  
-  if(is.null(RMD)) graphics.off()
-  
-  if(SAVEPLOTS)pdf( file=.outFile(outFolder,'seedShadow.pdf') )
-  
-  par(mfrow=c(1,1), bty='n')
-  
-  xfec  <- data$setupData$xfec
-  
-  qd     <- .75
-  dcol  <- grep(':diam',colnames(xfec))
-  dtcol <- grep('diam',colnames(tdata))
-  lab60 <- tdata[,dtcol]
-  lab60 <- lab60[lab60 != 0]
-  lab60 <- quantile(lab60, qd)
-  lab60 <- signif(lab60,1)
-  if(lab60 < 10)lab60 <- 10
-  ord <- order(tdata[,dtcol])
-  sdd <- tdata[ord,dtcol]
-  dd <- findInterval(lab60, sdd)
-  lab60 <- sdd[dd]
-  diam60 <- xfec[ord[dd],dcol]
-  diam60 <- diam60[diam60 != 0]
-  
-  
-  # each group at mean for other predictors
-  xbar   <- numeric(0)
-  rnames <- character(0)
-  ucol   <- numeric(0)
-  
-  for(j in 1:nspec){
-    
-    wj   <- which(tdata$species == specNames[j])
-    xmu  <- colMeans(xfec[drop = FALSE,wj,])
-    
-    w0 <- which(xmu != 0)       #insert diameter value
-    w0 <- intersect(w0, dcol)
-    xmu[w0] <- diam60
-    
-    xbar <- rbind(xbar, xmu)
-    rnames <- c(rnames, specNames[j])
-  }
-  
-  rownames(xbar) <- rnames
-  if(!USPEC)xbar <- xbar[drop = FALSE, 1, ]
-  
-  nsim <- 2000
-  ns  <- 100
-  buffer <- 15
-  
-  
-  dpars <- parameters$dpars
-  
-  mm <- 6*max(dpars)
-  if(USPEC)mm <- 6*max(dpars['mean',])
-  
-  dseq <- 10^seq(0,log10(mm),length=ns) - 1
-  dseq <- matrix( dseq, ns, nsim)
-  
-  
-  ij <- sample(burnin:ng, nsim, replace  = TRUE)
-  
-  
-  ssList <- numeric(0)
-  maxy   <- 0
-  
-  bf <- bfecStnd[ij,colnames(xbar)]
-  
-  if(RANDOM){
-    br <- rmvnormRcpp(nrow(bf), aMu[1,]*0, aMu)
-    colnames(br) <- colnames(aMu)
-    bf[,colnames(br)] <- bf[,colnames(br)] + br
-  }
-  ff <-  bf%*%t(xbar)
-
-  maxy <- numeric(0)
-  
-  kss <- 1:(ns-buffer)
-  keepSeq <- c(rev(kss), kss) 
-  dss  <- c(-rev(dseq[kss,1]),dseq[kss,1])
-  
-  for(k in 1:ncol(ugibbs)){
-    
-    uj <- ugibbs[ij,k]
-    sj <- sgibbs[ij,'sigma']
-    
-    kj <- uj/pi/(uj + dseq^2)^2
-    kj <- kj*matrix(exp(ff[,k] + sj/2), ns, nsim, byrow  = TRUE)
-    kj[!is.finite(kj)] <- NA
-    qj <- t( apply(kj, 1, quantile, c(.5, .05, .95), na.rm  = TRUE ) )
-    
-    for(m in 1:3)qj[,m] <- runmed(qj[,m], k = buffer, endrule='constant')
-    maxy <- c(maxy, max( qj[,1] ))
-    
-    ssList <- append(ssList, list( qj[keepSeq,] ) )
-  }
-  
-  maxy[maxy > 1e+10] <- 1e+10
-  maxy[maxy < 1e-10] <- 1e-10
-  names(ssList) <- rownames(xbar)
-  
-  par(bty='n', mar=c(5,5,1,1))
-  
-  labSeeds <- expression( paste('Seeds (', plain(m)^-2, ')') )
-  
-  if(USPEC){
-    rmax <- diff( range(log10(maxy)) )
-  }else{
-    rmax <- log10(maxy)
-  }
-  SQRT <- FALSE
-  if( rmax > 3 ){
-    SQRT <- TRUE
-    smax <- sqrt(max(maxy))
-    plot(NULL, xlim=range(dss), ylim=c(0,smax),
-         xlab='Distance (m)', ylab = labSeeds, yaxt='n')
-    tt   <- sqrtSeq(1.2*smax)
-    at   <- tt$at
-    labs <- tt$labs
-    axis(2, at = at, labels = labs)
-    
-  }else{
-    plot(NULL, xlim=range(dss), ylim=c(0,1.2*max(maxy)),
-         xlab='Distance (m)', ylab = labSeeds)
-  }
-  
-  for(k in 1:length(ssList)){
-    if(maxy[k] <= 1e-10 | maxy[k] >= 1e+10)next
-    ss <- ssList[[k]][,2:3]
-    
-    if(SQRT)ss <- sqrt(ss)
-    .shadeInterval( dss, ss , col=
-                      .getColor(cols[names(cols)[k]], .2) )
-  }
-  mc <- numeric(0)
-  for(k in 1:length(ssList)){
-    ss <- ssList[[k]][,1]
-    if( max(ss,na.rm  = TRUE) >= 1e+10)next
-    if(SQRT)ss <- sqrt(ss)
-    lines(dss, ss, col='white',lwd=6)
-    lines(dss, ss, col=cols[names(cols)[k]], lwd=2)
-    mc <- c(mc, max(ssList[[k]][,1]))
-  }
-  
-  if(USPEC){
-    ord <- order(mc, decreasing  = TRUE)
-    legend('topright',names(cols)[ord],
-           text.col=cols[names(cols)[ord]], bty='n')
-  }
-  legend('topleft', paste(round(lab60),' cm diameter tree',sep=''), bty='n')
-  
-  if(CONSOLE)
-    readline('seed shadow -- return to continue ')
-  if(SAVEPLOTS)dev.off( )
-  
-  if(is.null(RMD)){
-    graphics.off()
-  }else{
-    words <- paste( 'Seed shadow predictions for a ', round(lab60),' cm diameter tree',sep='')
     message( words )
     caption <- c(caption, words)
   }
@@ -3859,7 +3994,14 @@ mastPlot <- function(output, plotPars = NULL){
         
         plot(NA,xlim=xl,ylim = ylim, xlab='log fecundity (fixed plus random)', ylab='frequency')
         for(s in 1:length(specNames)){
-          ws <- range( which(hvals[,s] > 0) )
+          
+          hp <- which(hvals[,s] > 0)
+          if(length(hp) == 0)next
+          
+          ws <- suppressWarnings( range( hp ) )
+          
+          
+          
           ss <- ws[1]:ws[2]
           xs <- betaFec[icol[s],1] + xvals[ss,1]
           xs <- c(xs[1],xs,xs[length(xs)])
@@ -3911,187 +4053,471 @@ mastPlot <- function(output, plotPars = NULL){
     }
   }
   
-  ########### predicted seed counts, true fecundity
+  ############ dispersal
   
-  if(SAVEPLOTS)pdf( file=.outFile(outFolder,'seedPrediction.pdf') )
-
-  xs <- rowSums(sdata[sdata$obs == 1,seedNames,drop = FALSE])
-  pcols <- grep('predMean',colnames(seedPred))      # by seed trap
-  ecols <- grep('estMean',colnames(seedPred))
+  if(SEEDDATA){
+    
+    cols  <- specCol[colnames(ugibbs)]
+    upars <- parameters$upars[drop=FALSE, colnames(ugibbs),]
+    
+    if(ncol(ugibbs) > 1){
+      
+      if( is.null(rownames(upars)) )rownames(upars) <- 'mean'
+      
+      if(SAVEPLOTS)pdf( file=.outFile(outFolder,'dispersalCoeffs.pdf') )
+      
+      ncc <- ncol(ugibbs)
+      sideMar <- min( c(3, 3 + 10/ncc) )
+      
+      par(mfrow=c(1,1), mar=c(3,5,5,4), bty='n', oma=c(2,sideMar,1,sideMar))
+      
+      ylim <- range(ugibbs)
+      ylim[1] <- .75*ylim[1]
+      ylim[2] <- 1.25*ylim[2]
+      
+      ylab1 <- expression( paste(hat(u),' (', plain(m)^2, ')') )
+      ylab2 <- expression( paste('Kernel mean ', bar(d), ' (m)') )
+      
+      # uord <- order( colMeans(ugibbs, na.rm=T) )
+      # colu <- cols[uord]
+      
+      atvals <- c(1:ncc)/(ncc + 1)
+      atvals <- atvals - mean(atvals)
+      
+      tmp <- .boxplotQuant( ugibbs, xaxt='n', add = F, xlim = NULL, 
+                            ylab=ylab1, ylim = ylim, boxwex=.6,
+                            at = atvals,
+                            outline = FALSE, col=.getColor(cols,.3), 
+                            border=cols, lty=1, boxfill=NULL )
+      tmp$xtick <- atvals
+      .boxCoeffsLabs( boxPars = tmp, labels = names(cols), 
+                      colLabs = cols, cex=.8)
+      
+      rr <- range( pi*sqrt(ugibbs)/2 )
+      rm <- -1
+      by <- 10
+      if(diff(rr) < 20){
+        by <- 5
+        rm <- 0
+      }
+      if(diff(rr) < 10){
+        by <- 2
+        rr[1] <- rr[1] - 1
+        rr[2] <- rr[2] + 1
+      }
+      
+      rr <- round(rr, rm)
+      rr <- seq(rr[1],rr[2], by=by)
+      
+      axis(4, at = (2*rr/pi)^2, labels = rr )
+      mtext(ylab2, 4, line=0, outer  = TRUE)
+      abline(v=par('usr')[1:2], lwd=2)
+      
+      if(CONSOLE)
+        readline('dispersal by group -- return to continue ')
+      if(SAVEPLOTS)dev.off( )
+      if(is.null(RMD)){
+        graphics.off()
+      }else{
+        words <- paste( 'Posterior estimates for dispersal parameters' )
+        message( words )
+        caption <- c(caption, words)
+      }
+    }
+    
+    if(is.null(RMD)) graphics.off()
+    
+    if(SAVEPLOTS)pdf( file=.outFile(outFolder,'seedShadow.pdf') )
+    
+    par(mfrow=c(1,1), bty='n')
+    
+    xfec  <- data$setupData$xfec
+    
+    qd     <- .75
+    dcol  <- grep(':diam',colnames(xfec))
+    dtcol <- grep('diam',colnames(tdata))
+    lab60 <- tdata[,dtcol]
+    lab60 <- lab60[lab60 != 0]
+    lab60 <- quantile(lab60, qd)
+    lab60 <- signif(lab60,1)
+    if(lab60 < 10)lab60 <- 10
+    ord <- order(tdata[,dtcol])
+    sdd <- tdata[ord,dtcol]
+    dd <- findInterval(lab60, sdd)
+    lab60 <- sdd[dd]
+    diam60 <- xfec[ord[dd],dcol]
+    diam60 <- diam60[diam60 != 0]
+    
+    # each group at mean for other predictors
+    xbar   <- numeric(0)
+    rnames <- character(0)
+    ucol   <- numeric(0)
+    
+    snames <- colnames(ugibbs)
+    
+    for(j in 1:ncol(ugibbs)){
+      
+      wj   <- which(tdata$species == snames[j])
+      xmu  <- colMeans(xfec[drop = FALSE,wj,])
+      
+      w0 <- which(xmu != 0)       #insert diameter value
+      w0 <- intersect(w0, dcol)
+      xmu[w0] <- diam60
+      
+      xbar <- rbind(xbar, xmu)
+      rnames <- c(rnames, snames[j])
+    }
+    
+    rownames(xbar) <- rnames
+    if(!USPEC)xbar <- xbar[drop = FALSE, 1, ]
+    
+    nsim <- 2000
+    ns  <- 100
+    buffer <- 15
+    
+    dpars <- parameters$dpars[drop=FALSE, colnames(ugibbs),]
+    
+    mm <- 6*max(dpars)
+    if(USPEC)mm <- 6*max(dpars[,'estimate'])
+    
+    dseq <- 10^seq(0,log10(mm),length=ns) - 1
+    dseq <- matrix( dseq, ns, nsim)
+    
+    ij <- sample(1:nrow(ugibbs), nsim, replace  = TRUE)
+    
+    ssList <- numeric(0)
+    maxy   <- 0
+    
+    bf <- bfecStnd[ij,colnames(xbar)]
+    
+    if(RANDOM){
+      br <- rmvnormRcpp(nrow(bf), aMu[1,]*0, aMu)
+      colnames(br) <- colnames(aMu)
+      bf[,colnames(br)] <- bf[,colnames(br)] + br
+    }
+    ff <-  bf%*%t(xbar)
+    ff <- ff[,colnames(ugibbs),drop=FALSE]
+    xbar <- xbar[drop=F, colnames(ugibbs),]
+    
+    maxy <- numeric(0)
+    
+    kss <- 1:(ns-buffer)
+    keepSeq <- c(rev(kss), kss) 
+    dss  <- c(-rev(dseq[kss,1]),dseq[kss,1])
+    
+    for(k in 1:ncol(ugibbs)){
+      
+      uj <- ugibbs[ij,k]
+      sj <- sgibbs[ij,'sigma']
+      
+      kj <- uj/pi/(uj + dseq^2)^2
+      kj <- kj*matrix(exp(ff[,k] + sj/2), ns, nsim, byrow  = TRUE)
+      kj[!is.finite(kj)] <- NA
+      qj <- t( apply(kj, 1, quantile, c(.5, .05, .95), na.rm  = TRUE ) )
+      
+      for(m in 1:3)qj[,m] <- runmed(qj[,m], k = buffer, endrule='constant')
+      maxy <- c(maxy, max( qj[,1] ))
+      
+      ssList <- append(ssList, list( qj[keepSeq,] ) )
+    }
+    
+    maxy[maxy > 1e+10] <- 1e+10
+    maxy[maxy < 1e-10] <- 1e-10
+    names(ssList) <- rownames(xbar)
+    
+    par(bty='n', mar=c(5,5,1,1))
+    
+    labSeeds <- expression( paste('Seeds (', plain(m)^-2, ')') )
+    
+    if(USPEC){
+      rmax <- diff( range(log10(maxy)) )
+    }else{
+      rmax <- log10(maxy)
+    }
+    SQRT <- FALSE
+    if( rmax > 3 ){
+      SQRT <- TRUE
+      smax <- sqrt(max(maxy))
+      plot(NULL, xlim=range(dss), ylim=c(0,smax),
+           xlab='Distance (m)', ylab = labSeeds, yaxt='n')
+      tt   <- sqrtSeq(1.2*smax)
+      at   <- tt$at
+      labs <- tt$labs
+      axis(2, at = at, labels = labs)
+      
+    }else{
+      plot(NULL, xlim=range(dss), ylim=c(0,1.2*max(maxy)),
+           xlab='Distance (m)', ylab = labSeeds)
+    }
+    
+    for(k in 1:length(ssList)){
+      if(maxy[k] <= 1e-10 | maxy[k] >= 1e+10)next
+      ss <- ssList[[k]][,2:3]
+      
+      if(SQRT)ss <- sqrt(ss)
+      .shadeInterval( dss, ss , col=
+                        .getColor(cols[names(cols)[k]], .2) )
+    }
+    mc <- numeric(0)
+    for(k in 1:length(ssList)){
+      ss <- ssList[[k]][,1]
+      if( max(ss,na.rm  = TRUE) >= 1e+10)next
+      if(SQRT)ss <- sqrt(ss)
+      lines(dss, ss, col='white',lwd=6)
+      lines(dss, ss, col=cols[names(cols)[k]], lwd=2)
+      mc <- c(mc, max(ssList[[k]][,1]))
+    }
+    
+    if(USPEC){
+      ord <- order(mc, decreasing  = TRUE)
+      legend('topright',names(cols)[ord],
+             text.col=cols[names(cols)[ord]], bty='n')
+    }
+    legend('topleft', paste(round(lab60),' cm diameter tree',sep=''), bty='n')
+    
+    if(CONSOLE)
+      readline('seed shadow -- return to continue ')
+    if(SAVEPLOTS)dev.off( )
+    
+    if(is.null(RMD)){
+      graphics.off()
+    }else{
+      words <- paste( 'Seed shadow predictions for a ', round(lab60),' cm diameter tree',sep='')
+      message( words )
+      caption <- c(caption, words)
+    }
+    
+    
+    ########### predicted seed counts, true fecundity
+    
+    xs <- rowSums(sdata[sdata$obs == 1,seedNames,drop = FALSE])
+    pcols <- grep('predMean',colnames(seedPred))      # by seed trap
+    ecols <- grep('estMean',colnames(seedPred))
+    
+    ys <- seedPred[,pcols]
+    zs <- seedPred[,ecols]
+    
+    ww <- which(is.finite(xs) & xs > 0)
+    
+    if(length(ww) > 10){
+      
+      if(SAVEPLOTS)pdf( file=.outFile(outFolder,'seedPrediction.pdf') )
+      
+      xs <- xs[ww]
+      ys <- ys[ww]
+      zs <- zs[ww]
+      
+      ylim <- quantile(c(ys, zs), c(0,.99),na.rm  = TRUE)
+      ylim[2] <- ylim[2]*1.5
+      xlim <- range(xs, na.rm  = TRUE) + 1
+      
+      mfrow <- c(1,2)
+      title <- 'a) From posterior distribution'
+      
+      if(TV)mfrow <- c(2,2)
+      if(SEEDCENSOR)mfrow <- c(2,2)
+      
+      par(mfrow=mfrow, mar=c(4,4,2,1), bty='l')
+      
+      bins <- getBins(xs, nbin=10, pow=.4)
+      nbin <- length(bins)
+      
+      opt <- list(log = FALSE, xlabel='Observed', bins = bins,
+                  nbin=nbin, ylabel='Predicted', col='forestgreen', 
+                  ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
+      tmp <- .plotObsPred(xs, ys, opt = opt)
+      .plotLabel(title, above  = TRUE, cex=1)
+      abline(0, 1, lwd=2, col='white')
+      abline(0,1,lty=2)
+      abline(h = mean(ys, na.rm=T),lty=2)
+      if(SEEDCENSOR){
+        cs <- sqrt(seedPred[rownames(censMin),pcols])
+        xl <- rowSums(censMin[,-1, drop = FALSE])
+        xh <- rowSums(censMax[,-1, drop = FALSE])
+        xh[xh > xlim[2]] <- xlim[2]
+        opt <- list(log = FALSE, xlabel='Censored interval', bins = bins,
+                    nbin=nbin, ylabel=' ', col='white', ptcol='white',
+                    ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
+        tmp <- .plotObsPred(xs, ys, opt = opt)
+        segments(xl, cs, xh, cs, col=.getColor('black',.1))
+        abline(0, 1, lwd=2, col='white')
+        abline(0,1,lty=2)
+        .plotLabel('b) Censored observations', above  = TRUE, cex=1)
+      }
+      
+      lab <- 'b) From fecundity estimate'
+      if(SEEDCENSOR)lab <- 'c) From fecundity estimate'
+      
+      opt <- list(log = FALSE, xlabel='Observed', bins = bins, atx = tmp$atx, labx = tmp$labx,
+                  aty = tmp$aty, laby = tmp$laby,
+                  ylabel='', col='forestgreen', #ylimit=ylim, xlimit = xlim,
+                  nbin=nbin, SQRT  = TRUE)
+      tmp <- .plotObsPred(xs, zs, opt = opt)
+      .plotLabel(lab, above  = TRUE, cex=.8)
+      abline(0, 1, lwd=2, col='white')
+      abline(0,1,lty=2)
+      abline(h = mean(zs, na.rm=T),lty=2)
+      
+      cwords <- 'prediction'
+      
+      if(SEEDCENSOR){
+        cs <- sqrt(seedPred[rownames(censMin),ecols])
+        xl <- rowSums(censMin[,-1, drop = FALSE])
+        xh <- rowSums(censMax[,-1, drop = FALSE])
+        xh[xh > xlim[2]] <- xlim[2]
+        opt <- list(log = FALSE, xlabel='Censored interval', bins = bins,
+                    nbin=nbin, ylabel=' ', col='white', ptcol='white',
+                    ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
+        tmp <- .plotObsPred(xs, ys, opt = opt)
+        segments(xl, cs, xh, cs, col=.getColor('black',.1))
+        .plotLabel('d) Censored from fecundity estimate', above  = TRUE, cex=.9)
+        abline(0, 1, lwd=2, col='white')
+        abline(0,1,lty=2)
+      }
+      
+      if(TV){
+        
+        xs <- inputs$trueValues$fec
+        ys <- prediction$fecPred$fecEstMu
+        names(ys) <- rownames(prediction$fecPred)
+        
+        anames <- intersect(names(xs),names(ys))
+        anames <- anames[anames %in% names(xs) & anames %in% names(ys)]
+        ys <- ys[anames]
+        xs <- xs[anames]
+        
+        ylim <- quantile(ys[ys > 1],c(.02,.99))
+        ylim[1] <- max(c(ylim[1],1))
+        
+        ws <- which(xs > 0 & ys > 0)
+        xlim <- quantile(xs[ws],c(.02,.99))
+        
+        bins <- getBins(xs, pow = .2)
+        nbin <- length(bins)
+        
+        opt <- list(xlimit = xlim, ylimit = ylim, bins = bins,
+                    nbin=nbin, log = FALSE, xlabel='True values', 
+                    ylabel='Estimates', col='darkgreen', SQRT  = TRUE)
+        .plotObsPred(xs, ys, opt = opt)
+        .plotLabel('c) Fecundity prediction', above  = TRUE, cex=.8)
+        abline(0, 1, lwd=2, col='white')
+        abline(0,1,lty=2)
+        
+        xs <- inputs$trueValues$repr
+        ys <- prediction$fecPred$matrEst
+        names(ys) <- rownames(prediction$fecPred)
+        
+        anames <- intersect(names(xs),names(ys))
+        anames <- anames[anames %in% names(xs) & anames %in% names(ys)]
+        ys <- ys[anames]
+        xs <- xs[anames]
+        
+        tmp <- boxplot( ys ~ xs, plot = FALSE)
+        
+        ss  <- apply( prediction$fecPred[,c('matrEst','matrPred')], 2, quantile, 
+                      pnorm(c(-1.96,-1,0,1,1.96)), na.rm  = TRUE ) 
+        ss  <- ss[names(xs)]
+        
+        ps <- c(.025, .05, .1, .157)
+        ps <- c(ps, .5, 1 - ps)
+        qs <- unlist( by(ys, INDICES=xs, FUN=quantile, ps ) )
+        
+        
+        tmp$stats <- matrix(qs, length(ps), 2)
+        bxp(tmp, add = F, yaxt = 'n',  varwidth  = TRUE, xlab='True values',
+            ylim=c(0,1), ylab='', boxwex=.5,
+            outline = FALSE, col=.getColor('black', .2), 
+            border='black', lty=1, boxfill=NULL)
+        axis(2, at=c(0,1))
+        .plotLabel('d) Maturation prediction', above  = TRUE, cex=.8)
+      }
+      
+      if(SEEDDATA | TV){
+        
+        if(CONSOLE)
+          readline( paste(cwords, '-- return to continue') )
+        if(SAVEPLOTS)dev.off( )
+        
+        if(is.null(RMD)){
+          graphics.off()
+        }else{
+          words <- 'Prediction from the posterior distribition'
+          message( words )
+          caption <- c(caption, words)
+        }
+      }
+    } 
+  }###################### end plot obs/pred seedData
   
-  ys <- seedPred[,pcols]
-  zs <- seedPred[,ecols]
-  
-  ww <- which(is.finite(xs))
-  xs <- xs[ww]
-  ys <- ys[ww]
-  zs <- zs[ww]
-  
-  ylim <- quantile(c(ys, zs), c(0,.99),na.rm  = TRUE)
-  ylim[2] <- ylim[2]*1.5
-  xlim <- range(xs, na.rm  = TRUE) + 1
-  
-  mfrow <- c(1,2)
-  title <- 'a) From posterior distribution'
-  
-  if(TV)mfrow <- c(2,2)
-  if(SEEDCENSOR)mfrow <- c(2,2)
-  
-  par(mfrow=mfrow, mar=c(4,4,2,1), bty='l')
-  
-  bins <- getBins(xs, nbin=10, pow=.4)
-  nbin <- length(bins)
-  
-  opt <- list(log = FALSE, xlabel='Observed', bins = bins,
-              nbin=nbin, ylabel='Predicted', col='forestgreen', 
-              ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
-  tmp <- .plotObsPred(xs, ys, opt = opt)
-  .plotLabel(title, above  = TRUE, cex=1)
-  abline(0, 1, lwd=2, col='white')
-  abline(0,1,lty=2)
-  if(SEEDCENSOR){
-    cs <- sqrt(seedPred[rownames(censMin),pcols])
-    xl <- rowSums(censMin[,-1, drop = FALSE])
-    xh <- rowSums(censMax[,-1, drop = FALSE])
-    xh[xh > xlim[2]] <- xlim[2]
-    opt <- list(log = FALSE, xlabel='Censored interval', bins = bins,
-                nbin=nbin, ylabel=' ', col='white', ptcol='white',
-                ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
-    tmp <- .plotObsPred(xs, ys, opt = opt)
-    segments(xl, cs, xh, cs, col=.getColor('black',.1))
-    abline(0, 1, lwd=2, col='white')
-    abline(0,1,lty=2)
-    .plotLabel('b) Censored observations', above  = TRUE, cex=1)
-  }
-  
-  lab <- 'b) From fecundity estimate'
-  if(SEEDCENSOR)lab <- 'c) From fecundity estimate'
-    
-  opt <- list(log = FALSE, xlabel='Observed', bins = bins, atx = tmp$atx, labx = tmp$labx,
-              aty = tmp$aty, laby = tmp$laby,
-              ylabel='', col='forestgreen', #ylimit=ylim, xlimit = xlim,
-              nbin=nbin, SQRT  = TRUE)
-  tmp <- .plotObsPred(xs, zs, opt = opt)
-  .plotLabel(lab, above  = TRUE, cex=.8)
-  abline(0, 1, lwd=2, col='white')
-  abline(0,1,lty=2)
-  
-  cwords <- 'prediction'
-
-  if(SEEDCENSOR){
-    cs <- sqrt(seedPred[rownames(censMin),ecols])
-    xl <- rowSums(censMin[,-1, drop = FALSE])
-    xh <- rowSums(censMax[,-1, drop = FALSE])
-    xh[xh > xlim[2]] <- xlim[2]
-    opt <- list(log = FALSE, xlabel='Censored interval', bins = bins,
-                nbin=nbin, ylabel=' ', col='white', ptcol='white',
-                ylimit = ylim, xlimit = xlim, SQRT  = TRUE)
-    tmp <- .plotObsPred(xs, ys, opt = opt)
-    segments(xl, cs, xh, cs, col=.getColor('black',.1))
-    .plotLabel('d) Censored from fecundity estimate', above  = TRUE, cex=.9)
-    abline(0, 1, lwd=2, col='white')
-    abline(0,1,lty=2)
-  }
-  
-  if(TV){
-    
-    xs <- inputs$trueValues$fec
-    ys <- prediction$fecPred$fecEstMu
-    names(ys) <- rownames(prediction$fecPred)
-    
-    anames <- intersect(names(xs),names(ys))
-    anames <- anames[anames %in% names(xs) & anames %in% names(ys)]
-    ys <- ys[anames]
-    xs <- xs[anames]
-    
-    ylim <- quantile(ys[ys > 1],c(.02,.99))
-    ylim[1] <- max(c(ylim[1],1))
-    
-    ws <- which(xs > 0 & ys > 0)
-    xlim <- quantile(xs[ws],c(.02,.99))
-    
-    bins <- getBins(xs, pow = .2)
-    nbin <- length(bins)
-    
-    opt <- list(xlimit = xlim, ylimit = ylim, bins = bins,
-                nbin=nbin, log = FALSE, xlabel='True values', 
-                ylabel='Estimates', col='darkgreen', SQRT  = TRUE)
-    .plotObsPred(xs, ys, opt = opt)
-    .plotLabel('c) Fecundity prediction', above  = TRUE, cex=.8)
-    abline(0, 1, lwd=2, col='white')
-    abline(0,1,lty=2)
-    
-    xs <- inputs$trueValues$repr
-    ys <- prediction$fecPred$matrEst
-    names(ys) <- rownames(prediction$fecPred)
-    
-    anames <- intersect(names(xs),names(ys))
-    anames <- anames[anames %in% names(xs) & anames %in% names(ys)]
-    ys <- ys[anames]
-    xs <- xs[anames]
-    
-    tmp <- boxplot( ys ~ xs, plot = FALSE)
-    
-    ss  <- apply( prediction$fecPred[,c('matrEst','matrPred')], 2, quantile, 
-                  pnorm(c(-1.96,-1,0,1,1.96)), na.rm  = TRUE ) 
-    ss  <- ss[names(xs)]
-    
-    ps <- c(.025, .05, .1, .157)
-    ps <- c(ps, .5, 1 - ps)
-    qs <- unlist( by(ys, INDICES=xs, FUN=quantile, ps ) )
-    
-    
-    tmp$stats <- matrix(qs, length(ps), 2)
-    bxp(tmp, add = F, yaxt = 'n',  varwidth  = TRUE, xlab='True values',
-        ylim=c(0,1), ylab='', boxwex=.5,
-        outline = FALSE, col=.getColor('black', .2), 
-        border='black', lty=1, boxfill=NULL)
-    axis(2, at=c(0,1))
-    .plotLabel('d) Maturation prediction', above  = TRUE, cex=.8)
-  }
-  
-  if(CONSOLE)
-    readline( paste(cwords, '-- return to continue') )
-  if(SAVEPLOTS)dev.off( )
-  
-  if(is.null(RMD)){
-    graphics.off()
-  }else{
-    words <- 'Prediction from the posterior distribition'
-    message( words )
-    caption <- c(caption, words)
-  }
   
   wc    <- which(is.finite(tdata$cropCount))
   if(length(wc) == 0)CONES <- FALSE
   
-  if(CONES){
+  if( CONES | 'cropMin' %in% colnames(tdata) ){
     
     if(SAVEPLOTS)pdf( file=.outFile(outFolder,'cropTrees.pdf') )
     
     par(mfrow=c(1,1),bty='n', mar=c(4,4,2,1), omi=c(.8,.2,0,.5))
     
     cobs  <- seedTraits[tdata$species,'seedsPerFruit']*tdata$cropCount/tdata$cropFraction
+    
+    if('cropMin' %in% colnames(tdata)){
+      wcrop <- which(is.finite(tdata$cropMin))
+      cobs[wcrop] <- (tdata$fecMin[wcrop] + tdata$fecMax[wcrop])/2 #  mean
+      cobs[wcrop][!is.finite(cobs[wcrop])] <- tdata$fecMin[wcrop][!is.finite(cobs[wcrop])]
+    }
+    
     wc    <- which(is.finite(cobs))
-    cobs  <- sqrt(cobs[wc])
+    cobs  <- sqrt(cobs[wc])                    #sqrt scale
     cest  <- prediction$fecPred$fecEstMu[wc]
-    cese   <- prediction$fecPred$fecEstSe[wc]
+    cese  <- prediction$fecPred$fecEstSe[wc]
     cpre  <- prediction$fecPred$fecPredMu[wc]
     cpse  <- prediction$fecPred$fecPredSe[wc]
     
     cplo <- cpre - cpse
     cplo[cplo < 0] <- 0
-    celo <- cest - cese
-    celo[celo < 0] <- 0
+    cplo <- sqrt(cplo)
+    cphi <- sqrt(cpre + cpse)
     
-    cplo <- sqrt( cplo )
-    celo <- sqrt( celo )
+    celo <- cest - cese 
+    celo[celo < 0] <- 0
+    celo <- sqrt(celo)
+    cehi <- sqrt(cest + cese)
     
     xlim <- c(0, max(cobs))      # sqrt scale
     ylim <- sqrt( c(0, max(cpre + cpse)) )
     if(ylim[2] < max(cobs))ylim[2] <- max(cobs)
     
-    xlab <- expression( frac('count', 'canopy fraction') %*% 'seeds per cone' )
+    ccens <- rep(0, nrow(tdata))
+    ws    <- numeric(0)
+    
+    ccenlo <- ccenhi <- NA
+    if('cropMin' %in% colnames(inputs$treeData)){
+      ws <- which(is.finite(tdata$cropMin))
+      ccenlo <- tdata$fecMin[ws]
+      ccens[ws]  <- ccenlo
+      sest  <- prediction$fecPred$fecEstMu[ws]
+      sese  <- prediction$fecPred$fecEstSe[ws]
+      selo  <- sest - sese
+      selo[selo < 0] <- 0
+      selo  <- sqrt(selo)
+      selo  <- sqrt(selo)
+    }
+    if('cropMax' %in% colnames(inputs$treeData)){
+      ws <- which(is.finite(tdata$cropMax))
+      ccenhi <- tdata$fecMax[ws]
+      ccens[ws]  <- (ccens[ws] + ccenhi)/2
+      sehi  <- sqrt(sest + sese)
+    }
+    if('cropMin' %in% colnames(inputs$treeData) |
+       'cropMax' %in% colnames(inputs$treeData)){
+      sobs  <- sqrt(ccens)
+      slo   <- sqrt(ccenlo)
+      shi   <- sqrt(ccenhi)
+      shi[ shi > max(sehi) ] <- max(sehi)
+    }
+    
+    xlab <- expression( frac('count', 'crop fraction') %*% 'seeds per cone' )
       
   #    expression( paste('Kernel mean ', bar(d), ' (m)') )
     tt   <- sqrtSeq(1.2*xlim[2])
@@ -4103,15 +4529,23 @@ mastPlot <- function(output, plotPars = NULL){
     labsy <- tt$labs
  
     plot(cobs, sqrt(cpre), xlim = xlim, ylim = ylim, xaxt='n', yaxt='n',
-         pch = 3, xlab='',ylab='Seeds per tree', col='grey')
+         pch = 3, xlab='',ylab='Seeds per tree', col='thistle4')
     axis(1, at = atx, labels = labsx)
     axis(2, at = aty, labels = labsy)
     
-    cphi <- sqrt(cpre + cpse) + .1
     suppressWarnings(
       arrows( cobs, cplo, cobs, cphi, lwd=1,
-              angle=90, length=.05, col='grey', code=3)
+              angle=90, length=.05, col='thistle4', code=3)
     )
+    
+    if(length(ws) > 0){
+      suppressWarnings(
+      arrows( sobs, selo, sobs, sehi, lwd=1,
+              angle=90, length=.05, col=.getColor('mediumaquamarine',.8), code=3) )
+     suppressWarnings(
+      arrows( slo, sqrt(sest), shi, sqrt(sest), lwd=1,
+              angle=90, length=.05, col=.getColor('mediumaquamarine',.8), code=3) )
+    }
     
     points(cobs,sqrt( cest ), pch = 3)
 
@@ -4120,8 +4554,14 @@ mastPlot <- function(output, plotPars = NULL){
               angle=90, length=.05, col=1, code=3)
     )
     abline(0, 1, lwd=2, col='grey',lty=2)
-    legend('topleft', c('Estimated','Predicted'), 
-           box.col = 'grey', text.col=c('black','grey'))
+    leg <- c('Estimated','Predicted')
+    text.col <- c('black','grey')
+    if(length(ws) > 0){
+      leg <- c('Estimated censored counts','Estimated crop counts','Predicted')
+      text.col <- c(.getColor('mediumaquamarine',.8), 'black', 'thistle4')
+    }
+    legend('topleft', legend = leg, text.col = text.col,
+           box.col = 'grey' )
     mtext(xlab, side=1, outer  = TRUE, line=0)
     
     if(CONSOLE)
@@ -4206,7 +4646,16 @@ mastPlot <- function(output, plotPars = NULL){
   ################# year effects
   
   YE <- 'betaYr' %in% names(parameters)
-  if(YE)YE <- nrow(parameters$betaYr) > 1
+  
+  if(is.null(parameters$betaYr))YE <- YR <- FALSE
+  
+  if(YE)YE <- nrow(parameters$betaYr) > 1 
+  if(YE){
+    YEE <- 'betaYrRand' %in% names(parameters)
+    if(YEE){
+      if(sum(parameters$betaYrRand) == 0)YE <- YR <- FALSE
+    }
+  }
   
   if( YE ){
     
@@ -4228,7 +4677,7 @@ mastPlot <- function(output, plotPars = NULL){
     
     RANDYR <- FALSE
     
-    if('betaYrRand' %in% names(parameters)){  #combine fixed and random
+    if( 'betaYrRand' %in% names(parameters) ){  #combine fixed and random
       
       betaYrRand   <- parameters$betaYrRand
       betaYrRandSE <- parameters$betaYrRandSE
@@ -4329,8 +4778,11 @@ mastPlot <- function(output, plotPars = NULL){
         ej <- ej[is.finite(sj)]
         sj <- sj[is.finite(sj)]
         
+        sj <- sj[ is.finite(ej) ]
+        
         for(m in 1:length(sj)){
           mm   <- sj[m]:ej[m]
+          if(length(mm) < 2)next
           loHi <- cbind( betaYrMu[nj,mm] - 1.96*betaYrSe[nj,mm],
                          betaYrMu[nj,mm] + 1.96*betaYrSe[nj,mm])
           .shadeInterval(yr[mm],loHi,col=groupCol[nj],PLOT  = TRUE,add  = TRUE, trans = .3)
@@ -4347,6 +4799,8 @@ mastPlot <- function(output, plotPars = NULL){
         ej <- c(wj[dj-1], max(wj))
         ej <- ej[is.finite(sj)]
         sj <- sj[is.finite(sj)]
+        
+        sj <- sj[ is.finite(ej) ]
         
         for(m in 1:length(sj)){
           mm   <- sj[m]:ej[m]
@@ -4373,26 +4827,24 @@ mastPlot <- function(output, plotPars = NULL){
       message( words )
       caption <- c(caption, words)
     }
-    
- #   file <- paste('countByYr.pdf',sep='')
- #   if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
   }
   
-  if(YR)title('Year effects, +/- 1 se',adj=1, font.main=1, font.lab=1,
-              cex.main=.9)
-  
-  if(CONSOLE)
-    readline('year effect all groups -- return to continue ')
-  if(SAVEPLOTS)dev.off( )
-  if(is.null(RMD)){
-    graphics.off()
-  }else{
-    words <- 'Posterior estimate of year effects, by random group'
-    message( words )
-    caption <- c(caption, words)
+  if( YR & !AR ){
+    title('Year effects, +/- 1 se',adj=1, font.main=1, font.lab=1,
+          cex.main=.9)
+    if(CONSOLE)
+      readline('year effect all groups -- return to continue ')
+    if(SAVEPLOTS)dev.off( )
+    if(is.null(RMD)){
+      graphics.off()
+    }else{
+      words <- 'Posterior estimate of year effects, by random group'
+      message( words )
+      caption <- c(caption, words)
+    }
   }
   
-  if('groups' %in% names(yearEffect)){  # by region
+  if( (YR | AR) & 'groups' %in% names(yearEffect) ){  # by region
     
     if(is.null(RMD)) graphics.off()
     
@@ -4455,11 +4907,12 @@ mastPlot <- function(output, plotPars = NULL){
           sj <- kj[dj]
           ej <- c(wj[dj-1], max(wj))
           ej <- ej[is.finite(sj)]
-          sj <- sj[is.finite(sj)]
+          sj <- sj[is.finite(sj) & is.finite(ej)]
           
           for(m in 1:length(sj)){
             
             mm   <- sj[m]:ej[m]
+            if(length(mm) < 2)next
             loHi <- cbind( betaYrMu[nj,mm] - 1.96*betaYrSe[nj,mm],
                            betaYrMu[nj,mm] + 1.96*betaYrSe[nj,mm])
             .shadeInterval(yr[mm],loHi,col=groupCol[nj],PLOT  = TRUE,add  = TRUE, trans = .3)
@@ -4489,14 +4942,15 @@ mastPlot <- function(output, plotPars = NULL){
                cex=1., bty='n')
         .plotLabel(region[j],'topleft')
         
-        if(AR){
-          mtext('Lag',side=1,line=1,outer  = TRUE)
-        }else{
-          mtext('Year',side=1,line=1,outer  = TRUE)
-        }
-        mtext('log fecundity',side=2,line=1,outer  = TRUE)
         par(new = F)
       }
+      
+      if(AR){
+        mtext('Lag',side=1,line=1,outer  = TRUE)
+      }else{
+        mtext('Year',side=1,line=1,outer  = TRUE)
+      }
+      mtext('log fecundity',side=2,line=1,outer  = TRUE)
     }
     
     
@@ -4513,14 +4967,15 @@ mastPlot <- function(output, plotPars = NULL){
   }
   
   ############# pacf
-    
-    pacfMat <- output$parameters$pacfMat
-    pacsMat <- output$parameters$pacsMat
+  
+ # pacfMat <- output$parameters$pacfMat
+ # pacsMat <- output$parameters$pacsMat
+  
   
   nyy <- ceiling(nyr*.6)
   if(nyy > 10)nyy <- 10
   
-  if(nyr > 3 & sum(pacfMat,na.rm  = TRUE) != 0){
+  if( nyr > 3 & sum(pacfMat,na.rm  = TRUE) != 0 ){
     
     if(is.null(RMD)) graphics.off()
     
@@ -4530,8 +4985,8 @@ mastPlot <- function(output, plotPars = NULL){
     par(mfrow=c(1,2),bty='n', mar=c(3,2,1,.5), oma=c(2,3,1,1))
     
     mr  <- .9
-    ylim <- range(pacfMat[,-1],na.rm  = TRUE)
-    ylim <- range( c(ylim, pacsMat[-1]), na.rm  = TRUE )
+    ylim <- range(pacfMat[,-1,drop=F],na.rm  = TRUE)
+    if(SEEDDATA)ylim <- range( c(ylim, pacsMat[-1]), na.rm  = TRUE )
     
     plot(NULL, xlim = c(1,nyy), ylim = ylim, xaxt = 'n',
          xlab = '', ylab = '')
@@ -4581,28 +5036,30 @@ mastPlot <- function(output, plotPars = NULL){
                               bty='n', cex=.6)
     .plotLabel('a) log Fecundity', location='topleft',above  = TRUE, cex=.9)
     
-    xlim <-  c(1,nyy)
-    plot(NULL, xlim = xlim, ylim = ylim, xaxt = 'n', yaxt='n',
-         xlab = '', ylab = '')
-    axis(1, at=c(1:nyy))
-    axis(2, labels = FALSE)
-    abline(h=0, lty=2,lwd=2, col='grey')
-    leg <- character(0); col <- numeric(0)
-    lag <- c(0:nyy)
-    
-    wj <- which(pacsMat != 0)
-    wj <- wj[wj != 1]
-    nj <- length(wj)
-    
-    if(nj > 2){
+    if(SEEDDATA){
+      xlim <-  c(1,nyy)
+      plot(NULL, xlim = xlim, ylim = ylim, xaxt = 'n', yaxt='n',
+           xlab = '', ylab = '')
+      axis(1, at=c(1:nyy))
+      axis(2, labels = FALSE)
+      abline(h=0, lty=2,lwd=2, col='grey')
+      leg <- character(0); col <- numeric(0)
+      lag <- c(0:nyy)
       
-      ac <- pacsMat[wj]
-      lines(lag[wj], ac, col=1, lwd=2)
-      segments( lag[wj], ac*0, lag[wj], ac)
+      wj <- which(pacsMat != 0)
+      wj <- wj[wj != 1]
+      nj <- length(wj)
+      
+      if(nj > 2){
+        
+        ac <- pacsMat[wj]
+        lines(lag[wj], ac, col=1, lwd=2)
+        segments( lag[wj], ac*0, lag[wj], ac)
+      }
+      .plotLabel('b) Seed counts', location='topleft', above  = TRUE, cex=.9)
+      mtext('Lag (yr)', side=1, outer  = TRUE)
+      mtext('PACF', side=2, outer  = TRUE, line=1)
     }
-    .plotLabel('b) Seed counts', location='topleft', above  = TRUE, cex=.9)
-    mtext('Lag (yr)', side=1, outer  = TRUE)
-    mtext('PACF', side=2, outer  = TRUE, line=1)
     
     if(CONSOLE)
       readline('partial ACF -- return to continue ')
@@ -4616,7 +5073,7 @@ mastPlot <- function(output, plotPars = NULL){
     }
   }
   
-  if('groups' %in% names(yearEffect) & sum(pacfMat,na.rm  = TRUE) != 0){
+  if( 'groups' %in% names(yearEffect) & sum(pacfMat,na.rm  = TRUE) != 0 ){
     
     file <- paste('pacfByGroup.pdf',sep='')
     
@@ -4706,6 +5163,7 @@ mastPlot <- function(output, plotPars = NULL){
     
     ename <-rownames(eigenMu)
     ename <- rep(ename,each=ncol(eigenMu))
+    if( nrow(eigenMu) == 1 )ename <- '+'
     text.col <- rep(groupCol[yeGr],each=ncol(eigenMu))
     
     xlab <- expression( paste( plain(Re),' ',lambda ))
@@ -4719,7 +5177,7 @@ mastPlot <- function(output, plotPars = NULL){
     lines(xseq,-yseq,lwd=2,col='grey',lt=2)
     lines(c(0,0),c(-1,1),col='grey',lt=2)
     lines(c(-1,1),c(0,0),col='grey',lt=2)
-    text(Re(eigenMu),Im(eigenMu),ename, cex=.9, col=text.col)
+    text( Re(eigenMu) ,Im(eigenMu), ename, cex=1.1, col=text.col)
     
     if(CONSOLE)
       readline('ACF eigenvalues -- return to continue ')
@@ -4735,256 +5193,273 @@ mastPlot <- function(output, plotPars = NULL){
   
   ############# fecundity and seed prediction
   
-  tyears <- years  <- sort(unique(sdata$year))
-  tplots <- pplots <- sort(unique(as.character(sdata$plot)))
-  if(AR)tyears <- sort(unique(tdata$year))
-  
-  if(PREDICT & length(inputs$predList$years) > 1){
+  if(SEEDDATA){
     
-    file <- paste('prediction.pdf',sep='')
-    if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
+    tyears <- years  <- sort(unique(sdata$year))
+    tplots <- pplots <- sort(unique(as.character(sdata$plot)))
+    if(AR)tyears <- sort(unique(tdata$year))
     
-    pyears <- sort(unique(c(fecPred$year,seedPredGrid$year)))
-    pplots <- sort(unique(as.character(seedPredGrid$plot)))
-    tyears <- sort(unique(c(years,pyears,tyears)))
-    tplots <- sort(unique(c(plots,pplots)))
-    
-    # prediction grid closest to traps
-    
-    pcol <- grep('meanM2',colnames(seedPredGrid))
-    scol <- grep('seM2',colnames(seedPredGrid))
-    
-    kcol <- c("trapID","plot","year","trap","plotYr","plotyr",
-              "drow","area","active")
-    spred <- numeric(0)
-    
-    for(j in 1:length(pplots)){
+    if(PREDICT & length(inputs$predList$years) > 1){
       
-      xyt <- xytrap[xytrap$plot == pplots[j],]
+      file <- paste('prediction.pdf',sep='')
+      if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
       
-      sp <- seedPredGrid[seedPredGrid$plot == pplots[j],]
-      so <- sdata[sdata$plot == pplots[j],]
-      if(nrow(so) == 0)next
-      sxy <- xyt[match(so$trapID,xyt$trapID),c('x','y')]
+      pyears <- sort(unique(c(fecPred$year,seedPredGrid$year)))
+      pplots <- sort(unique(as.character(seedPredGrid$plot)))
+      tyears <- sort(unique(c(years,pyears,tyears)))
+      tplots <- sort(unique(c(plots,pplots)))
       
-      spi <- as.character( columnPaste(sp$trapID,sp$year) )
-      soo <- as.character( columnPaste(so$trapID,so$year) )
-      spi <- match(soo,spi)
-      wf  <- which(is.finite(spi))
+      # prediction grid closest to traps
       
-      spp <- sp[spi[wf],pcol,drop = FALSE]
-      countPerM2 <- rowSums(so[wf,seedNames,drop = FALSE])/so$area[wf]
-      predPerM2  <- rowSums(spp)
+      pcol <- grep('meanM2',colnames(seedPredGrid))
+      scol <- grep('seM2',colnames(seedPredGrid))
       
-      sall  <- cbind(so[wf,],spp,countPerM2,predPerM2)
-      spred <- rbind(spred,sall)
-    }
-    
-    #error by year
-    rmse <- sqrt( (spred$countPerM2 - spred$predPerM2)^2 )
-    aerr <- spred$countPerM2 - spred$predPerM2
-    
-    xlim <- range(spred$year,na.rm  = TRUE)
-    
-    maxMod <- NULL
-    if(!is.null(modelYears))maxMod <- max(modelYears)
-    
-    pplots <- as.character(sort(unique(spred$plot)))
-    
-    mfrow <- .getPlotLayout(length(pplots))$mfrow
-    opt   <- list(log = FALSE, xlabel='Year', POINTS = FALSE, 
-                ylabel='Residual', col='brown', add  = TRUE)
-    
-    par(mfrow=mfrow,bty='n', mar=c(3,3,1,1), oma=c(2,2,0,2))
-    
-    xseq <- c(0,2^c(0:15))[-2]
-    
-    ylabel <- expression( paste('Count (', plain(m)^-2,')') )
-    zlabel <- expression( bar(y) %+-% plain(sd) )
-    
-    for(j in 1:length(pplots)){
+      kcol <- c("trapID","plot","year","trap","plotYr","plotyr",
+                "drow","area","active")
+      spred <- numeric(0)
       
-      wj    <- which(spred$plot == pplots[j])
-      obs   <- spred$year[wj]
-      yMean <- spred$predPerM2[wj]
-      yObs  <- spred$countPerM2[wj]
-      
-      if( max(yMean, na.rm  = TRUE) == 0 | length(yMean) < 3 )next
-      
-      tj <- by(yMean, obs, quantile, probs=pnorm(c(0,-1,1)), na.rm  = TRUE)
-      cj <- names(tj)
-      tj <- matrix( unlist(tj), ncol=3, byrow  = TRUE )
-      rownames(tj) <- cj
-      tj <- sqrt(tj)     
-      ww <- which(is.finite(tj[,1]))
-      
-      if(length(ww) < 2)next
-      
-      yj <- as.numeric(rownames(tj))
-      
-      omu <- by(yObs, obs, quantile, probs=pnorm(c(0,-1,1)), na.rm  = TRUE)
-      cj <- names(omu)
-      oj <- matrix( unlist(omu), ncol=3, byrow  = TRUE )
-      rownames(oj) <- cj
-      oj <- sqrt(oj)     # not for residuals
-      
-      smax <- max( c(tj,oj,5) )
-      tt   <- sqrtSeq(smax)
-      at   <- tt$at
-      labs <- tt$labs
-      
-      #  xlim <- range(obs,na.rm  = TRUE)
-      ylim <- range(at)
-      
-      plot(NULL,xlim=xlim,ylim=ylim, ylab='', xlab='',yaxt='n')
-      axis(2,at=at, labels = labs)
-      
-      if(!is.null(maxMod)){
-        rect(maxMod+.5,ylim[1],xlim[2]+.5,ylim[2],col='wheat', border='wheat')
+      for(j in 1:length(pplots)){
+        
+        xyt <- xytrap[xytrap$plot == pplots[j],]
+        
+        sp <- seedPredGrid[seedPredGrid$plot == pplots[j],]
+        so <- sdata[sdata$plot == pplots[j],]
+        if(nrow(so) == 0)next
+        sxy <- xyt[match(so$trapID,xyt$trapID),c('x','y')]
+        
+        spi <- as.character( columnPaste(sp$trapID,sp$year) )
+        soo <- as.character( columnPaste(so$trapID,so$year) )
+        spi <- match(soo,spi)
+        wf  <- which(is.finite(spi))
+        
+        spp <- sp[spi[wf],pcol,drop = FALSE]
+        countPerM2 <- rowSums(so[wf,seedNames,drop = FALSE])/so$area[wf]
+        predPerM2  <- rowSums(spp)
+        
+        sall  <- cbind(so[wf,],spp,countPerM2,predPerM2)
+        spred <- rbind(spred,sall)
       }
       
-      .shadeInterval(yj,loHi=tj[drop = FALSE,ww,2:3], col=.getColor('grey', .8))
-      abline(h=0,lty=2,lwd=4,col='white')
+      #error by year
+      rmse <- sqrt( (spred$countPerM2 - spred$predPerM2)^2 )
+      aerr <- spred$countPerM2 - spred$predPerM2
       
-      .shadeInterval(yj,loHi=oj[drop = FALSE,ww,2:3], col=.getColor('green', .3))
+      xlim <- range(spred$year,na.rm  = TRUE)
       
-      lines(yj, tj[ww,1], col='white', lwd=8)
-      lines(yj, tj[ww,1], lwd=3)
-      lines(yj, oj[ww,1], col=.getColor('white',.5), lwd=8)
-      lines(yj, oj[ww,1], col=.getColor('forestgreen',.7),lwd=3)
+      maxMod <- NULL
+      if(!is.null(modelYears))maxMod <- max(modelYears)
       
-      points(jitter(obs),sqrt(yObs),pch=16,col=.getColor('forestgreen',.2))
+      pplots <- as.character(sort(unique(spred$plot)))
       
-      .plotLabel(tplots[j],'topleft')
+      mfrow <- .getPlotLayout(length(pplots))$mfrow
+      opt   <- list(log = FALSE, xlabel='Year', POINTS = FALSE, 
+                    ylabel='Residual', col='brown', add  = TRUE)
+      
+      par(mfrow=mfrow,bty='n', mar=c(3,3,1,1), oma=c(2,2,0,2))
+      
+      xseq <- c(0,2^c(0:15))[-2]
+      
+      ylabel <- expression( paste('Count (', plain(m)^-2,')') )
+      zlabel <- expression( bar(y) %+-% plain(sd) )
+      
+      npl <- 0
+      
+      for(j in 1:length(pplots)){
+        
+        wj    <- which(spred$plot == pplots[j])
+        obs   <- spred$year[wj]
+        yMean <- spred$predPerM2[wj]
+        yObs  <- spred$countPerM2[wj]
+        
+        if( max(yMean, na.rm  = TRUE) == 0 | length(yMean) < 3 )next
+        
+        tj <- by(yMean, obs, quantile, probs=pnorm(c(0,-1,1)), na.rm  = TRUE)
+        cj <- names(tj)
+        tj <- matrix( unlist(tj), ncol=3, byrow  = TRUE )
+        rownames(tj) <- cj
+        tj <- sqrt(tj)     
+        ww <- which(is.finite(tj[,1]))
+        
+        if(length(ww) < 2)next
+        
+        yj <- as.numeric(rownames(tj))
+        
+        omu <- by(yObs, obs, quantile, probs=pnorm(c(0,-1,1)), na.rm  = TRUE)
+        cj <- names(omu)
+        oj <- matrix( unlist(omu), ncol=3, byrow  = TRUE )
+        rownames(oj) <- cj
+        oj <- sqrt(oj)     # not for residuals
+        
+        smax <- max( c(tj,oj,5) )
+        tt   <- sqrtSeq(smax)
+        at   <- tt$at
+        labs <- tt$labs
+        
+        #  xlim <- range(obs,na.rm  = TRUE)
+        ylim <- range(at)
+        
+        plot(NULL,xlim=xlim,ylim=ylim, ylab='', xlab='',yaxt='n')
+        axis(2,at=at, labels = labs)
+        
+        if(!is.null(maxMod)){
+          rect(maxMod+.5,ylim[1],xlim[2]+.5,ylim[2],col='wheat', border='wheat')
+        }
+        
+        .shadeInterval(yj,loHi=tj[drop = FALSE,ww,2:3], col=.getColor('grey', .8))
+        abline(h=0,lty=2,lwd=4,col='white')
+        
+        .shadeInterval(yj,loHi=oj[drop = FALSE,ww,2:3], col=.getColor('green', .3))
+        
+        lines(yj, tj[ww,1], col='white', lwd=8)
+        lines(yj, tj[ww,1], lwd=3)
+        lines(yj, oj[ww,1], col=.getColor('white',.5), lwd=8)
+        lines(yj, oj[ww,1], col=.getColor('forestgreen',.7),lwd=3)
+        
+        points(jitter(obs),sqrt(yObs),pch=16,col=.getColor('forestgreen',.2))
+        
+        .plotLabel(pplots[j],'topleft')
+        
+        npl <- npl + 1
+      }
+      
+      if(npl > 0){
+        mtext('Year',side=1,line=0,outer  = TRUE, cex=1.4)
+        mtext(ylabel,side=2,line=0,outer  = TRUE, cex=1.4)
+        mtext(zlabel,side=4,line=0,outer  = TRUE, cex=1.4)
+        
+        if(CONSOLE)
+          readline('observed (green), predicted (black), shaded forecast (if modelYears) -- return to continue ')
+        if(SAVEPLOTS)dev.off( )
+        if(is.null(RMD)){
+          graphics.off()
+        }else{
+          words <- 'Observed (green), predicted (black), shaded forecast (if modelYears)'
+          message( words )
+          caption <- c(caption, words)
+        }
+      }else{
+        dev.off()
+      }
     }
-    mtext('Year',side=1,line=0,outer  = TRUE, cex=1.4)
-    mtext(ylabel,side=2,line=0,outer  = TRUE, cex=1.4)
-    mtext(zlabel,side=4,line=0,outer  = TRUE, cex=1.4)
+    
+    yfun    <- colorRampPalette( c('tan', 'brown','turquoise','steelblue') )
+    yearCol <- yfun(nyr)
+    names(yearCol) <- tyears
+  }
+  
+  ########## tree correlations over years
+  
+  if(length(years) > 3){
+    
+    if(is.null(RMD)) graphics.off()
+    
+    file <- paste('treeCor.pdf',sep='')
+    
+    if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
+    
+    breaks <- seq(-1.1,1.1,by=.1)
+    ylim <- c(0,5)
+    nplot <- length(plots)
+    
+    ppt <- character(0)
+    
+    for(j in 1:nplot){
+      
+      wjk <- tdata$tnum[ tdata$plot == plots[j] & 
+                           prediction$fecPred$matrPred > .5]
+      njk <- length(unique(wjk))
+      if(njk < 2)next
+      
+      if(njk > 1000){
+        wjk <- njk[sample(1000)]
+        njk <- length(wjk)
+      }
+      ojk <- omegaE[wjk,wjk]
+      ojk[is.na(ojk)] <- 0
+      if(max(ojk) == 0)next
+      
+      ppt <- c(ppt,plots[j])
+    }
+    
+    npp <- length(ppt)
+    
+    mfrow <- .getPlotLayout(npp)
+    par(mfrow=mfrow$mfrow, mar=c(1,1,1,2), oma=c(3,3,1,1), bty='n')
+    
+    for(j in 1:npp){
+      
+      jk <- 0
+      sk <- character(0)
+      ek <- numeric(0)
+      
+      for(k in 1:nspec){
+        
+        wjk <- tdata$tnum[ tdata$species == specNames[k] &
+                             tdata$plot == ppt[j] ]
+        njk <- length(unique(wjk))
+        if(njk < 2)next
+        
+        wjk <- sort(unique(wjk))
+        ojk <- omegaE[wjk,wjk]
+        
+        ojk[is.na(ojk)] <- 0
+        oj <- ojk
+        diag(oj) <- 0
+        rs <- which( rowSums(oj) == 0 )
+        diag(oj) <- diag(ojk)
+        if(length(rs) > 0)oj <- oj[-rs,-rs]
+        
+        if(length(oj) < 2)next
+        
+        oj[oj > .95] <- .95
+        oj[oj < -.95] <- -.95
+        
+        diag(oj) <- 1
+        
+        jk <- jk + 1
+        sk <- c(sk,specNames[k])
+        
+        oj <- oj[lower.tri(ojk)]
+        ovec <- hist(oj, breaks = breaks, plot = FALSE)$density
+        
+        tmp <- .getPoly(breaks[-1],ovec)
+        if(jk == 1){
+          plot(tmp[1,], tmp[2,],type='s',lwd=2,
+               col=.getColor(specCol[specNames[k]],.3),
+               xlab='', ylab='', ylim=ylim, xaxt='n', yaxt='n')
+          axis(1, at=c(-1,0,1), labels=c(-1,0,1))
+          axis(2, labels  = TRUE)
+        }
+        
+        tmp <- .getPoly(breaks[-1],ovec)
+        polygon( tmp[1,], tmp[2,], col=.getColor(specCol[specNames[k]],.3), lwd=2, 
+                 border=specCol[specNames[k]])
+      }
+      if(length(sk) == 0)next
+      .plotLabel(ppt[j],'topleft')
+      legend('topright',sk,text.col=specCol[sk],bty='n')
+    }
+    
+    if(jk > 0){
+      mtext('Correlation', side=1, outer  = TRUE, line=1)
+      mtext('Density', side=2, outer  = TRUE, line=1)
+    }
     
     if(CONSOLE)
-      readline('observed (green), predicted (black), shaded forecast (if modelYears) -- return to continue ')
+      readline('tree correlation in time -- return to continue ')
     if(SAVEPLOTS)dev.off( )
     if(is.null(RMD)){
       graphics.off()
     }else{
-      words <- 'Observed (green), predicted (black), shaded forecast (if modelYears)'
+      words <- 'Correlations between trees, over time'
       message( words )
       caption <- c(caption, words)
     }
-  }    
-  
-  yfun    <- colorRampPalette( c('tan', 'brown','turquoise','steelblue') )
-  yearCol <- yfun(nyr)
-  names(yearCol) <- tyears
-  
-  ########## tree correlations over years
-  
-  if(is.null(RMD)) graphics.off()
-  
-  file <- paste('treeCor.pdf',sep='')
-  
-  if(SAVEPLOTS)pdf( file=.outFile(outFolder,file) )
-  
-  breaks <- seq(-1.1,1.1,by=.1)
-  ylim <- c(0,5)
-  nplot <- length(plots)
-  
-  ppt <- character(0)
-  
-  for(j in 1:nplot){
-    
-    wjk <- tdata$dcol[ tdata$plot == plots[j] & 
-                         prediction$fecPred$matrPred > .5]
-    njk <- length(unique(wjk))
-    if(njk < 2)next
-    
-    if(njk > 1000){
-      wjk <- njk[sample(1000)]
-      njk <- length(wjk)
-    }
-    ojk <- omegaE[wjk,wjk]
-    ojk[is.na(ojk)] <- 0
-    if(max(ojk) == 0)next
-    
-    ppt <- c(ppt,plots[j])
-  }
-  
-  npp <- length(ppt)
-  
-  mfrow <- .getPlotLayout(npp)
-  par(mfrow=mfrow$mfrow, mar=c(1,1,1,2), oma=c(3,3,1,1), bty='n')
-  
-  for(j in 1:npp){
-    
-    jk <- 0
-    sk <- character(0)
-    ek <- numeric(0)
-    
-    for(k in 1:nspec){
-      
-      wjk <- tdata$dcol[ tdata$species == specNames[k] &
-                           tdata$plot == ppt[j] ]
-      njk <- length(unique(wjk))
-      if(njk < 2)next
-      
-      wjk <- sort(unique(wjk))
-      ojk <- omegaE[wjk,wjk]
-      
-      ojk[is.na(ojk)] <- 0
-      oj <- ojk
-      diag(oj) <- 0
-      rs <- which( rowSums(oj) == 0 )
-      diag(oj) <- diag(ojk)
-      if(length(rs) > 0)oj <- oj[-rs,-rs]
-      
-      if(length(oj) < 2)next
-      
-      oj[oj > .95] <- .95
-      oj[oj < -.95] <- -.95
-      
-      diag(oj) <- 1
-      
-      jk <- jk + 1
-      sk <- c(sk,specNames[k])
-      
-      oj <- oj[lower.tri(ojk)]
-      ovec <- hist(oj, breaks = breaks, plot = FALSE)$density
-      
-      tmp <- .getPoly(breaks[-1],ovec)
-      if(jk == 1){
-        plot(tmp[1,], tmp[2,],type='s',lwd=2,
-             col=.getColor(specCol[specNames[k]],.3),
-             xlab='', ylab='', ylim=ylim, xaxt='n', yaxt='n')
-        axis(1, at=c(-1,0,1), labels=c(-1,0,1))
-        axis(2, labels  = TRUE)
-      }
-      
-      tmp <- .getPoly(breaks[-1],ovec)
-      polygon( tmp[1,], tmp[2,], col=.getColor(specCol[specNames[k]],.3), lwd=2, 
-               border=specCol[specNames[k]])
-    }
-    if(length(sk) == 0)next
-    .plotLabel(ppt[j],'topleft')
-    legend('topright',sk,text.col=specCol[sk],bty='n')
-  }
-  
-  if(jk > 0){
-    mtext('Correlation', side=1, outer  = TRUE, line=1)
-    mtext('Density', side=2, outer  = TRUE, line=1)
-  }
-  
-  if(CONSOLE)
-    readline('tree correlation in time -- return to continue ')
-  if(SAVEPLOTS)dev.off( )
-  if(is.null(RMD)){
-    graphics.off()
-  }else{
-    words <- 'Correlations between trees, over time'
-    message( words )
-    caption <- c(caption, words)
   }
   
   ############# predicted maps
+  
+  if(!SEEDDATA)return( invisible(caption) )
   
   if(MAPS){
     
@@ -5648,10 +6123,11 @@ mastPlot <- function(output, plotPars = NULL){
     }
   }
    
-  invisible(caption)
+  invisible( list(caption = caption, diam90 = diamFec) )
 }
- 
+  
 .getPoly <- function(x,y){
+  
   dx <- diff(x)
   xx <- c(x[1] - dx[1]/2, x[-1] - dx/2)
   xx <- rep(xx,each=2)
@@ -5764,7 +6240,7 @@ mastPlot <- function(output, plotPars = NULL){
     if(cnames[j] %in% c('sigma','mspe'))ylim <- c(0, 1.2*ylim[2])
       
     
-    if(j == 1 | !ALLONE){
+    if( j == 1 | !ALLONE ){
       plot(mj[cseq], type='l', ylim = ylim, xaxt='n', xlab='', ylab='',
            col=cols[j])
       if(xlabels){
@@ -5830,7 +6306,10 @@ mastPlot <- function(output, plotPars = NULL){
 }
 
 .plotLabel <- function(label,location='topleft',cex=1.3,font=1,
-                       above = FALSE,below = FALSE,bg=NULL){
+                       above = FALSE, below = FALSE, bg=NULL, wrap = 1000){
+  
+  # wrap - no. of characters to wrap label to two lines
+  
   if(above){
     adj <- 0
     if(location == 'topright')adj=1
@@ -5863,9 +6342,64 @@ mastPlot <- function(output, plotPars = NULL){
   if(XX)xt <- 10^xt
   if(YY)yt <- 10^yt
   
-  text(xt,yt,label,cex=cex,font=font,pos=pos)
+  if( wrap > nchar(label) ){
+    text(xt,yt,label,cex=cex,font=font,pos=pos)
+    return()
+  }
+  
+  # split at spaces
+  words <- unlist( strsplit(label, ' ') )
+  if(length(words) == 1){
+    text(xt,yt,label,cex=cex,font=font,pos=pos)
+    return()
+  }
+  
+  nw <- cumsum( nchar(words) + 1 )
+  br <- which(nw <= wrap)
+  if(length(br) == 0){
+    br <- 1
+    wrap <- nchar(words[1]) + 1
+  }
+  n2 <- which(nw > wrap)
+  lab1 <- words[br]
+  lab2 <- words[n2]
+  if(length(br) > 1) lab1 <- paste0(words[br], collapse = ' ')
+  if(length(n2) > 1) lab2 <- paste0(words[n2], collapse = ' ')
+  
+  yaxp <- par('yaxp')
+  da <- diff(yaxp[1:2])
+  yz <- yt + .2*c(-da,da)
+  if(YY){
+    da <- diff(log(yaxp[1:2]))
+    yz <- exp( log(yt) + .15*c(-da,0) )
+  }
+  
+  text(xt,yz[2],lab1,cex=cex,font=font,pos=pos)
+  text(xt,yz[1],lab2,cex=cex,font=font,pos=pos)
+
 }
 
+commas4numbers <- function(x){
+  
+  x  <- as.character( round(x) )
+  lx <- l1 <- nchar(x)
+  nr <- floor( lx/3 ) + 1
+  
+  l0 <- lx - 2
+  xn <- character(0)
+  for(k in 1:nr){
+    xk <- substr(x, l0, l1 )
+    xn <- paste(',', xk,xn, sep='')
+    l0 <- l0 - 3
+    l1 <- l1 - 3
+    if(l0 < 1)l0 <- 1
+  }
+  if( startsWith(xn, ',') ) xn <- substr(xn, 2, 1000)
+  if( startsWith(xn, ',') ) xn <- substr(xn, 2, 1000)
+  if( startsWith(xn, ',') ) xn <- substr(xn, 2, 1000)
+  
+  xn
+}
 .boxCoeffs <- function(chain, snames, xlab = "", ylab='Coefficient',
                        addSpec = 'species', ylim=NULL, cols = NULL,
                        xaxt = 's', yaxt = 's'){
@@ -5910,7 +6444,7 @@ mastPlot <- function(output, plotPars = NULL){
   
   xlabel <- ''
   
-  stats <- numeric(0)
+  stats <- xtick <- numeric(0)
   
   for(j in 1:nv){
     
@@ -5942,17 +6476,22 @@ mastPlot <- function(output, plotPars = NULL){
                           border=colj, lty=1,
                           ylab = ylab, yaxt = yaxt)
     stats <- cbind(stats,boxPars$stats)
+    xtick <- rbind(xtick, atvals+j)
+    
   }
   .plotLabel(xlab,'topleft',above  = TRUE)
  # legend('topright',snames, text.col=1:nspec, bty='n')
   abline(h = c(0), lwd=1, col=.getColor('grey',.6))
   boxPars$stats <- stats
+  boxPars$xtick <- xtick
+  
+  
   invisible(boxPars)
 }
 
 .boxCoeffsMultiSpec <- function(chain, snames, xlab = "", ylab='Coefficient',
-                       addSpec = 'species', ylim=NULL, cols = NULL,
-                       xaxt = 's', yaxt = 's'){
+                       addSpec = 'species', ylim = NULL, cols = NULL,
+                       xaxt = 's', yaxt = 's', cex = .85){
   
   nspec  <- length(snames)
   cnames <- colnames(chain)
@@ -6001,6 +6540,11 @@ mastPlot <- function(output, plotPars = NULL){
                               border=colj, lty=1,
                               ylab = ylab, yaxt = yaxt)
     if(j == 1)abline(h=0, col='grey')
+    
+    if(nv == 1){
+      .plotLabel(xnames[j], 'bottomleft', cex = cex)
+      next
+    }
     bstat <- boxPars$stats
     brange <- range(bstat)
     if(brange[1] > 0)brange[1] <- 0
@@ -6009,7 +6553,7 @@ mastPlot <- function(output, plotPars = NULL){
     pos <- 2
     if(wside == 2)pos <- 4
     text(mean(at), brange[wside], xnames[j], pos=pos, srt = 90,
-         cex=.85)
+         cex = cex)
     if(j < nv)abline(v = (max(at) + diff(at[1:2])), lty=2, col='grey')
   }
   at
@@ -6079,7 +6623,7 @@ mastPlot <- function(output, plotPars = NULL){
   
   wun <- grep('UNKN', seedNames)
   if(length(wun) > 1){
-    stop("can only have one seedNames with 'UNKN' class")
+    stop("\ncan only have one seedNames with 'UNKN' class\n")
   }
   if(length(wun) == 1)UCOLS <- TRUE
     
@@ -6187,19 +6731,19 @@ mastPlot <- function(output, plotPars = NULL){
                seedCount = seedCount, posR = posR, tdata = tdata) )
 }
 
-setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CONES, 
-                   seedTraits=NULL){
+setupZ <- function(tdata, xytree, specNames, years, minD, maxD, maxFec, CONES, 
+                   seedTraits=NULL, verbose){
   
+  SEEDDATA <- TRUE
+  if(is.null(xytree))SEEDDATA <- FALSE
   
-  minD  <- specPriorVector(minDiam, tdata)
-  maxD  <- specPriorVector(maxDiam, tdata)
   years <- min(tdata$year,na.rm  = TRUE):max(tdata$year,na.rm  = TRUE)
   maxF  <- specPriorVector(maxFec, tdata)
   nspec <- length(specNames)
   
   tdata$treeID <- columnPaste(tdata$plot,tdata$tree)
   
-  tid  <- columnPaste(tdata$plot,tdata$tree)
+ # tid  <- columnPaste(tdata$plot,tdata$tree)
   tids <- unique(tdata$treeID)
   dcol <- match(tdata$treeID,tids) #do again after reorder
   ntree <- length(tids)
@@ -6214,16 +6758,40 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     tdata$repr[tdata$repr >= .5] <- 1
   }
   
-  tdata$fecMin <- 1e-4
-  tdata$fecMax <- maxF
+  if( 'cropMax' %in% colnames(tdata) ){
+    tdata$repr[ tdata$cropMax > 0 ]  <- 1
+ #   tdata$repr[ tdata$cropMax == 0 ] <- 0
+  }
+  if( 'cropMin' %in% colnames(tdata) ){
+    tdata$repr[ tdata$cropMin > 0 ] <- 1
+  }
+  
+  if( !'fecMin' %in% colnames(tdata) ){
+    tdata$fecMin <- 1e-4
+  }else{
+    wm <- which(is.na(tdata$fecMin))
+    if(length(wm) > 0){
+      tdata$fecMin[wm] <- 1e-4
+    }
+  }
+  if(!'fecMax' %in% colnames(tdata)){
+    tdata$fecMax <- maxF
+  }else{
+    wm <- which( is.na(tdata$fecMax) | tdata$fecMax == 0 )
+    if(length(wm) > 0){
+      tdata$fecMax[wm] <- maxF[wm]
+    }
+  }
+  tdata$fecMin[ tdata$fecMin < 1e-4 ] <- 1e-4
   
   fstart <- rep(NA, nrow(tdata))
+  if('lastFec' %in% names(tdata))fstart <- tdata$lastFec
   
   if(CONES){
     
     tdata$repr[tdata$cropCount > 0] <- 1
     
-    if(is.null(seedTraits)){
+    if( is.null(seedTraits) ){
       warning('cannot use treeData$cropCount without inputs$seedTraits, 
               assumed = 1')
       seedTraits <- matrix(1, nspec, 1)
@@ -6232,7 +6800,7 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     }
     seedTraits[,'seedsPerFruit'] <- ceiling(seedTraits[,'seedsPerFruit'])
     
-    if(!'cropFraction' %in% colnames(tdata)){
+    if( !'cropFraction' %in% colnames(tdata) ){
       kwords <- "\nNote: missing column _cropFraction_, assumed = 1\n"
       words <- c(words, kwords)
       tdata$cropFraction <- .95
@@ -6247,15 +6815,28 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     wm <- which( is.finite(tdata$cropFraction) & 
                    !is.finite(tdata$cropFractionSd) )
     if(length(wm) > 0){
-      fs <- .2*dbeta(tdata$cropFraction[wm], .1,2) + 1e-3
-      tdata$cropFractionSd[wm] <- fs
+      fs <- .1*dbeta(tdata$cropFraction[wm], .1,2) + 1e-3
+      tdata$cropFractionSd[wm] <- signif(fs, 3)
     }
+    
+    ww <- which( tdata$cropCount == 0 & tdata$cropFraction == 0 )
+    if(length(ww) > 0){
+      if(verbose){
+        cat('\nNote: deleted finite cropCount with cropFraction = 0:\n')
+        print(tdata$treeID[ww])
+        tdata$cropFraction[ww] <- tdata$cropCount[ww] <- NA
+      }
+    }
+      
+    ww <- which( is.finite(tdata$cropCount) & tdata$cropFraction == 0)
+    if(length(ww) > 0){
+      if(verbose)cat('\nNote: deleted finite cropCount with cropFraction = 0:\n')
+      print(tdata$treeID[ww])
+      tdata$cropFraction[ww] <- tdata$cropCount[ww] <- NA
+    }               
   }
   
-  iy   <- match(tdata$year, years)
-  
-  nyr <- length(years)
-  
+
   if('serotinous' %in% colnames(tdata)){
     
     ww <- which(tdata$serotinous == 1)
@@ -6265,12 +6846,15 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     }
   }
   
+  iy  <- match(tdata$year, years)
+  nyr <- length(years)
+  
   zknown <- matrix(NA, ntree, nyr)
   rownames(zknown) <- tids
   colnames(zknown) <- years
   
   dmat <- dminMat <- dmaxMat <- zknown
-  zknown[ cbind(dcol, iy) ]  <- tdata$repr
+  zknown[ cbind(dcol, iy) ]  <- tdata$repr 
   dmat[ cbind(dcol, iy) ]    <- tdata$diam
   dminMat[ cbind(dcol, iy) ] <- minD
   dmaxMat[ cbind(dcol, iy) ] <- maxD
@@ -6309,7 +6893,7 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
   for(k in 1:nyr){   # obs repr
     zk <- zknown[,k]
     ww <- which(zk == 0)
-    if(k > 1)ww <- which(zk == 0 & zknown[,k-1] == 0)
+  #  if(k > 1)ww <- which(zk == 0 & zknown[,k-1] == 0)
     last0[ww] <- k
     ww <- which(zk == 1 & first1 > k)
     first1[ww] <- k                 # known mature
@@ -6371,11 +6955,11 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     zk[which(k >= first1)] <- 1
     zknown[,k] <- zk
     
-     zk <- zmat[,k]
-     wna <- which(is.na(zk))
-     zk[k < matYr] <- 0
-     zk[k >= matYr] <- 1
-     zmat[,k] <- zk
+    zk <- zmat[,k]
+    wna <- which(is.na(zk))
+    zk[k < matYr] <- 0
+    zk[k >= matYr] <- 1
+    zmat[,k] <- zk
   }
   
   tids <- unique(tdata$treeID)
@@ -6384,11 +6968,30 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
   tyindex <- cbind(dcol, iy)  #tree-yr index
   z    <- zmat[ tyindex ]
   
-  tdata$repr <- zknown[tyindex]
-  tdata$fecMin <- 1e-4
-  tdata$fecMax <- maxF
-  tdata$fecMin[tdata$repr == 1] <- 1
-  tdata$fecMax[tdata$repr == 0] <- 1
+  zknownVec <- zknown[tyindex]
+  
+  tdata$repr <- zknownVec
+  tdata$fecMin[ is.na(zknownVec) ] <- 1e-4
+  tdata$fecMax[ is.na(zknownVec) ] <- maxF[ is.na(zknownVec) ]
+  ww <- which(zknownVec == 1)
+  if(length(ww) > 0)tdata$fecMax[ ww ] <- maxF[ ww ]
+  tdata$fecMin[ zknownVec == 0 ] <- 1e-4
+  
+  ww <- which(tdata$fecMin < 1 & tdata$repr == 1)
+  if(length(ww) > 0)tdata$fecMin[ww] <- 1
+  
+  ww <- which(is.na(tdata$fecMin) & tdata$repr == 1)
+  if(length(ww) > 0)tdata$fecMin[ww] <- 1
+  
+  tdata$fecMax[tdata$fecMax < 1] <- 1
+  tdata$fecMin[tdata$fecMin < 1e-4] <- 1e-4
+  
+  last   <- which(last0first1[,'all0'] == 1)
+  snames <- rownames(last0first1)[last]  # always immature
+  
+  scc <- numeric(0)
+  fstart[ is.na(fstart) & tdata$repr == 0 ] <- .01
+  
   
   if(CONES){
     
@@ -6400,41 +7003,77 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
                   is.finite(tdata$cropFraction))
     if(length(ww) > 0)tdata$cropFraction[ww] <- NA
     
+    ww <- which(!is.finite(tdata$cropFractionSd) &
+                  is.finite(tdata$cropFraction))
+    if(length(ww) > 0)tdata$cropFractionSd[ww] <- 0
+    
     ww <- which(is.finite(tdata$cropFraction))
+     
+    cll <- seedTraits[tdata$species[ww],'seedsPerFruit']*tdata$cropCount[ww] # minimum at least those counted
+    scc <- cll/tdata$cropFraction[ww]
     
-    cmm <- seedTraits[tdata$species[ww],'seedsPerFruit']*tdata$cropCount[ww]
-    sll <- tdata$cropFraction[ww] + 1.2*tdata$cropFractionSd[ww]
-    sll[sll > .99] <- .99
-    shh <- tdata$cropFraction[ww] - 1.2*tdata$cropFractionSd[ww]
-    shh[shh < .001] <- .001
-    
-    clo <- .9*cmm/sll
-    clo[clo < cmm] <- cmm[clo < cmm]
-    chi <- 1.1*cmm/shh
-    
-    vv <- which(is.na(clo) | is.na(chi))
-    if(length(vv) > 0){
-      xx <- ww[vv]
-      if(length(xx) > 10)xx <- xx[1:10]
-  #    print(tdata[xx,])
-    }
-  
-    clo[clo < 1e-5] <- 1e-5
-    
-    chi[chi < (clo+1)] <- clo[chi < (clo+1)] + 1
+    chi <- scc*2
+    clo <- scc*.5
+    clo[clo < cll] <- cll[clo < cll]
+    clo[clo < 1 & cll >= 1] <- 1
+    chi[ chi < 10 ] <- 10
     
     tdata$fecMin[ww] <- clo
     tdata$fecMax[ww] <- chi
     
-    fstart[ww] <- (clo + chi)/2
+    ww <- which(tdata$fecMax <= tdata$fecMin)
+    if(length(ww) > 0){
+      print('fecMax < fecMin')
+      print(tdata[ww[1:10],])
+      stop()
+    }
+    
+    fstart[ww] <- (clo + 2*scc + chi)/4
+    
+    # non-zero cones cannot be always immature
+    specMatr <- unique(tdata$treeID[which(tdata$cropCount > 0)])
+    wm <- which(last0first1[,'all0'] == 1 &
+                  rownames(last0first1) %in% specMatr)
+    if(length(wm) > 0)last0first1[wm,'all0'] <- 0
+  }
+  
+  
+  if('cropMin' %in% colnames(tdata)){
+    ww <- which(is.finite(tdata$cropMin))
+    fs <- ( tdata$fecMin[ww] +  tdata$fecMax[ww] )/2
+    fs[ !is.finite(fs) ] <- tdata$fecMin[ww][ !is.finite(fs) ]
+    fs[ fs < 1e-4 ] <- 1e-4
+    fstart[ww] <- fs
+  }
+ 
+  ww <- which(!is.finite(fstart))
+  if(length(ww) > 0){
+      zw <- z[ww]
+      fw <- zw
+      tl <- tdata$fecMin[ww] + zw
+      tl[ zw == 0 ] <- .01
+      th <- tdata$fecMax[ww] + zw
+      tl[ zw == 1 & tl < 1 ] <- 1
+      th[ zw == 0] <- .99
+      fm <- sqrt( tl * th )
+      fw <- .tnorm( length(zw), tl, th, fm, 10 )
+      fstart[ww] <- fw
+  }
+  
+  fstart[ fstart < 1e-4 ] <- 1e-4
+  ww <- which(fstart > tdata$fecMax | fstart < tdata$fecMin)
+  if(length(ww) > 0){
+    fstart[ww] <- .tnorm(length(ww), tdata$fecMin[ww], tdata$fecMax[ww], fstart[ww], 10)
   }
   
   # fit means inclusion in distall: excludes known immature, serotinous,
   #                                 trees not in xytree (cropCount only)
   
-  last   <- which(last0first1[,'all0'] == 1)
-  snames <- rownames(last0first1)[last]                               # always immature
-  snames <- c(snames, tdata$treeID[!tdata$treeID %in% xytree$treeID]) # no location
+  if(SEEDDATA){
+    snames <- c(snames, tdata$treeID[!tdata$treeID %in% xytree$treeID]) # no location
+  }else{
+    snames <- rownames(last0first1)  # none
+  }
   ww <- which(tdata$serotinous == 1)
   if(length(ww) > 0)snames <- c(snames, tdata$treeID[ww])
   snames <- unique(snames)
@@ -6446,15 +7085,15 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
   fit[first] <- 1
   last0first1 <- cbind(last0first1, fit)
   
-  wnew <- c(first, last)
-  zmat <- zmat[wnew,]
+  wnew   <- c(first, last)
+  zmat   <- zmat[wnew,]
   zknown <- zknown[wnew,]
-  matYr <- matYr[wnew]
+  matYr  <- matYr[wnew]
   last0first1 <- last0first1[wnew,]
   
   tdata$fit <- 1
     
-  if(length(snames) > 0){  # there are some known immature
+  if(length(snames) > 0){  # there are some known immature, put immature at end
     mf <- which(!tdata$treeID %in% snames)
     ml <- which(tdata$treeID %in% snames)
     tdata$fit[ml] <- 0
@@ -6462,15 +7101,14 @@ setupZ <- function(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CO
     tdata <- tdata[mm,]
     fstart <- fstart[mm]
     z <- z[mm]
-    
-    tdata$dcol <- match(tdata$treeID, rownames(last0first1))
   }
-
+  
+  tdata$tnum <- match(tdata$treeID, rownames(last0first1))
+  fstart[fstart < 1e-4] <- 1e-4
   fecMaxCurrent <- tdata$fecMax
   fecMinCurrent <- tdata$fecMin
   
-  fecMinCurrent[is.na(tdata$repr)] <- 1e-4
-  fecMaxCurrent[is.na(tdata$repr)] <- maxF[is.na(tdata$repr)]
+  
   
   list(z = z, zmat = zmat, zknown = zknown, matYr = matYr, seedTraits = seedTraits,
        last0first1 = last0first1, tdata = tdata, fstart = fstart,
@@ -6492,6 +7130,8 @@ getPredGrid <- function(predList, tdata, sdata, xytree, xytrap, group,
   plotYrComb <- table( tdata$plot[trapRows], tdata$year[trapRows] )
   plotYrComb <- plotYrComb[drop = FALSE,rownames(plotYrComb) %in% mapPlot,]
   plotYrComb <- plotYrComb[,colnames(plotYrComb) %in% mapYear, drop = FALSE ]
+  
+  predList$years <- colnames(plotYrComb)[colSums(plotYrComb) > 0]
   
   npred      <- nrow(plotYrComb)
   predList$plots <- predList$plots[predList$plots %in% rownames(plotYrComb)]
@@ -6566,33 +7206,24 @@ getPredGrid <- function(predList, tdata, sdata, xytree, xytrap, group,
     dj <- rbind(dj,tj)
     
     seedPred <- rbind(seedPred, dj)
-    
-    # needed for column names and upar groups
-    tj      <- which(as.character(xytree$plot) == pj)
-    xy1     <- xytree[tj,]
-    treeid  <- c(treeid,xytree$treeID[tj])
-    
-    grr <- match( xytree$treeID[tj], tdata$treeID )
-    grp <- c(grp, group[grr])
-    
-    spp <- c(spp, as.character(xytree$species[tj]))
-    
-    wk    <- which(!duplicated(dj$dgrid))
-    tid   <- as.character(dj$trapID[wk])
-    kgrid <- dj[wk,c('x','y')]
-    
-    trapid <- c(trapid, tid )
-    da     <- .distmat(xy1[,'x'],xy1[,'y'],kgrid[,'x'],kgrid[,'y']) 
-    colnames(da) <- xy1$treeID
-    rownames(da) <- tid
-    distPred     <- .blockDiag(distPred,da)
   }
+  
+  tdat <- tdata[tdata$plot %in% predList$plots &
+                  tdata$year %in% predList$years,]
+  
+  xyt <- xytree[xytree$plot %in% predList$plots,]
+  
+  tmp <- setupDistMat(tdat, seedPred, xyt, seedPred, verbose)
+  distPred <- tmp$distall
+  seedPred <- tmp$sdata
+  treePred <- tmp$tdata
+  
   
   plotYrComb <- cbind(plotYrComb, mapMeters, gridSize)
   seedPred$active  <- seedPred$area <- 1 # note for 1 m2
   attr(distPred,'species') <- spp
   
-  distPred[distPred == 0] <- 100000
+ # distPred[distPred == 0] <- 100000
   distPred <- round(distPred,1)
   
   seedPred$drow <- match(as.character(seedPred$trapID), rownames(distPred))
@@ -6605,7 +7236,8 @@ getPredGrid <- function(predList, tdata, sdata, xytree, xytrap, group,
     print( plotYrComb[, c('mapMeters','gridSize')] )
   }
   
-  list(seedPred = seedPred, distPred = distPred, predList = predList)
+  list(seedPred = seedPred, distPred = distPred, 
+       treePred = treePred, predList = predList)
 }
 
 cleanFactors <- function(x){
@@ -6634,7 +7266,7 @@ cleanFactors <- function(x){
   xrandCols  <- match(colnames(xx),colnames(xfec))
   
   if( !is.finite(min(xrandCols)) )
-    stop('there are variables in formulaRan that are missing from formulaFec')
+    stop('\nthere are variables in formulaRan that are missing from formulaFec\n')
   
   Qrand      <- length(xrandCols)
   reI        <- as.character(tdata[,randomEffect$randGroups])
@@ -6646,7 +7278,7 @@ cleanFactors <- function(x){
 
   nRand      <- length(reGroups)
   Arand      <- priorVA <- diag(1, Qrand)
-  dfA        <- ceiling( Qrand + 1  + nRand/10)
+  dfA        <- ceiling( Qrand + 1  + nRand/2)
   alphaRand  <- matrix(0, nRand, Qrand)
   colnames(alphaRand) <- xFecNames[xrandCols]
   rownames(alphaRand) <- rnGroups
@@ -6671,16 +7303,22 @@ getPlotDims <- function(xytree, xytrap){
   
   for(j in 1:npp){
     
-    jx <- range( c(xytree$x[xytree$plot == plots[j]],
-                   xytrap$x[xytrap$plot == plots[j]]) )
-    jy <- range( c(xytree$y[xytree$plot == plots[j]],
-                   xytrap$y[xytrap$plot == plots[j]]) )
+    wt <- which(xytree$plot == plots[j])
+    ws <- which(xytrap$plot == plots[j])
+    
+    jx <- range( c(xytree$x[wt], xytrap$x[ws]) )
+    jy <- range( c(xytree$y[wt], xytrap$y[ws]) )
     jx[1] <- floor( jx[1] - 1 )
     jx[2] <- ceiling( jx[2] + 1 )
     jy[1] <- floor( jy[1] - 1 )
     jy[2] <- ceiling( jy[2] + 1 )
     
     area <- diff(jx)*diff(jy)/10000
+    
+    if(area > 200){
+      cat( paste('\nPlot area > 200 ha:', plots[j], 'is', area, 'ha\n') )
+      stop('check coordinates for xytree, xytrap')
+    }
     
     pdims <- rbind( pdims, c(jx, jy, area) )
   }
@@ -6727,8 +7365,14 @@ factor2integer <- function(fvec){
 
 formit <- function(form, nspec){
   
+  ff   <- as.character(form)
+  ff   <- .replaceString(ff, ':', '*')
+  
+  form <- as.formula( paste(ff, collapse=' ') )
+  
   if(nspec > 1){
-    fc   <- as.formula( .replaceString( as.character(form), 'species *','') )
+    fc   <- .replaceString( as.character(form), 'species *','')
+    fc   <- as.formula( paste( fc, collapse = ' ') )
     form <- .specFormula(fc)
   }
   .fixFormula(form)
@@ -6756,14 +7400,16 @@ formit <- function(form, nspec){
       tmp   <- gregexpr('I(log(', fchar, fixed  = TRUE)[[1]]
     }
   }
-  as.formula( paste('~ ', fchar) )
+  as.formula( paste('~ ',  fchar, collapse = ' ') )
 }
 
 
-setupPriors <- function(treeData, specNames, priorTable, priorList, priorDist, 
-                        priorVDist, maxDist, minDist,
-                        minDiam, maxDiam, sigmaMu, maxF, maxFec,
-                        ug, priorTauWt, priorVU, ARSETUP, USPEC){
+setupPriors <- function(specNames, nn, priorTable, priorList = NULL, 
+                        priorDist = NULL, priorVDist = NULL, maxDist = NULL, minDist = NULL,
+                        minDiam = NULL, maxDiam = NULL, sigmaMu = NULL, maxF = NULL, maxFec = NULL,
+                        ug = NULL, priorTauWt = NULL, priorVU = NULL, ARSETUP = F, USPEC = F){
+  
+  # nn - nrow(treeData)
   
   if(!is.null(priorList)){
     
@@ -6806,7 +7452,7 @@ setupPriors <- function(treeData, specNames, priorTable, priorList, priorDist,
     }
   }else{
     if(nrow(priorTable) > 1 & !ARSETUP ){
-      USPEC <- TRUE
+      if(var(priorTable[,'priorDist']) > 0)USPEC <- TRUE
     }
     pm <- which(!pcols %in% colnames(priorTable))
     if(length(pm) > 0){
@@ -6854,7 +7500,7 @@ setupPriors <- function(treeData, specNames, priorTable, priorList, priorDist,
   npt   <- 1:nspec
   if(!USPEC)npt <- 1
   
-  if(is.null(priorTauWt))priorTauWt <- ceiling(nrow(treeData)/nspec/10)
+  if(is.null(priorTauWt))priorTauWt <- ceiling(nn/nspec/10)
   tau1 <- priorTauWt
   tau2 <- priorVU*(tau1 - 1)
   
@@ -6864,10 +7510,12 @@ setupPriors <- function(treeData, specNames, priorTable, priorList, priorDist,
   if(nspec == 1){
     maxU    <- max( maxU )
     minU    <- min( minU )
+    names(minU) <- names(maxU) <- specNames
     priorDist  <- priorDist[1]
     priorVDist <- priorVDist[1]
     maxDist    <- maxDist[1]
     minDist    <- minDist[1]
+    maxFec     <- maxFec[1]
   }else{
     ug <- ug[specNames]
     minU <- minU[specNames]
@@ -6877,9 +7525,13 @@ setupPriors <- function(treeData, specNames, priorTable, priorList, priorDist,
     maxFec  <- maxFec[specNames]
   }
   
+  if(is.null(sigmaMu))sigmaMu <- 5
+  sigmaWt <- sqrt(nn)
+  
   list(priorTable = priorTable, priorList = priorList, priorDist = priorDist,
        priorVDist = priorVDist, maxDist = maxDist, minDist = minDist,
-       minDiam = minDiam, maxDiam = maxDiam, sigmaMu = sigmaMu, 
+       minDiam = minDiam, maxDiam = maxDiam, maxFec = maxFec,
+       sigmaMu = sigmaMu, sigmaWt = sigmaWt,
        maxF = maxF, umean = umean, priorU = priorU, priorVU = priorVU, 
        minU = minU, maxU = maxU, propU = propU, uvar = uvar, ug = ug, 
        USPEC = USPEC, npt = npt, tau1 = tau1, tau2 = tau2)
@@ -6910,8 +7562,8 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     class(inputs) <- 'mastif'
   }
 
-  if(is.null(ng))stop("supply no. MCMC steps, 'ng'")
-  if(is.null(burnin))stop("supply 'burnin'")
+  if(is.null(ng))stop("\nsupply no. MCMC steps, 'ng'\n")
+  if(is.null(burnin))stop("\nsupply 'burnin'\n")
   
   .mast(inputs, data, formulaFec, formulaRep, predList, yearEffect, 
         randomEffect, modelYears, ng, burnin) 
@@ -6919,7 +7571,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
    
 .mast <- function(inputs, data, formulaFec, formulaRep, predList, yearEffect,
                   randomEffect, modelYears, ng, burnin){
-  
+   
   upar <- xytree <- xytrap <- specNames <- treeData <- seedData <-
     seedNames <- arList <- times <- xmean <- xfecCols <- xrepCols <-
     groupByInd <- dfA <- xrands2u <- lagGroup <- lagMatrix <- xfecs2u <-
@@ -6927,10 +7579,13 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     plotDims <- plotArea <- tdataOut <- sdataOut <- specPlots <- 
     plotNames <- distall <- trapRows <- fstart <- 
     fecMinCurrent <- fecMaxCurrent <- NULL
+  sigmaWt <- 1
+  
+  notFit <- NULL
   maxU <- minU <- npt <- priorU <- priorVU <- tau1 <- tau2 <- NULL
   censMin <- censMax <- NULL
   SEEDCENSOR <- CONES <- RANDOM <- YR <- AR <- ARSETUP <- USPEC <- 
-    TREESONLY <- FECWT <- verbose <- FALSE
+    TREESONLY <- FECWT <- verbose <- SEEDDATA <- SAMPR <- FALSE
   
   words <- inwords <- character(0)
   
@@ -6943,8 +7598,11 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   ug <- priorTauWt <- NULL
   alphaRand <- Arand <- priorB <- priorIVB <- betaPrior <- NULL
   
+  if('seedData' %in% names(inputs))SEEDDATA <- TRUE
+  
   PREDSEED <- TRUE
   if(is.null(predList))PREDSEED <- FALSE
+  
   betaYr <- betaLag <- yeGr <- plots <- years <- NULL
   facLevels <- character(0)
   ngroup <- 1
@@ -6958,7 +7616,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
                                       'burnin', 'ng', 'predList'))
     
     for(k in ww)assign( names(inputs)[k], inputs[[k]] )
-    tdata <- treeData
+ #   tdata <- treeData
     
     for(k in 1:length(data$setupData)){
       assign( names(data$setupData)[k], data$setupData[[k]] )
@@ -6981,15 +7639,17 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       YR <- TRUE
     }
     ug <- inputs$parameters$upars[specNames,1]
+    ug[is.na(ug)] <- ug[1] 
     
     if(length(ug) > 1){
       names(ug) <- specNames
-      USPEC <- TRUE
+      if( !( diff(range(ug)) == 0) )USPEC <- TRUE
     }
     
     upar <- ug
-    years <- sort(unique(tdata$year))
-    nyr <- years
+    years <- sort(unique(treeData$year))
+    years <- min(years):max(years)
+    nyr <- length(years)
     if(!is.null(predList)){
       predList$years <- predList$years[predList$years %in% years]
       if('plots' %in% names(predList))
@@ -6997,11 +7657,22 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     }
     yrIndex <- yrIndex[,!duplicated(colnames(yrIndex))]
     
+    R <- parameters$rMu
+    
     seedTable   <- inputs$seedByPlot
     matYr       <- inputs$matYr 
     last0first1 <- inputs$last0first1
     
-  }else{ 
+    zmat <- matrix(0, nrow(last0first1), nyr)
+    zmat[ cbind(1:nrow(zmat), matYr) ] <- 1
+    zmat <- t( apply(zmat, 1, cumsum) )
+    zmat[zmat > 1] <- 1
+    rownames(zmat) <- rownames(last0first1)
+    
+    ij <- cbind( match(treeData$treeID, rownames(zmat)), match(treeData$year, years) )
+    z <- zmat[ij]
+    
+  }else{ # not class(inputs) == 'mastif'
     
     if(!is.null(yearEffect)){
       if('p' %in% names(yearEffect))plag <- yearEffect$p
@@ -7023,25 +7694,34 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       }
     }
     
-    priorR <- mastIDmatrix( inputs$treeData, inputs$seedData, 
-                            specNames = inputs$specNames,
-                            seedNames = inputs$seedNames,
-                            censMin = inputs$censMin, verbose = verbose)$R
-    if(is.matrix(priorR)){
-      inputs$specNames <- specNames <- rownames(priorR)
-      inputs$seedNames <- seedNames <- colnames(priorR)
+    if( !'FILLED' %in% names(inputs) ){
+      inputs <- mastFillCensus(inputs, p = plag)  
     }
     
-    inputs <- mastFillCensus(inputs, p = plag)  
     for(k in 1:length(inputs))assign( names(inputs)[k], inputs[[k]] )
+    years <- unique( range( treeData$year ) )
     
-    if(!is.null(censMin))SEEDCENSOR <- TRUE
+    
+    if(length(years) == 1)stop( '\nmust have > 1 year of data\n' )
+    
+    if(SEEDDATA){
+      priorR <- mastIDmatrix( inputs$treeData, inputs$seedData, 
+                              specNames = inputs$specNames,
+                              seedNames = inputs$seedNames,
+                              censMin = inputs$censMin, verbose = verbose)$R
+      if(is.matrix(priorR)){
+        inputs$specNames <- specNames <- rownames(priorR)
+        inputs$seedNames <- seedNames <- colnames(priorR)
+      }
+      
+      if(!is.null(censMin))SEEDCENSOR <- TRUE
+      
+      years <- range(c(treeData$year,seedData$year))
+    }
     
     words <- c(words, inwords)
-    years <- range(c(treeData$year,seedData$year))
     years <- years[1]:years[2]
   }
-  
   
   keepIter <- 4000
   
@@ -7055,15 +7735,25 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       randGroups <- randomEffect$randGroups
     }
   }
+  
+  if(!SEEDDATA){
+    PREDSEED <- FALSE
+    predList <- NULL
+  }
+  
   if(!is.null(predList)){
+    
     PREDSEED <- TRUE
-    if(!'plots' %in% names(predList))stop('predList must include plots')
+    
+    if(!'plots' %in% names(predList))stop('\npredList must include plots\n')
+    
     predList$plots <- .fixNames(predList$plots, all  = TRUE)$fixed
     predList$plots <- predList$plots[predList$plots %in% plots]
     if(length(predList$plots) == 0)
-      stop('Prediction plots do not occur in treeData')
+      stop('\nPrediction plots do not occur in treeData\n')
     if(!'mapGrid' %in% names(predList))predList$mapGrid <- 5
   }
+  
   if(!is.null(yearEffect)){
     YR <- TRUE
     if('p' %in% names(yearEffect)){
@@ -7079,19 +7769,21 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   ng <- nng
   plots <- sort(unique(as.character(treeData$plot)))
   
-  tmp <- checkPlotDims(plots, years, xytree, xytrap, plotDims, plotArea)
-  plotDims <- tmp$plotDims
-  plotArea <- tmp$plotArea
+  if(SEEDDATA){
+    tmp <- checkPlotDims(plots, years, xytree, xytrap, plotDims, plotArea)
+    plotDims <- tmp$plotDims
+    plotArea <- tmp$plotArea
+  }
   
-  sigmaWt <- sqrt(nrow(treeData))
+ # sigmaWt <- sqrt(nrow(treeData))
   
-  plist <- setupPriors(treeData, specNames, priorTable, priorList, priorDist, 
+  plist <- setupPriors(specNames, nn = nrow(treeData), priorTable, priorList, priorDist, 
                           priorVDist, maxDist, minDist,
                           minDiam, maxDiam, sigmaMu, maxF, maxFec,
                           ug, priorTauWt, priorVU, ARSETUP, USPEC)
   for(k in 1:length(plist))assign( names(plist)[k], plist[[k]] )
   
-  
+  if(ARSETUP)ug <- upar
   inputs$USPEC <- USPEC
   
   if(verbose){
@@ -7100,6 +7792,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   }
   
   if(!is.null(yearEffect))plag <- yearEffect$p
+  
   
   formulaFec <- formit(formulaFec, nspec)
   formulaRep <- formit(formulaRep, nspec)
@@ -7151,13 +7844,39 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   
   if( !ARSETUP ){ 
     
+    notFit <- betaPrior$notFit
+    
+    # tdata$fit     - indicates there are traps for that tree (and not too small)
+    # tdata$dcol    - column in distall
+    # tdata$obs     - a cropCount or seed trap
+    # tdata$obsTrap - a seed trap
+    
+    
     tmp <- .setupData(formulaFec, formulaRep, tdata, sdata,
-                      xytree, xytrap, specNames, seedNames, AR, YR, yearEffect, 
-                      minDiam, maxDiam, TREESONLY, maxFec, CONES, seedTraits)
+                      xytree, xytrap, specNames, seedNames, AR, YR, 
+                      yearEffect, minDiam, maxDiam, TREESONLY, maxFec, CONES, 
+                      notFit, priorTable, seedTraits = seedTraits, verbose)
+
+    
     for(k in 1:length(tmp))assign( names(tmp)[k], tmp[[k]] ) 
     yeGr   <- as.character(yeGr)
     ngroup <- length(yeGr)
     tdata$treeID <- as.character(tdata$treeID)
+    
+    
+    notFit  <- notFit[ notFit %in% colnames(xfec) ]
+    notCols <- match(notFit, colnames(xfec))
+    
+    tid  <- unique(tdata$treeID)
+    tnum <- match(tdata$treeID, tid)
+    tdata$tnum <- tnum
+    if('tnum' %in% colnames(yrIndex)){
+      yrIndex[,'tnum'] <- tnum
+    }else{
+      yrIndex <- cbind(yrIndex, tnum)
+    }
+    ntree <- length(tid)
+    
     
     setupData <- tmp[ !names(tmp) %in% 
                         c("tdata","sdata","seedNames","specNames",
@@ -7170,12 +7889,14 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     if(length(censMin) > 0){
       
       tmp <- trimCens(sdata, censMin, censMax)
-      censMin <- tmp$censMin
-      censMax <- tmp$censMax
+      censMin <- as.data.frame(tmp$censMin)
+      censMax <- as.data.frame(tmp$censMax)
       
       ctmp <- censMin
       ctmp$plot <- sdata[rownames(censMin),'plot']
+      
       censTable <- buildSeedByPlot(ctmp, seedNames)
+      
       rownames(censTable) <- .replaceString(rownames(censTable),'seeds','min')
       
       wk <- which(!colnames(seedTable) %in% colnames(censTable))
@@ -7189,13 +7910,12 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       }
     }
     
-    if(verbose){
+    if(verbose & SEEDDATA){
       cat('\nSeed count by plot:\n')
       print(seedTable)
+  #    if(sum(seedTable) < 10)stop('\nnot enough seeds\n')
     }
     
-    if(sum(seedTable) < 10)stop('not enough seeds')
-
     if(AR){
       data      <- append(data, list(arList = arList))
       for(k in 1:length(arList))assign( names(arList)[k], arList[[k]] ) 
@@ -7230,7 +7950,12 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       betaYrF  <- betaYrR[drop = FALSE,1,]
     }
   } ################
+   
+  notFit  <- notFit[ notFit %in% colnames(xfec) ]
+  notCols <- match(notFit, colnames(xfec))
   
+  tid   <- unique(tdata$treeID)
+  ntree <- length(tid)
   
   years <- range(tdata$year)
   years <- years[1]:years[2]
@@ -7244,28 +7969,30 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   yrIndex[,'year'] <- match(tdata$year,years)
   if( is.list(yrIndex) )yrIndex <- as.matrix(yrIndex)
   
-  if(is.null(upar))upar <- ug
+  obsYr <- obsTimes <- NULL
   
-  nseed <- nrow(sdata)
+  if(SEEDDATA){
+    if(is.null(upar))upar <- ug
+    
+    nseed    <- nrow(sdata)
+    nsobs    <- table(sdata$plot)
+    ntrap    <- nrow(xytrap)
+    obsYr    <- sort(unique(tdata$year[tdata$obsTrap == 1])) # there are sdata!
+    obsTimes <- match(obsYr,years)        # when there are trap years   
+  }
+  
   nplot <- length(plots)
   n     <- nrow(xfec)
   ntobs <- table(tdata$plot)
-  nsobs <- table(sdata$plot)
+ 
   ttab  <- table(tdata$plot, tdata$year)
   wtab  <- which(ttab > 0, arr.ind  = TRUE) 
-  ntree  <- max(tdata$dcol)
-  ntrap  <- nrow(xytrap)
-  obsYr  <- sort(unique(tdata$year[tdata$obsTrap == 1])) # there are sdata
+ 
   nyr    <- length(years)
   
-  ID <- sort(unique(tdata$treeID))
-  
-  ntree <- length(ID)
-  
-  obsTimes <- match(obsYr,years)        # when there are trap years   
-  
   RANDYR <- FALSE
-  spp <- match( as.character(tdata$species), specNames )
+  tdata$species <- as.character(tdata$species)
+  spp <- match( tdata$species, specNames )
   yrIndex <- cbind(yrIndex, spp)
 
   tdata     <- cleanFactors(tdata)
@@ -7307,66 +8034,89 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     alphaRand <- Arand <- NULL
     if( !is.null(randomEffect) ){
       RANDOM     <- TRUE
+      if('tree' %in% randomEffect$randGroups)
+        randomEffect$randGroups[randomEffect$randGroups == 'tree'] <- 'treeID'
+      
       tmp <- .setupRandom(randomEffect, tdata, xfec, xFecNames, specNames) 
-      for(k in 1:length(tmp))assign( names(tmp)[k], tmp[[k]] ) 
-      data <- append(data, list(setupRandom = tmp))
-      if(length(Arand) == 1)ONEA <- TRUE
+      
+      we <- which( table(tmp$reIndex) > 2)   # replication for random groups?
+      if(length(we) < 2){                    # less than 2 groups
+        RANDOM <- FALSE
+        randomEffect <- NULL
+        if(verbose)print('too few groups for randomEffect')
+      }else{
+        for(k in 1:length(tmp))assign( names(tmp)[k], tmp[[k]] ) 
+        data <- append(data, list(setupRandom = tmp))
+        if(length(Arand) == 1)ONEA <- TRUE
+      }
     }
   }        
+  ##############################################
   if(is.null(yeGr))yeGr <- specNames[1]
- 
-  
-  tdata$obs[tdata$plotYr %in% sdata$plotYr] <- 1  # note: more than just tdata$fit == 1
-  obsRows  <- which(tdata$obs == 1)
   
   ONEF <- ONER <- ONEA <- FALSE     
   if(ncol(xfec) == 1)ONEF <- TRUE  # intercept only
   if(ncol(xrep) == 1)ONER <- TRUE  # intercept only
-  
-  seedPredGrid <- distPred <- NULL
-  nseedPred <- 0
-  
   rownames(yrIndex) <- NULL
   
-  # species to seed type
   
-  tmp <- .setupR(sdata, tdata, seedNames, specNames, verbose = verbose)
-  R         <- tmp$R
-  priorR    <- tmp$priorR
-  priorRwt  <- tmp$priorRwt
-  SAMPR     <- tmp$SAMPR
-  seedCount <- tmp$seedCount
-  posR      <- tmp$posR
+  obsRows <- which(tdata$obs == 1) ############check
   
-  if(PREDSEED){
-
-    if( is.character(predList$years) ) predList$years <- 
-                            as.numeric(predList$years)
+  if(SEEDDATA){
     
-    tmp <- getPredGrid(predList, tdata, sdata, xytree, xytrap, 
-                       group = yrIndex[,'group'], specNames, plotDims,
-                       trapRows = trapRows)
-    predList  <- tmp$predList
-    sdatPred  <- tmp$seedPred
-    distPred  <- tmp$distPred
-    nseedPred <- nrow(sdatPred)
-    if( !is.null(nseedPred) ){ 
-      treeRows <- which( as.character(tdata$plot) %in% predList$plots &
-                           tdata$year %in% predList$years)
-      treeRows <- treeRows[treeRows %in% trapRows]
-      rowt <- match( rownames(tdata)[treeRows], rownames(tdata) )
-      predDcol <- match( tdata$treeID[treeRows], colnames(distPred) )
-      tdatPred <- data.frame( treeID = tdata$treeID[treeRows], row = rowt, 
-                              dcol = predDcol, 
-                              species = tdata$species[treeRows],
-                              specPlot = tdata$specPlot[treeRows],
-                              plotTreeYr = rownames(tdata)[treeRows],
-                              year = tdata$year[treeRows])
-    }else{
-      PREDSEED <- FALSE
+    tdata$obs[tdata$plotYr %in% sdata$plotYr] <- 1  # note: more than just tdata$fit == 1
+    
+    seedPredGrid <- distPred <- NULL
+    nseedPred <- 0
+    
+    # species to seed type
+    tmp <- .setupR(sdata, tdata, seedNames, specNames, verbose = verbose)
+    R         <- tmp$R
+    priorR    <- tmp$priorR
+    priorRwt  <- tmp$priorRwt
+    SAMPR     <- tmp$SAMPR
+    seedCount <- tmp$seedCount
+    posR      <- tmp$posR
+    
+    obsRowSeed  <- which(sdata$year %in% obsYr)
+    obsTrapRows <- sort(intersect( obsRows, trapRows ) )
+    
+    if( is.null(names(ug)) )names(ug) <- specNames[1:length(ug)]
+    
+    if(PREDSEED){
+      
+      if( is.character(predList$years) ) predList$years <- 
+          as.numeric(predList$years)
+      
+      tmp <- getPredGrid(predList, tdata[obsTrapRows,], sdata, xytree, xytrap, 
+                         group = yrIndex[,'group'], specNames, plotDims,
+                         trapRows = trapRows)
+      predList  <- tmp$predList
+      sdatPred  <- tmp$seedPred
+      distPred  <- tmp$distPred
+      tdatPred  <- tmp$treePred
+      nseedPred <- nrow(sdatPred)
+      
+      rownames(sdatPred) <- columnPaste(sdatPred$trapID, sdatPred$year, '_')
+      
+      if( !is.null(nseedPred) ){ 
+        
+        tdatPred <- tdatPred[,c('plot','treeID','dcol','species','specPlot','year')]
+        tdatPred$row <- match( rownames(tdatPred), rownames(tdata) )
+        
+        plotYrs <- sort(unique(tdata$plotYr))
+        
+        tdatPred$plotYr <- columnPaste(tdatPred$plot,tdatPred$year,'_')
+        tdatPred$plotyr <- match(tdatPred$plotYr,plotYrs)
+        sdatPred$plotYr <- columnPaste(sdatPred$plot,sdatPred$year,'_')
+        sdatPred$plotyr <- match(sdatPred$plotYr,plotYrs)
+      }else{
+        PREDSEED <- FALSE
+      }
     }
   }
-    
+  
+  
   if(YR){
     cnames  <- paste('yr',1:nyr,sep='-')
     sygibbs <- matrix(0,ng, nyr)
@@ -7382,41 +8132,42 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   # obsTrapRows:       trapRows in years with seedData
   ####################
   
-#  years <- min(tdata$year):max(tdata$year)
+  yrIndex[,'tnum'] <- tdata$tnum
+  yrIndex[,'year'] <- match(tdata$year, years)
   
-  if( ARSETUP ){
-    iy   <- match(tdata$year, years)
-    zmat <- matrix(NA, max(tdata$dcol), length(years))
-    zmat[ cbind(tdata$dcol, iy) ] <- tdata$lastRepr
-    z <- tdata$lastRepr
-  } 
   
-  if('lastRepr' %in% names(tdata)){
-    wz <- which(is.finite(tdata$lastRepr))
-    z[wz] <- tdata$lastRepr[wz]
-    zmat[ yrIndex[,c('dcol','year')] ] <- z
-  }
-  if('lastFec' %in% names(tdata)){
+  if( 'lastFec' %in% names(tdata) ){
+    
+    fs <- tdata$lastFec
+    fs[ !is.na(fs) & fstart > 1 ] <- fstart[ !is.na(fs) & fstart > 1 ] # already have lastFec
+    
     fs <- tdata$lastFec
     fs[fs == 0] <- 1e-4
-    fstart[is.finite(fs)] <- fs[is.finite(fs)]
+    
+    wu <- which(fs < 1 & z == 1)
+    if(length(wu) > 0)fs[wu] <- .tnorm(length(wu), 1, 5, 1.3, 10)
+    
+    wu <- which(fs > 1 & z == 0)
+    if(length(wu) > 0)fs[wu] <- NA
+    
+    fstart <- fs
     fg <- fstart
   }
   
   wna <- which(is.na(fstart))
   
-  if(length(wna) > 0){
+  if(length(wna) > 0 & SEEDDATA){
     
-    fg <- .initEM(last0first1, yeGr, distall, priorU[1], tdata, sdata, 
-                   specNames, seedNames, R, 
-                   SAMPR, USPEC, years, trapRows, plotYears, z, xfec, 
-                  fstart, verbose)
+    fg <- .initEM(last0first1, yeGr, distall, ug[1], tdata, sdata, 
+                  specNames, seedNames, R, SAMPR, USPEC, years, trapRows, 
+                  plotYears, z, xfec, fstart, verbose)
+  }else{
+    fg <- fstart
   }
+  tdata$fecMin[ tdata$fecMin < 1e-4 ] <- 1e-4
   
   propF <- fg/10
   propF[propF < .0001] <- .0001
-  
-  tdata$species <- as.character(tdata$species)
   
   if('groupName' %in% colnames(tdata) & verbose){
     cat('\nTree-years by plot and random group name\n')
@@ -7447,22 +8198,17 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       dtab <- findInterval(tdata$diam[wj], dseq)
       freq[wj] <- jtab[dtab]
     }
-    tdata$fecWt <- sqrt(1/freq)      # NOTE already on sqrt scale
+    freq[ is.na(freq) ] <- .1
+    freq[freq < .02] <- .02
+ #   tdata$fecWt <- sqrt(1/freq)      # should be = freq
+    tdata$fecWt <- 1/freq
   }
   
   ngroup <- length(yeGr)
   
-  
-  obsRowSeed <- which(sdata$year %in% obsYr)
- # obsRowSeed <- which(sdata$obs == 1)
-  
   fitCols <- 1:Qfec
-  notFit <- match(notFit,colnames(xfec))
-  if(length(notFit) > 0)fitCols <- fitCols[-notFit]
+  if(length(notCols) > 0)fitCols <- fitCols[-notCols]
   
-  obsTrapRows <- sort(intersect( obsRows, trapRows ) )
-  
-  if(is.null(names(ug)))names(ug) <- specNames[1:length(ug)]
   
   #prior bgRep
   rVPI <- diag(10, nrow(bgRep))
@@ -7470,36 +8216,44 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   rvp[1:nspec] <- -.5
   rvp[ endsWith(rownames(bgRep),':diam') ] <- 1
   
-  .updateBeta <- .wrapperBeta(rvp, rVPI, priorB, priorIVB, SAMPR, obsRows, obsRowSeed,
+  
+  #######################
+  
+  .updateBeta <- .wrapperBeta(rvp, rVPI, priorB, priorIVB, SAMPR, obsRows,
                               tdata, xfecCols, xrepCols, last0first1, ntree, nyr, 
-                              betaPrior, years, distall, YR, AR, yrIndex,
+                              betaPrior, years, YR, AR, yrIndex,
                               RANDOM, reIndex, xrandCols, RANDYR,
                               fitCols, specNames, FECWT)
   
-  .updateU <- .wrapperU(distall, tdata, minU, maxU, priorU, priorVU,
-                        seedNames, nspec, trapRows, obsRowSeed, obsYr, 
-                        tau1, tau2, SAMPR, RANDYR, USPEC)
+  if(SEEDDATA){
+    .updateU <- .wrapperU(distall, tdata, minU, maxU, priorU, priorVU,
+                          seedNames, nspec, trapRows, obsRowSeed, obsYr, 
+                          tau1, tau2, SAMPR, RANDYR, USPEC)
+  }
   
   predYr  <- sort( unique(tdata$year) )
   
   tcols <- c('specPlot','species','dcol','year','plotYr','plotyr','obs',
-             'fecMin','fecMax')
+             'fecMin','fecMax','fit')
   if(AR)tcols <- c(tcols,'times')
   if(CONES)tcols <- c(tcols,'cropCount', 'cropFraction', 'cropFractionSd')
+  if('cropMin' %in% colnames(tdata))tcols <- c(tcols,'cropMin')
+  if('cropMax' %in% colnames(tdata))tcols <- c(tcols,'cropMax')
 
   updateProp <- c( 1:1000, seq(1001, 10000, by=100) )
   updateProp <- updateProp[updateProp < .9*ng]
   
   pHMC <- .03
-  if(nrow(tdata) > 100000) pHMC <- 0
+  if(nrow(tdata) > 50000) pHMC <- 0
   
-  .updateFecundity <- .wrapperStates( maxFec, SAMPR, USPEC, RANDOM, obsTimes, plotYears, 
-                                      sdata, tdat = tdata[,tcols], seedNames,
+  .updateFecundity <- .wrapperStates( SAMPR, USPEC, RANDOM, SEEDDATA, obsTimes, 
+                                      plotYears, sdata, tdat = tdata[,tcols], seedNames,
                                       last0first1, distall, YR, AR, trapRows,
                                       obsRows, obsTrapRows, obsYr, predYr, obsRowSeed,
                                       ntree, years, nyr, xrandCols, reIndex, 
                                       yrIndex, plag, groupByInd, RANDYR, updateProp,
                                       seedTraits, pHMC)
+  
   ikeep <- 1:ng
   if(ng < keepIter)keepIter <- ng
   if(keepIter < ng){
@@ -7508,16 +8262,30 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   }
   nkeep <- length(ikeep)
   
-  bfgibbs  <- matrix(0, nkeep, Qfec); colnames(bfgibbs) <- xFecNames
+  bfgibbs  <- matrix(0, nkeep, Qfec); colnames(bfgibbs) <- xFecNames #unstandardized
   brgibbs  <- matrix(0, nkeep, Qrep); colnames(brgibbs) <- xRepNames
   bygibbsF <- bygibbsR <- NULL
+  bsgibbs  <- bfgibbs #standardized--prediction from unstandardized may not work
   
-  ugibbs <- matrix(0, nkeep, nspec)
-  colnames(ugibbs) <- specNames
-  if(!USPEC) ugibbs <- ugibbs[,1,drop = FALSE]
+  if(SEEDDATA){ 
+    minU <- minU[specNames]
+    maxU <- maxU[specNames]
+    ug <- ug[specNames]
+    
+    
+    ugibbs <- matrix(0, nkeep, nspec)
+    colnames(ugibbs) <- specNames
+    if(!USPEC) ugibbs <- ugibbs[,1,drop = FALSE]
+    
+    if(USPEC){
+      priorUgibbs <- matrix(0,nkeep,2)
+      colnames(priorUgibbs) <- c('mean','var')
+    }
+    ug[1:nspec] <- .tnorm( nspec, minU, maxU, ug, 5) 
+    if(!USPEC)ug[1:nspec] <- ug[1]
+  }
   
   sgibbs <- matrix(0, nkeep, 3)
-  
   colnames(sgibbs) <- c('sigma','rmspe','deviance')
   
   ncols <- nyr
@@ -7533,12 +8301,14 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     betaYrR  <- matrix(0, ngroup, ncols)
     rownames(betaYrR) <- yeGr
     colnames(betaYrF) <- colnames(betaYrR) <- cnames
+    
     bygibbsF <- matrix(NA, nkeep, length(betaYrF))
     bygibbsR <- matrix(0, nkeep, length(betaYrR))
     colnames(bygibbsF) <- colnames(betaYrF)
     colnames(bygibbsR) <- .multivarChainNames(yeGr, colnames(betaYrR))
     bygibbsN <- bygibbsR
   }
+
   if(AR){
     if(plag == 1){
       Gmat <- matrix(0,1,1)
@@ -7546,10 +8316,6 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       Gmat  <- rbind(0, cbind( diag(plag-1), 0 ) )
     }
     eigenMat <- eigen1 <- eigen2 <- betaYrR*0
-  }
-  if(USPEC){
-    priorUgibbs <- matrix(0,nkeep,2)
-    colnames(priorUgibbs) <- c('mean','var')
   }
   
   if(RANDOM){
@@ -7571,15 +8337,17 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   accept <- rep(0, length(plotYears))
   
   
-  ug[1:nspec] <- .tnorm( nspec, minU, maxU, ug, 5)
-  if(!USPEC)ug[1:nspec] <- ug[1]
-  
-  pars  <- list(fg = fg, fecMinCurrent = fecMinCurrent, 
-                fecMaxCurrent = fecMaxCurrent, 
-                ug = ug, umean = umean, uvar = uvar,
+  pars  <- list(fg = fg,# fecMinCurrent = tdata$fecMin, 
+              #  fecMaxCurrent = tdata$fecMax, 
                 sg = sg, bgFec = bgFec, bgRep = bgRep,
                 betaYrR = betaYrR*0, betaYrF = betaYrF, alphaRand = alphaRand, 
-                Arand = Arand, R = R)
+                Arand = Arand)
+  if(SEEDDATA){
+    pars$ug    <- ug
+    pars$umean <- umean
+    pars$uvar  <- uvar
+    pars$R     <- R
+  }
   
   mufec <- xfec%*%bgFec
   muyr  <- muran <- mufec*0
@@ -7596,21 +8364,35 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   bgFec <- pars$bgFec <- tmp$bgFec
   bgRep <- pars$bgRep <- tmp$bgRep
   
-  tmp <- .updateU(pars, z, propU, sdata)
-  ug    <- pars$ug    <- tmp$ug
-  umean <- pars$umean <- tmp$umean
-  uvar  <- pars$uvar  <- tmp$uvar
-  propU <- tmp$propU
+  if(ARSETUP){
+    bgFec[rownames(parameters$betaFec),1] <- parameters$betaFec[,1]
+    bgRep[rownames(parameters$betaRep),1] <- parameters$betaRep[,1]
+    sg <- parameters$sigma[1,1]
+    
+    pars$bgFec <- bgFec
+    pars$bgRep <- bgRep
+    pars$sg <- sg
+  }
   
-  if(!USPEC)ug[1:nspec] <- ug[1]
+  if(SEEDDATA){
+    tmp <- .updateU(pars, z, propU, sdata)
+    ug    <- pars$ug    <- tmp$ug
+    umean <- pars$umean <- tmp$umean
+    uvar  <- pars$uvar  <- tmp$uvar
+    propU <- tmp$propU
+    if(!USPEC)ug[1:nspec] <- pars$ug <- ug[1]
+  }
   
   # tree correlation
   nSpecPlot <- max(yrIndex[,'specPlot'])
   
   fmat <- matrix(0,ntree,nyr)
-  
-  wwi <-  match( unique(tdata$dcol),tdata$dcol )
-  rownames(fmat) <- tdata$treeID[ wwi ]
+  treeID <- unique(tdata$treeID)
+  ntree  <- length(treeID)
+  fmat <- matrix(0,ntree,nyr)
+  yrIndex[,'tnum'] <- match(tdata$treeID, treeID)
+  rownames(fmat) <- treeID
+  colnames(fmat) <- years
   
   nspec  <- length(specNames)
   omegaE <- omegaN <- matrix(0,ntree,ntree)
@@ -7628,35 +8410,38 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   if(length(pupdate) > 100)pupdate <- 
     unique( round( seq(burnin, ng, length=100) ))
   
-  SvarEst  <- SvarPred <- matrix(0,length(pupdate),nrow(sdata))
-  colnames(SvarEst)    <- rownames(sdata)
-  specSum <- specSum2  <- matrix(0,nrow(sdata),nspec)
-  colnames(specSum)    <- colnames(specSum2) <- specNames
-  rownames(specSum)    <- rownames(specSum2) <- rownames(sdata)
+  if(SEEDDATA){
+    svarEst <- rep(0, nrow(sdata))
+    names(svarEst) <- rownames(sdata)
+    svarEst <- svarPred <- svarEst2 <- svarPred2 <- svarEst
+    specSum <- specSum2  <- matrix(0,nrow(sdata),nspec)
+    colnames(specSum)    <- colnames(specSum2) <- specNames
+    rownames(specSum)    <- rownames(specSum2) <- rownames(sdata)
+    activeArea <- sdata$area
+    
+    if(SEEDCENSOR){ #locations of censored seed counts
+      censMin <- as.matrix(censMin)
+      censMax <- as.matrix(censMax)
+      censIndex <- which(censMax > censMin, arr.ind  = TRUE)
+      censIndex <- sort(unique(censIndex[,1]))
+      areaCens <- sdata[rownames(censMin),'area']
+      cens2sdata <- match(rownames(censMin),rownames(sdata))
+    }
+  }
   
-  ntoty <- rmspe <- deviance <- 0
-  ntot  <- 0
-  zest <- zpred <- fest <- fest2 <- fpred <- fpred2 <- fg*0 # fecundity 
+  
+  ntoty  <- ntotyy <- rmspe <- deviance <- 0
+  ntot   <- 0
+  zest   <- zpred <- fest <- fest2 <- fpred <- fpred2 <- fg*0 # fecundity 
   sumDev <- ndev <- 0   #for DIC
   
-  activeArea <- sdata$area
-  
-  nPlotYr <- max(tdata$plotyr)
+  nPlotYr    <- max(tdata$plotyr)
   acceptRate <- nPlotYr/5
-  
-  if(SEEDCENSOR){ #locations of censored seed counts
-    censMin <- as.matrix(censMin)
-    censMax <- as.matrix(censMax)
-    censIndex <- which(censMax > censMin, arr.ind  = TRUE)
-    censIndex <- sort(unique(censIndex[,1]))
-    areaCens <- sdata[rownames(censMin),'area']
-    cens2sdata <- match(rownames(censMin),rownames(sdata))
-  }
   
   ########### growth rate for maturation transition
   
   grow <-  smat <- rmat <- matrix( NA, ntree, nyr)
-  grow[ yrIndex[,c('dcol','year')] ] <- tdata$diam
+  grow[ yrIndex[,c('tnum','year')] ] <- tdata$diam
   gdev <- sweep(grow, 1, rowMeans(grow, na.rm  = TRUE),'-')
   tdev <- c(1:nyr) - (1 + nyr)/2
   tdev <- matrix(tdev, ntree, nyr, byrow  = TRUE)
@@ -7664,11 +8449,11 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   tvr  <- apply(tdev, 1, var, na.rm  = TRUE)
   slp  <- cgt/tvr                            # mean growth ratre
   slp[slp < .005] <- .005
-  growVec <- slp[ tdata$dcol ]
+  growVec <- slp[ tdata$tnum ]
   
   pbar <- txtProgressBar(min=1,max=ng,style=1)
   
-  logScoreStates <- logScoreFull <- seedCount*0
+  if(SEEDDATA)logScoreStates <- logScoreFull <- seedCount*0
   
   nprob <- 0
   
@@ -7685,9 +8470,37 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   
   gk <- 0
   
+  ##########################
+#  fg    <- pars$fg <- trueValues$fec[rownames(tdata)]
+ # z     <- trueValues$repr[rownames(tdata)]
+  ########################
+  
+  if(RANDOM){
+    minmax <- 4
+    amu    <- rep(0, nspec)
+    names(amu) <- colnames(xfec)[xrandCols]
+    if(nspec == 1 & length(xrandCols) == 1)names(amu) <- specNames
+    ispec  <- tdata$species[ match(treeID, tdata$treeID) ] # species column, assumes only random intercepts
+    ispec  <- match( ispec, specNames )
+    imat   <- matrix(0, ntree, nspec)
+    imat[ cbind(1:ntree, ispec) ] <- 1
+    rownames(imat) <- treeID
+    colnames(imat) <- specNames
+  }
+  
+  # individual trends
+  sfmat  <- matrix(NA, ntree, nyr)
+  rownames(sfmat) <- treeID
+  symat <- matrix(1:ncol(sfmat), nrow(sfmat),ncol(sfmat), byrow=T)
+  #sgmat  <- matrix(NA, ntree, nyr)
+  rownames(symat) <- treeID
+  slopesRate <- slopesNyr <- rep(0, ntree)
+  
+  
   for(g in 1:ng){ ####################
     
-    if(g %in% ikeep)gk <- gk + 1
+    
+    if(g %in% ikeep)gk <- gk + 1    
     if(gk > ng)break
     
     pars$fg <- fg
@@ -7695,6 +8508,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     mufec   <- xfec%*%bgFec
     
     if(RANDOM){
+      
       yg <- yg - mufec
       if(YR){
         if(RANDYR){
@@ -7705,24 +8519,43 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       }
       if(AR)yg <- yg - muyr
       
-      tt <- table(reIndex[z == 1])
-      reGroups <- as.numeric(names(tt)[tt > 2])
-      wrow <- which(reIndex %in% reGroups & MULTYR)
-      
-      tmp <- .updateAlphaRand(ntree, yA = yg[wrow,], xfecA = xfec[wrow,xrandCols,drop = FALSE], 
+      tt <- table(reIndex[z == 1])                # only mature individuals
+      reGroups <- as.numeric(names(tt)[tt > 2])   # multiyear
+      wrow     <- which(reIndex %in% reGroups)
+      krow     <- which(!reIndex %in% reGroups)
+
+      tmp <- .updateAlphaRand(ntree, yA = yg[wrow,], 
+                              xfecA = xfec[wrow,xrandCols,drop = FALSE], 
                               sg, reIndexA = reIndex[wrow], reGroups,
-                              Arand, priorVA, dfA, minmax = 2)
+                              Arand, priorVA, dfA, specNames, minmax = 1.5)
       Arand       <- pars$Arand <- tmp$Arand
       alphaRand   <- pars$alphaRand <- tmp$alphaRand
-      ArandU      <- xrands2u%*%tmp$Arand%*%t(xrands2u)
-      alphaRandU  <- tmp$alphaRand%*%t(xrands2u)
+      meanRand    <- tmp$meanRand                      # mean RE by species
+      
+      if(g >= burnin)alphaRandU  <- tmp$alphaRand%*%t(xrands2u)
+      
       
       if(g %in% ikeep){
+        ArandU       <- xrands2u%*%tmp$Arand%*%t(xrands2u)
         agibbs[gk,]  <- as.vector(Arand)   
         aUgibbs[gk,] <- as.vector(ArandU)
       }
-      muran <- xfec[,xrandCols]*alphaRand[reIndex,]
+
+      alphaRand  <- alphaRand*imat
+      if(g >= burnin)alphaRandU <- alphaRandU*imat
+      
+      muran <- alphaRand[reIndex,]
       if(length(Arand) > 1)muran <- rowSums( muran )
+      
+      
+      # single year - use if only random intercepts, change if there are random slopes
+      
+      if( length(krow) > 0 ){
+        amu[ names(meanRand) ] <- meanRand
+        imu <- amu[yrIndex[krow,'spp']] 
+        asd <- sqrt( diag(Arand)[yrIndex[krow,'spp']] )
+        muran[krow] <- .tnorm( length(krow), -minmax, minmax, imu, asd)
+      }
     }
     
     if(YR){
@@ -7730,7 +8563,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       if(RANDOM)yg <- yg - muran
       
       tmp      <- .updateBetaYr(yg, z, sg, sgYr, betaYrF, betaYrR, yrIndex, yeGr,
-                                RANDYR, tdata$obs)
+                                RANDYR, obs = tdata$obs)
       betaYrF  <- pars$betaYrF <- tmp$betaYrF
       betaYrR  <- pars$betaYrR <- tmp$betaYrR
       sgYr     <- pars$sgYr    <- tmp$sgYr
@@ -7765,33 +8598,33 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       }
     }
     
-    wlo <- 10*(z - 1)
-    whi <- 10*z
-    w   <- .tnorm(length(z), wlo, whi, xrep%*%bgRep, 1)
-    
-    
+    wlo   <- 10*(z - 1)
+    whi   <- 10*z
+    w     <- .tnorm(length(z), wlo, whi, xrep%*%bgRep, 1)
     tmp   <- .updateBeta(pars, xfec, xrep, w, z, zmat, matYr, muyr)
     bgFec <- pars$bgFec <- tmp$bgFec
     bgRep <- pars$bgRep <- tmp$bgRep
     
-    tmp   <- .updateU(pars, z, propU, sdata)
-    ug    <- pars$ug    <- tmp$ug
-    umean <- pars$umean <- tmp$umean
-    uvar  <- pars$uvar  <- tmp$uvar
-    propU <- tmp$propU
-
+    if(SEEDDATA){
+      tmp   <- .updateU(pars, z, propU, sdata)
+      ug    <- pars$ug    <- tmp$ug
+      umean <- pars$umean <- tmp$umean
+      uvar  <- pars$uvar  <- tmp$uvar
+      propU <- tmp$propU
+    }
+    
     tmp <- .updateFecundity(g, pars, xfec, xrep, propF, z, zmat, matYr, muyr,
                             epsilon = epsilon)
-    
     fg    <- pars$fg <- tmp$fg
-    pars$fecMinCurrent <- tmp$fecMinCurrent
-    pars$fecMaxCurrent <- tmp$fecMaxCurrent
+    fecMinCurrent <- tmp$fecMinCurrent
+    fecMaxCurrent <- tmp$fecMaxCurrent
     z     <- tmp$z
     zmat  <- tmp$zmat
     matYr <- tmp$matYr
     propF <- tmp$propF
     epsilon <- tmp$epsilon
-
+    
+    
     muf <- xfec%*%bgFec
     if(YR | AR)muf <- muf + muyr
     if(RANDOM)muf  <- muf + muran
@@ -7800,15 +8633,19 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     
     sg <- pars$sg <- .updateVariance(log(fg[wrow]), muf[wrow], s1, s2)
     
-    if(sg > 20)sg <- pars$sg <- 20
+    if(sg > 30)sg <- pars$sg <- 30
     
     if(SAMPR){
-      tmp  <- .updateR(ug, fg[obsTrapRows]*z[obsTrapRows], SAMPR, USPEC, distall, 
-                     sdata, seedNames, tdata[obsTrapRows,c('specPlot','year','dcol')], 
-                     R, priorR, priorRwt, obsYr, posR, plots)
+      tmp  <- .updateR(ug, fz = fg[obsTrapRows]*z[obsTrapRows], SAMPR, USPEC, distall, 
+                       sdata, seedNames, 
+                       tdat = tdata[obsTrapRows,c('specPlot','year','plotyr','dcol')], 
+                       R, priorR, priorRwt, obsYr, posR, plots)
       pars$R <- R <- tmp
       if(g %in% ikeep)rgibbs[gk,]  <- R[posR]
     }
+     
+    
+    
     
     ################## predicted state
     
@@ -7821,14 +8658,14 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     dSdt <- brep*growVec   # d log(S)/dt = d log(S)/dD dD/dt
     
     tvec <- pnorm(xrep%*%bgRep)
-    tii  <- tapply(tvec, tdata$dcol, mean, na.rm  = TRUE)
+    tii  <- tapply(tvec, tdata$tnum, mean, na.rm  = TRUE)
     tii  <- matrix(tii, ntree, nyr)
     
-    smat[ yrIndex[,c('dcol','year')] ] <- tvec
+    smat[ yrIndex[,c('tnum','year')] ] <- tvec
     smat[ is.na(smat) ] <- tii[ is.na(smat) ]
     smat[,-1] <- 1 - smat[,1]
     
-    rmat[ yrIndex[,c('dcol','year')] ] <- dSdt
+    rmat[ yrIndex[,c('tnum','year')] ] <- dSdt
     rmat[,1] <- 0
     rmat[is.na(rmat)] <- 0
     rcum <- t( apply(1 - rmat, 1, cumprod) )
@@ -7838,12 +8675,14 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     rmat <- cbind(rmat, 1 - rowSums(rmat))
     
     rmat <- myrmultinom(1, rmat)[,-ncol(rmat)]
+    rmat[ !is.finite(rmat) ] <- 0
     rmat <- t( apply(rmat,1,cumsum) )
-    zw   <- rmat[ yrIndex[,c('dcol','year')] ]
+    zw   <- rmat[ yrIndex[,c('tnum','year')] ]
+    
     
     flo <- fhi <- zw*0
     flo[zw == 0] <- -9.21034
-    fhi[zw == 1] <- log(pars$fecMaxCurrent[zw == 1])
+    fhi[zw == 1] <- log(fecMaxCurrent[zw == 1] + .1)
     
     ymu <- .tnorm( length(muf), flo, fhi, muf, sqrt(sg) )
     fmu <- exp( ymu )                          # mean prediction
@@ -7853,23 +8692,26 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     brSave <- bgRep
     
     if(UNSTAND){
-      if(length(xfecs2u) > 0)bfSave <- xfecs2u%*%bgFec  
+      if(length(xfecs2u) > 0)bfSave[fitCols,1] <- xfecs2u%*%bgFec[fitCols,1]  
       if(length(xreps2u) > 0)brSave <- xreps2u%*%bgRep
+      if(length(notFit) > 0)bfSave[notFit,1] <- 0
     }
     
     if(g %in% ikeep){
       bfgibbs[gk,] <- bfSave
       brgibbs[gk,] <- brSave
-      if(USPEC){
-        ugibbs[gk,]  <- ug
-      }else{
-        ugibbs[gk,1] <- ug[1]
+      bsgibbs[gk,] <- bgFec
+      if(SEEDDATA){
+        if(USPEC){
+          ugibbs[gk,]  <- ug
+          priorUgibbs[gk,] <- c(umean,uvar)
+        }else{
+          ugibbs[gk,1] <- ug[1]
+        }
       }
     }
     
-    if( USPEC )priorUgibbs[gk,] <- c(umean,uvar)
-    
-    if(g %in% gupdate & gk > 10){
+    if(g %in% gupdate & gk > 10 & SEEDDATA){
       gi <- (gk - 20):gk
       uu <- ug/4
       gi <- gi[gi > 0]
@@ -7882,24 +8724,29 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       }
     }
     
+    
+    
+    
     if(SEEDCENSOR){                # missing censored traps
-      lf <- .getLambda(tdata[obsTrapRows,c('specPlot','year','dcol')],
-                       sdata[rownames(censMin),c('year','drow')],
+      lf <- .getLambda(tdata[obsTrapRows,c('specPlot','year','plotyr','dcol')],
+                       sdata[rownames(censMin),c('year','plotyr','drow')],
                        areaCens, ug, fg[obsTrapRows]*z[obsTrapRows], R, 
                        SAMPR, USPEC, distall, obsYr, PERAREA = FALSE)  # per trap
       lf[lf < 1e-9] <- 1e-9
-      ttt   <- rtpois( lo = censMin, hi = censMax, mu = lf )
+      
+      ttt   <- rtpois( lo = censMin[,seedNames,drop=F], 
+                       hi = censMax[,seedNames,drop=F], mu = lf )
       sdata[rownames(censMin), colnames(ttt) ] <- ttt
     }
     
-    if(g %in% pupdate){
+    if(g %in% pupdate & SEEDDATA){
         
       nprob <- nprob + 1
       
       # estimated fecundity per m2
-      fz    <- fg[obsTrapRows]*z[obsTrapRows]  
-      lm <- .getLambda(tdata[obsTrapRows,c('specPlot','year','dcol')],
-                       sdata[,c('year','drow')],
+      fz <- fg[obsTrapRows]*z[obsTrapRows]  
+      lm <- .getLambda(tdata[obsTrapRows,c('specPlot','year','plotyr','dcol')],
+                       sdata[,c('year','plotyr','drow')],
                        AA=1, ug, fz, R, 
                        SAMPR, USPEC, distall, obsYr, PERAREA  = TRUE, SPECPRED  = TRUE)  
       lm[lm < 1e-9] <- 1e-9
@@ -7907,14 +8754,18 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       specSum  <- specSum + pm
       specSum2 <- specSum2 + pm^2
       
-      # estimated fecundity per trap
+      # estimated seeds per trap
       ls <- lm*sdata$area                      
       pf <- matrix( rpois(length(ls), ls), nrow(ls), ncol(ls) )
-      SvarEst[nprob,] <- rowSums(pf)
+  #    SvarEst[nprob,] <- rowSums(pf)
+      spf      <- rowSums(pf)
+      svarEst  <- svarEst + spf
+      svarEst2 <- svarEst2 + spf^2
+      
 
       # predicted per trap
-      la    <- .getLambda(tdata[obsTrapRows,c('specPlot','year','dcol')], 
-                          sdata[,c('year','drow')],
+      la    <- .getLambda(tdata[obsTrapRows,c('specPlot','year','plotyr','dcol')], 
+                          sdata[,c('year','plotyr','drow')],
                           AA = activeArea, ug, fmu[obsTrapRows]*zw[obsTrapRows], 
                           R, SAMPR, USPEC, distall, obsYr, PERAREA = FALSE) 
       la[la < 1e-9] <- 1e-9
@@ -7925,14 +8776,21 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       
       rmspe <- sqrt( mean( resid, na.rm  = TRUE ) )
       
-      SvarPred[nprob,] <- rowSums(pg)
+  #    SvarPred[nprob,] <- rowSums(pg)
+      spf      <- rowSums(pg)
+      svarPred  <- svarPred + spf
+      svarPred2 <- svarPred2 + spf^2
       
       # deviance from predicted fecundity
       dev   <- dpois(seedCount, la, log  = TRUE)
+      
+      
 
       if(SEEDCENSOR){
         mm <- match(rownames(censMin),rownames(sdata)[obsRowSeed])
-        pr <- dtpois(censMin, censMax, la[cens2sdata,], 
+        
+        pr <- dtpois(censMin[,seedNames,drop=F], censMax[,seedNames,drop=F], 
+                     la[cens2sdata,], 
                      index = censIndex) 
         dev[cens2sdata,] <- log( pr )
       }
@@ -7945,8 +8803,8 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       logScoreFull   <- logScoreFull - dev
       
       if(PREDSEED){  #NOTE: from estimated, not predicted fg
-        ls <- .getLambda(tdatPred[,c('specPlot','year','dcol')], 
-                         sdatPred[,c('year','drow')], AA = 1,
+        ls <- .getLambda(tdatPred[,c('specPlot','year','plotyr','dcol')], 
+                         sdatPred[,c('year','plotyr','drow')], AA = 1,
                          ug, fz[tdatPred[,'row']], R, 
                          SAMPR, USPEC, distPred, predList$years, PERAREA  = TRUE,
                          SPECPRED  = TRUE)   # per m^2
@@ -7963,6 +8821,39 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       
       ntoty  <- ntoty + 1
       
+      # individual rate of change
+      
+      fzm <- fg*z
+      
+      sfmat[ yrIndex[,c('tnum','year')] ] <- log(fzm)
+      sfmat[ sfmat < 2 ] <- NA
+      sgmat <- sfmat*0 + 1
+      
+      # for rates
+      wmat <- which( rowSums(sgmat, na.rm=T) > 1 )
+      
+      if(length(wmat) > 1){
+        
+        ntotyy <- ntotyy + 1
+        
+        symat[is.na(sfmat)] <- NA
+        fmm  <- rowMeans(sfmat[wmat,], na.rm=T)
+        ymm  <- rowMeans(symat[wmat,], na.rm=T)
+        sfmat[wmat,] <- sweep(sfmat[wmat,], 1, fmm,'-')
+        symat[wmat,] <- sweep(symat[wmat,], 1, ymm,'-')
+        snmat <- rowSums(symat[wmat,]*0 + 1, na.rm=T)
+        cvv   <- rowSums(sfmat[wmat,]*symat[wmat,],na.rm=T)
+        vvv   <- rowSums(symat[wmat,]^2, na.rm=T)
+        slope <- cvv/vvv
+        wf    <- which(is.finite(slope))
+        
+        slopesRate[ wmat[wf] ] <- slopesRate[ wmat[wf] ] + slope[wf]
+        slopesNyr[ wmat[wf] ]  <- slopesNyr[ wmat[wf] ] + snmat[wf]
+      }
+      
+      
+      ########################
+      
       # by group
       if(AR){
         for(j in 1:ngroup){
@@ -7977,12 +8868,12 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
       yRes <- yg
       yRes <- yRes - mean(yRes)           #tree autocorrelation
       
-      for(m in 1:nSpecPlot){
+      for(m in 1:nSpecPlot){############### MATCH TREEID ROWS FOR FMAT
         
         fmat <- fmat*0
         
         wm   <- which(yrIndex[,'specPlot'] == m & tdata$obs == 1 & fg > 1)
-        dm   <- tdata$dcol[wm]
+        dm   <- tdata$tnum[wm]
         ym   <- yrIndex[wm,'year']
         dr   <- unique(dm)
         if(length(dr) < 2)next
@@ -7997,7 +8888,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
         omegaE[dr,dr][wf] <- omegaE[dr,dr][wf] + ff[wf]
         omegaN[dr,dr][wf] <- omegaN[dr,dr][wf] + 1
         
-        acm <- acfEmp(yRes[wm], tdata$dcol[wm], yrIndex[wm,'year'])
+        acm <- acfEmp(yRes[wm], tdata$tnum[wm], yrIndex[wm,'year'])
         wfin <- which(is.finite(acm))
         wfin <- wfin[wfin <= npacf]
         if(length(wfin) == 0)next
@@ -8036,24 +8927,22 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     }
     setTxtProgressBar(pbar,g)
   } ###########################################################
-     
+       
    # to re-initialize
   tdata$lastFec  <- fg
   tdata$lastRepr <- z
-  tdata$fecMin   <- pars$fecMin
-  tdata$fecMax   <- pars$fecMax
   
   # fecundity
   matrEst  <- zest/ntot
   matrPred <- zpred/ntot
   
-  fecEstMu <- fest/zest     #  same order at tdata
-  fecEstSe <- fest2/zest - fecEstMu^2
+  fecEstMu <- fest/ntot     #  same order at tdata
+  fecEstSe <- fest2/ntot - fecEstMu^2
   fecEstSe[fecEstSe < 0] <- 0
   fecEstSe <- sqrt(fecEstSe)
   
-  fecPredMu <- fpred/zpred     #  pred|z = 1
-  fecPredSe <- fpred2/zpred - fecPredMu^2
+  fecPredMu <- fpred/ntot     #  pred|z = 1
+  fecPredSe <- fpred2/ntot - fecPredMu^2
   fecPredSe[fecPredSe < 0] <- 0
   fecPredSe <- sqrt(fecPredSe)
   
@@ -8077,133 +8966,203 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   
   fecPred <- cbind(fecPred, mpm, fpm)
   
-  scols <- c('plot','year','trapID','drow','area')
-  countPerTrap <- rowSums(sdata[obsRowSeed,seedNames,drop = FALSE])
-
-  seedEst <- cbind( colMeans(SvarEst), apply(SvarEst, 2, sd) )
-  colnames(seedEst) <- c('estMeanTrap', 'estSeTrap')
-  seedPred <- cbind( colMeans(SvarPred), apply(SvarPred, 2, sd) )
-  colnames(seedPred) <- c('predMeanTrap', 'predSeTrap')
-  
-  svv <- (countPerTrap - seedPred[obsRowSeed,'predMeanTrap'])^2 
-  predSeError  <- signif( sqrt(svv) , 3)
-  
-  seedSpecMu <- specSum/nprob
-  seedSpecSe <- specSum2/nprob - seedSpecMu^2
-  seedSpecSe[seedSpecSe < 0] <- 0
-  seedSpecSe <- sqrt(seedSpecSe)
-  
-  seedPred <- data.frame( cbind( sdata[obsRowSeed,scols], countPerTrap,
-                                 signif(seedEst[obsRowSeed,], 3),
-                                 signif(seedPred[obsRowSeed,], 3),
-                                 predSeError),
-                          stringsAsFactors = F)
-  m1 <- paste(specNames,'meanM2',sep='_')
-  m2 <- paste(specNames,'sdM2',sep='_')
-  m2Mu <- seedSpecMu[obsRowSeed,specNames,drop = FALSE]
-  m2Se <- sqrt( seedSpecSe[obsRowSeed,specNames,drop = FALSE]^2 ) 
-  colnames(m2Mu) <- m1
-  colnames(m2Se) <- m2
-  seedPred <- cbind(seedPred, signif(m2Mu, 3), signif(m2Se,3))
-  
-  inflation <- signif( predSeError/(.1 + seedPred$predSeTrap), 3)
-  
-  pvv <- seedPred$predSeTrap^2  # predictive variance
-  
-  TGstats <- summary(lm(svv ~ pvv))$coefficients[,1:2]
-  TGstats <- signif(TGstats, 4)
-  
-  rownames(TGstats) <- c('TGc','TGd')
-  
-  seedPred <- cbind(seedPred, inflation)
-  
-  #entire data set
-  
-  meanPredErrSd <- mean(predSeError, na.rm  = TRUE)
-  meanPredSd    <- mean(seedPred$predSeTrap, na.rm  = TRUE)
-  meanInflation <- mean(inflation, na.rm  = TRUE)
-  
- # fit  
-  
-  nss <- length(obsRowSeed)
-
-  MM <- FALSE
-  if(!all(seedTraits[,'gmPerSeed'] == 1))MM <- TRUE
-  
-  if( MM ){
-    mss <- matrix(seedTraits[specNames,'gmPerSeed'],nss,nspec,byrow  = TRUE)
-    massMu <- seedSpecMu[obsRowSeed,specNames,drop = FALSE]*mss
-    massSe <- sqrt( seedSpecSe[obsRowSeed,specNames,drop = FALSE]^2*mss^2 ) 
-    m1 <- paste(colnames(massMu),'meanGmM2',sep='_')
-    m2 <- paste(colnames(massSe),'sdGmM2',sep='_')
-    colnames(massMu) <- m1
-    colnames(massSe) <- m2
-    seedPred <- cbind(seedPred, signif(massMu, 3), signif(massSe,3))
+  if(CONES){
+    rmspeCrop <- sqrt( mean( (fecPredMu - cropCount)^2, na.rm=T ) )
   }
   
-  if(PREDSEED){
-    scols <- c('plot','trapID','year','x','y','drow','dgrid','area','active')
-    specMu <- specPredSum/nprob
-    specSe <- sqrt(specPredSum2/nprob - specMu^2)
-    colnames(specMu) <- paste(colnames(specMu),'_meanM2',sep='')
-    colnames(specSe) <- paste(colnames(specSe),'_sdM2',sep='')
+  if(SEEDDATA){
     
-    nss <- nrow(sdatPred)
-    mss <- matrix(seedTraits[specNames,'gmPerSeed'],nss,nspec,byrow  = TRUE)
-    massMu <- specMu*mss
-    massSe <- sqrt( specSe^2*mss^2 ) 
-    m1 <- paste(specNames,'meanGmM2',sep='_')
-    m2 <- paste(specNames,'sdGmM2',sep='_')
-    colnames(massMu) <- m1
-    colnames(massSe) <- m2
+    scols <- c('plot','year','trapID','drow','area')
+    countPerTrap <- rowSums(sdata[,seedNames,drop = FALSE])
     
-    preds <- signif(cbind(specMu, specSe, massMu, massSe), 3)
+ #   seedEst <- cbind( colMeans(SvarEst), apply(SvarEst, 2, sd) )
+    seedEst <- svarEst/nprob
+    s2      <- svarEst2/nprob - seedEst^2
+    seedEst <- cbind(seedEst, sqrt(s2))
+    colnames(seedEst) <- c('estMeanTrap', 'estSeTrap')
     
-    seedPredGrid <- data.frame( cbind( sdatPred[,scols], preds ) )
-    treePredGrid <- cbind(tdatPred, fecPred[tdatPred$row,])
- 
-    # out-of-sample
-    if(!is.null(modelYears)){
+  #  seedPred <- cbind( colMeans(SvarPred), apply(SvarPred, 2, sd) )
+    seedPred <- svarPred/nprob
+    s2       <- svarPred2/nprob - seedPred^2
+    seedPred <- cbind(seedPred, sqrt(s2))
+    colnames(seedPred) <- c('predMeanTrap', 'predSeTrap')
+    
+    svv <- (countPerTrap - seedPred[,'predMeanTrap'])^2 
+    predSeError  <- signif( sqrt(svv) , 3)
+    
+    seedSpecMu <- specSum/nprob
+    seedSpecSe <- specSum2/nprob - seedSpecMu^2
+    seedSpecSe[seedSpecSe < 0] <- 0
+    seedSpecSe <- sqrt(seedSpecSe)
+    
+    seedPred <- data.frame( cbind( sdata[,scols], countPerTrap,
+                                   signif(seedEst, 3),
+                                   signif(seedPred, 3),
+                                   predSeError),
+                            stringsAsFactors = F)
+    m1 <- paste(specNames,'meanM2',sep='_')
+    m2 <- paste(specNames,'sdM2',sep='_')
+    m2Mu <- seedSpecMu[,specNames,drop = FALSE]
+    m2Se <- sqrt( seedSpecSe[,specNames,drop = FALSE]^2 ) 
+    colnames(m2Mu) <- m1
+    colnames(m2Se) <- m2
+    seedPred <- cbind(seedPred, signif(m2Mu, 3), signif(m2Se,3))
+    
+    inflation <- signif( predSeError/(.1 + seedPred$predSeTrap), 3)
+    
+    pvv <- seedPred$predSeTrap^2  # predictive variance
+    
+    seedPred <- cbind(seedPred, inflation)
+    
+    #entire data set
+    
+    meanPredErrSd <- mean(predSeError, na.rm  = TRUE)
+    meanPredSd    <- mean(seedPred$predSeTrap, na.rm  = TRUE)
+    meanInflation <- mean(inflation, na.rm  = TRUE)
+    
+    # fit  
+    
+  #  nss <- length(obsRowSeed)
+    
+    MM <- FALSE
+    if(!all(seedTraits[,'gmPerSeed'] == 1))MM <- TRUE
+    
+    if( MM ){
+      mss <- matrix(seedTraits[specNames,'gmPerSeed'],nrow(sdata),nspec,byrow  = TRUE)
+      massMu <- seedSpecMu[,specNames,drop = FALSE]*mss
+      massSe <- sqrt( seedSpecSe[,specNames,drop = FALSE]^2*mss^2 ) 
+      m1 <- paste(colnames(massMu),'meanGmM2',sep='_')
+      m2 <- paste(colnames(massSe),'sdGmM2',sep='_')
+      colnames(massMu) <- m1
+      colnames(massSe) <- m2
+      seedPred <- cbind(seedPred, signif(massMu, 3), signif(massSe,3))
+    }
+    
+    if(PREDSEED){
+      scols <- c('plot','trapID','year','x','y','drow','dgrid','area','active')
+      specMu <- specPredSum/nprob
+      sse <- specPredSum2/nprob - specMu^2
+      specSe <- sqrt(sse)
+      colnames(specMu) <- paste(colnames(specMu),'_meanM2',sep='')
+      colnames(specSe) <- paste(colnames(specSe),'_sdM2',sep='')
       
-      sdataOut$plotTrapYr <- columnPaste(sdataOut$trapID,sdataOut$year)
-      sdataOut$fore <- sdataOut$year - max(modelYears)
-
-      tdataOut$plotTreeYr <- columnPaste(tdataOut$treeID,tdataOut$year)
-      treePredGrid$plotTreeYr <- columnPaste(treePredGrid$treeID,treePredGrid$year)
+      nss <- nrow(sdatPred)
+      mss <- matrix(seedTraits[specNames,'gmPerSeed'],nss,nspec,byrow  = TRUE)
+      massMu <- specMu*mss
+      massSe <- sqrt( specSe^2*mss^2 ) 
+      m1 <- paste(specNames,'meanGmM2',sep='_')
+      m2 <- paste(specNames,'sdGmM2',sep='_')
+      colnames(massMu) <- m1
+      colnames(massSe) <- m2
       
-      fec <- matrix(NA,nrow(tdataOut),4)
-      colnames(fec) <- colnames(fpm)
-      ww <- which(tdataOut$plotTreeYr %in% treePredGrid$plotTreeYr)
-      qq <- match(tdataOut$plotTreeYr[ww], treePredGrid$plotTreeYr)
-      fec[ww,] <- fpm[qq,]
-      tdataOut <- cbind(tdataOut,fec)
+      preds <- signif(cbind(specMu, specSe, massMu, massSe), 3)
+      
+      seedPredGrid <- data.frame( cbind( sdatPred[,scols], preds ) )
+      treePredGrid <- cbind(tdatPred, fecPred[tdatPred$row,])
+      
+      # out-of-sample
+      if(!is.null(modelYears)){
+        
+        sdataOut$plotTrapYr <- columnPaste(sdataOut$trapID,sdataOut$year)
+        sdataOut$fore <- sdataOut$year - max(modelYears)
+        
+        tdataOut$plotTreeYr <- columnPaste(tdataOut$treeID,tdataOut$year)
+        treePredGrid$plotTreeYr <- columnPaste(treePredGrid$treeID,treePredGrid$year)
+        
+        fec <- matrix(NA,nrow(tdataOut),4)
+        colnames(fec) <- colnames(fpm)
+        ww <- which(tdataOut$plotTreeYr %in% treePredGrid$plotTreeYr)
+        qq <- match(tdataOut$plotTreeYr[ww], treePredGrid$plotTreeYr)
+        fec[ww,] <- fpm[qq,]
+        tdataOut <- cbind(tdataOut,fec)
+      }
+    }
+    
+    # seed, fecundity acf
+    seedRes <- t( t(seedCount) - colMeans(seedCount, na.rm  = TRUE) )
+    ww <- colSums(seedCount, na.rm  = TRUE)
+    
+    pacsMat <- NULL
+    
+    if(sum(ww) > 0){
+      seedRes <- seedRes[,ww > 0,drop = FALSE]
+      
+      ii <- rep(sdata$drow,ncol(seedRes))
+      yy <- match(sdata$year,years)
+      jj <- rep(yy, ncol(seedRes))
+      kk <- is.finite(ii)
+      ii <- ii[kk]
+      jj <- jj[kk]
+      sr <- as.vector(seedRes)[kk]
+      
+      acm  <- acfEmp(sr, ii, jj)
+      wfin <- which(is.finite(acm))
+      pacsMat <- acm*0
+      pacsMat[wfin] <- pacf(acm[wfin])
     }
   }
   
   kg <- which(ikeep >= burnin & ikeep <= ng)
   
-  betaFec <- .chain2tab(bfgibbs[kg,])
-  betaRep <- .chain2tab(brgibbs[kg,])
-  
-  # seed, fecundity acf
-  seedRes <- t( t(seedCount) - colMeans(seedCount, na.rm  = TRUE) )
-  ww <- colSums(seedCount, na.rm  = TRUE)
-  seedRes <- seedRes[,ww > 0,drop = FALSE]
-  
-  ii <- rep(sdata$drow,ncol(seedRes))
-  yy <- match(sdata$year,years)
-  jj <- rep(yy, ncol(seedRes))
-  
-  acm  <- acfEmp(as.vector(seedRes), ii, jj)
-  wfin <- which(is.finite(acm))
-  pacsMat <- acm*0
-  pacsMat[wfin] <- pacf(acm[wfin])
+  betaFec <- .chain2tab(bfgibbs[drop = F, kg,]) #unstandardized
+  betaRep <- .chain2tab(brgibbs[drop = F, kg,])
+  betaStd <- .chain2tab(bsgibbs[drop = F, kg,]) #standardized
   
   acfMat  <- acfMat/ntoty
   pacfMat <- pacfMat/pacN
   pacfSe  <- pacf2/pacN - pacfMat^2
+  pacfMat[!is.finite(pacfMat)] <- 0
+  pacfSe[!is.finite(pacfSe)] <- 0
+  
+  wk <- which(rowSums(pacfSe) > 0)
+  pacfMat <- pacfMat[wk,,drop=F]
+  pacfSe  <- pacfSe[wk,,drop=F]
   
   omegaE <- omegaE/omegaN
+  
+  ################ individual slopes
+  
+  trendRate <- slopesRate/ntotyy
+  trendNyr  <- slopesNyr/ntotyy
+  trendTree <- signif( cbind( trendRate, trendNyr ), 3 )
+  colnames(trendTree) <- c('logf/yr', 'years')
+  
+  # by species-plot
+  si <- tdata$species[ match(treeID, tdata$treeID) ]
+  ip <- tdata$plot[ match(treeID, tdata$treeID) ]
+  ll <- list(plot = ip, species = si)
+  
+  # weighted by series length
+  ws <- tapply( trendRate*trendNyr, ll, sum, na.rm=T)
+  wt <- tapply( trendNyr, ll, sum, na.rm=T)
+  trendMu <- ws/wt
+  
+  vt <- tapply( trendRate^2*trendNyr, ll, sum, na.rm=T)
+  trendSe <- sqrt( vt/wt - trendMu^2 )
+  
+  colnames(trendMu) <- paste(colnames(trendMu),'Mean')
+  colnames(trendSe) <- paste(colnames(trendSe),'SE')
+  
+  trendPlotSpec <- signif( cbind(trendMu, trendSe), 4 )
+  
+  # by species
+ 
+  # weighted by series length
+  ws <- tapply( trendRate*trendNyr, si, sum, na.rm=T)
+  wt <- tapply( trendNyr, si, sum, na.rm=T)
+  trendMu <- ws/wt
+  
+  vt <- tapply( trendRate^2*trendNyr, si, sum, na.rm=T)
+  trendSe <- sqrt( vt/wt - trendMu^2 )
+  
+  names(trendMu) <- paste(names(trendMu),'Mean')
+  names(trendSe) <- paste(names(trendSe),'SE')
+  
+  trendSpec <- signif( c(trendMu, trendSe), 4 )
+  
+  trendEst <- list( trendSpec = trendSpec, trendPlotSpec = trendPlotSpec, 
+                    trendTree = trendTree )
+  
   
   ################ years/lags
   
@@ -8216,25 +9175,27 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
     }
     
     betaYrMu <- betaYrSe <- matrix(nrow(betaYrF), ncol=ncol )
-    wg <- which(rowSums(bygibbsF) != 0)
+    wg <- which(rowSums(abs(bygibbsF)) != 0)
     wg <- wg[wg %in% kg]
+    
+   
     if(length(wg) > 0){
       
       betaYr <- .chain2tab(bygibbsF[drop = FALSE, wg,])
-      
       betaYrMu <- matrix( colMeans(bygibbsF[drop = FALSE, wg,], na.rm  = TRUE), 
                           nrow(betaYrF), ncol=ncol )
       betaYrSe <- matrix( apply(bygibbsF[drop = FALSE, wg,], 2, sd, na.rm  = TRUE), 
                           nrow(betaYrF), ncol=ncol )
     }
-  #  colnames(betaYrMu) <- colnames(betaYrSe) <- ccol
+ 
     betaYrRand <- betaYrRandSE <- betaYrMu*0
+    
     if(RANDYR){
       betaYrRand <- betaYrRandSE <- betaYrR*0
-      wg <- which(rowSums(bygibbsR) != 0)
+      wg <- which(rowSums(abs(bygibbsR)) != 0)
       wg <- wg[wg %in% kg]
-      
-      if(length(wg) > 0){
+  
+      if(length(wg) > 0){   ###colSums(x, na.rm = na.rm, dims = dims, ...) :  'x' must be an array of at least two dimensions
         brsum <- matrix( colSums(bygibbsR[wg,], na.rm  = TRUE), 
                          nrow(betaYrR), ncol )
         brn <- matrix( colSums(bygibbsN[wg,], na.rm  = TRUE), 
@@ -8305,30 +9266,33 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   
   #################### dispersal
   
-  dgibbs <- pi*sqrt(ugibbs)/2
-  upars <- .chain2tab(ugibbs[kg,,drop = FALSE])[,c(1:4)]
-  dpars <- .chain2tab(dgibbs[kg,,drop = FALSE])[,c(1:4)]
-  
-  if( USPEC ){
+  if(SEEDDATA){
     
-    uByGroup <- colMeans(ugibbs[drop = FALSE, kg,])
-    dByGroup <- colMeans(dgibbs[drop = FALSE, kg,])
-    priorDgibbs <- pi*sqrt(priorUgibbs[drop = FALSE, kg,])/2
-    
-    uall <- .chain2tab(priorUgibbs[kg,,drop = FALSE])[,c(1:4)]
-    dall <- .chain2tab(priorDgibbs[,,drop = FALSE])[,c(1:4)]
-    
-    upars <- rbind(upars,uall)
-    dpars <- rbind(dpars,dall)
-    
-  }else{
+    dgibbs <- pi*sqrt(ugibbs)/2
     upars <- .chain2tab(ugibbs[kg,,drop = FALSE])[,c(1:4)]
-    uByGroup <- mean(ugibbs[kg,])
-    
     dpars <- .chain2tab(dgibbs[kg,,drop = FALSE])[,c(1:4)]
-    dByGroup <- mean(dgibbs[kg,])
+    
+    if( USPEC ){
+      
+      uByGroup <- colMeans(ugibbs[drop = FALSE, kg,])
+      dByGroup <- colMeans(dgibbs[drop = FALSE, kg,])
+      priorDgibbs <- pi*sqrt(priorUgibbs[drop = FALSE, kg,])/2
+      
+      uall <- .chain2tab(priorUgibbs[kg,,drop = FALSE])[,c(1:4)]
+      dall <- .chain2tab(priorDgibbs[,,drop = FALSE])[,c(1:4)]
+      
+      upars <- rbind(upars,uall)
+      dpars <- rbind(dpars,dall)
+      
+    }else{
+      upars <- .chain2tab(ugibbs[kg,,drop = FALSE])[,c(1:4)]
+      uByGroup <- mean(ugibbs[kg,])
+      
+      dpars <- .chain2tab(dgibbs[kg,,drop = FALSE])[,c(1:4)]
+      dByGroup <- mean(dgibbs[kg,])
+    }
   }
-
+  
   su <- .chain2tab(sgibbs[kg,])[,c(1:4)]
   
   # coefficients are saved unstandardized 
@@ -8339,7 +9303,7 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   }
   
   zp <- pnorm(xrep%*%betaRep[,1])
-  fp <- xfec%*%matrix(betaFec[,1], ncol=1) 
+  fp <- xfec%*%matrix(betaStd[,1], ncol=1) 
   
   if(YR){
     byr <- betaYrMu[ yrIndex[,'year'] ] 
@@ -8382,58 +9346,61 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
   
   ################ fit
   
-  fp <- exp(fp)
+  fit <- NULL
   
-  meanDev <- sumDev/ndev
-
-  la <- .getLambda(tdata[obsTrapRows,c('specPlot','year','dcol')], 
-                   sdata[,c('year','drow')], activeArea,
-                   uByGroup, as.vector(fp[obsTrapRows])*as.vector(zp[obsTrapRows]), 
-                   mmu, SAMPR, USPEC, distall, obsYr, PERAREA = FALSE)
-  la <- la + 1e-9
-  pd  <- meanDev - 2*sum(dpois(seedCount, la, log  = TRUE))
-  DIC <- pd + meanDev
-  
-  RMSPE <- mean(sgibbs[kg,'rmspe'])
-  
-  logScoreStates <- logScoreStates/nprob
-  logScoreFull   <- logScoreFull/nprob
-  
-  fit <- list( DIC = round(DIC), scoreStates = mean(logScoreStates),
-               predictScore = round( mean(logScoreFull) ), 
-               RMSPE = signif(RMSPE,3),
-               meanPredErrSd = signif(meanPredErrSd), 
-               meanPredSd = signif(meanPredSd, 3),
-               meanInflation = signif(mean(inflation), 3),
-               TGstats  = TGstats)
+  if(SEEDDATA){
+    
+    fp <- exp(fp)
+    
+    meanDev <- sumDev/ndev
+    
+    la <- .getLambda(tdata[obsTrapRows,c('specPlot','year','plotyr','dcol')], 
+                     sdata[,c('year','plotyr','drow')], activeArea,
+                     uByGroup, as.vector(fp[obsTrapRows])*as.vector(zp[obsTrapRows]), 
+                     mmu, SAMPR, USPEC, distall, obsYr, PERAREA = FALSE)
+    la <- la + 1e-9
+    pd  <- meanDev - 2*sum(dpois(seedCount, la, log  = TRUE))
+    DIC <- pd + meanDev
+    
+    RMSPE <- mean(sgibbs[kg,'rmspe'])
+    
+    logScoreStates <- logScoreStates/nprob
+    logScoreFull   <- logScoreFull/nprob
+    
+    fit <- list( DIC = round(DIC), scoreStates = mean(logScoreStates),
+                 predictScore = round( mean(logScoreFull) ), 
+                 RMSPE = signif(RMSPE,3),
+                 meanPredErrSd = signif(meanPredErrSd), 
+                 meanPredSd = signif(meanPredSd, 3),
+                 meanInflation = signif(mean(inflation), 3))#,TGstats  = TGstats)
+  }
+  if(CONES)fit$rmspeCrop <- rmspeCrop
   
   inputs$treeData   <- tdata
   inputs$seedData   <- sdata
   inputs$formulaFec <- formulaFec
   inputs$formulaRep <- formulaRep
-  inputs$upar       <- ug
+ 
   inputs$ng         <- ng
   inputs$burnin     <- burnin
   inputs$keepIter   <- keepIter
   inputs$plotDims   <- plotDims
   inputs$plotArea   <- plotArea
   inputs$specNames  <- specNames
-  inputs$seedNames  <- seedNames
-  inputs$priorR     <- priorR
-  inputs$priorRwt   <- inputs$priorRwt
+ 
   inputs$xytree     <- xytree
   inputs$xytrap     <- xytrap
   inputs$yrIndex    <- yrIndex
-  inputs$obsRowSeed <- obsRowSeed
   inputs$obsRows    <- obsRows
-  inputs$obsTrapRows <- obsTrapRows
+
   inputs$maxFec     <- maxFec
   inputs$summary    <- words
   inputs$priorTable <- priorTable
-  inputs$seedByPlot <- seedTable
+ 
   inputs$matYr      <- matYr 
   inputs$last0first1 <- last0first1
   if(SEEDCENSOR)inputs$censIndex <- censIndex
+
   if(!is.null(plotDims))inputs$plotDims <- plotDims
   if(!is.null(seedTraits))inputs$seedTraits <- seedTraits
   if(!is.null(yearEffect) & !'yearEffect' %in% names(inputs))
@@ -8441,31 +9408,32 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
 
   chains <- list(bfec = .orderChain(bfgibbs, specNames), 
                  brep = .orderChain(brgibbs, specNames), 
-                 ugibbs = ugibbs, sgibbs = sgibbs)
+                 sgibbs = sgibbs)
   parameters <- list( betaFec = betaFec,  
+                      betaStd = betaStd,
                       betaRep = betaRep,
-                      sigma = su, acfMat = acfMat, 
-                      upars = upars, dpars = dpars,
+                      sigma = su, acfMat = acfMat,
                       pacfMat = pacfMat,
-                      pacfSe = pacfSe, pacsMat = pacsMat, omegaE = omegaE,
-                      omegaN = omegaN)
+                      pacfSe = pacfSe, omegaE = omegaE,
+                      omegaN = omegaN,
+                      trendEst = trendEst)
   
   if(SAMPR){
     chains <- append(chains, list(rgibbs = rgibbs))
     parameters <- append(parameters, list(rMu = signif(mmu,3), 
                                           rSe = signif(mse,3)))
+    inputs$priorR     <- priorR
   }
   fecPred$obs <- tdata$obs
-  prediction  <-  list( fecPred = fecPred, seedPred = seedPred)
-  if(USPEC)chains <- append(chains, list(priorUgibbs = priorUgibbs))
+  prediction  <-  list( fecPred = fecPred )
+
   if(YR){
     chains <- append(chains, list(sygibbs = sygibbs))
   }
   if(AR){
     parameters <- append(parameters, 
                          list(eigenMu = eigenMu, eigenSe = eigenSe))
-    prediction <- append(prediction, 
-                         list(tdataOut = tdataOut, sdataOut = sdataOut))
+    prediction <- append(prediction, list(tdataOut = tdataOut))
   }
   
   if(AR | YR){
@@ -8480,11 +9448,26 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
                                    list(betaYrRand = signif(betaYrRand,3),
                                         betaYrRandSE = signif(betaYrRandSE,3)))
   }
-  if(PREDSEED) {
-    prediction <- append(prediction, 
-                         list(seedPredGrid = seedPredGrid,
-                              treePredGrid = treePredGrid) )
-    if(!'predList' %in% names(inputs))inputs <- append(inputs, list(predList = predList))
+  if(SEEDDATA){
+    inputs$upar       <- ug
+    inputs$obsRowSeed <- obsRowSeed
+    inputs$obsTrapRows <- obsTrapRows
+    inputs$seedByPlot <- seedTable
+    inputs$seedNames  <- seedNames
+    
+    parameters$upars <- upars
+    parameters$dpars <- dpars
+    parameters$pacsMat <- pacsMat
+    chains$ugibbs <- ugibbs
+    prediction <- append(prediction, list(seedPred = seedPred, sdataOut = sdataOut))
+    if(USPEC)chains <- append(chains, list(priorUgibbs = priorUgibbs))
+    
+    if(PREDSEED) {
+      prediction <- append(prediction, 
+                           list(seedPredGrid = seedPredGrid,
+                                treePredGrid = treePredGrid) )
+      if(!'predList' %in% names(inputs))inputs <- append(inputs, list(predList = predList))
+    }
   }
   if(RANDOM){
     inputs$randomEffect <- randomEffect
@@ -8507,14 +9490,17 @@ mastif <- function(inputs, formulaFec=NULL, formulaRep=NULL,
                          tdata$year[tdata$obsTrap == 1])
   parameters <- parameters[ sort( names(parameters) )]
   
-  out <- list(inputs = inputs, chains = chains, data = data, fit = fit, 
+  out <- list(inputs = inputs, chains = chains, data = data, 
               parameters = parameters, prediction = prediction )
+  if(length(fit) > 0)out$fit <- fit
   
   class(out) <- 'mastif'
   out
 } 
       
 .chain2tab <- function(chain){
+  
+  if(!is.matrix(chain))chain <- matrix(chain, ncol=1)
   
   mu <- colMeans(chain)    #standardized
   
@@ -9632,13 +10618,16 @@ pacf <- function(xacf){
   invisible( c(px,py) )
 }
 
-checkPlotDims <- function(plots, years, xytree, xytrap, plotDims, plotArea, verbose = FALSE){
+checkPlotDims <- function(plots, years, xytree = NULL, xytrap = NULL, 
+                          plotDims, plotArea, verbose = FALSE){
   
   if(is.null(plotDims)){
     plotDims <- getPlotDims(xytree, xytrap)
   }else{
     rownames(plotDims) <- .fixNames(rownames(plotDims), all  = TRUE)$fixed
-    if(ncol(plotDims) != 5)stop('plotDim must have 5 columns: xmin, xmax, ymin, ymax, area')
+    if(ncol(plotDims) != 5)
+      stop('\nplotDim must have 5 columns: xmin, xmax, ymin, ymax, area\n')
+    
     wc <- which(!plots %in% rownames(plotDims))
     if(length(wc) > 0){
       xx <- paste('\nNote',plots[wc],' missing from plotDims\n ')
@@ -9713,7 +10702,7 @@ mastMap <- function(mapList){
   wk <- which(!minPars %in% names(mapList))
   if(length(wk) > 0){
     mp <- paste0(minPars[wk], collapse=', ')
-    stop('missing from mapList: ',mp)
+    stop('\nmissing from mapList: ',mp)
   }
   minPars <- c(minPars, 'treeSymbol')
   for(k in 1:length(minPars)){
@@ -9724,8 +10713,8 @@ mastMap <- function(mapList){
   treeData <- treeData[as.character(treeData$species) %in% specNames,]
   
   
-  tdata <- treeData
-  sdata <- seedData
+  tdat <- treeData
+  sdat <- seedData
 
   rm(treeData)
   rm(seedData)
@@ -9743,25 +10732,25 @@ mastMap <- function(mapList){
   
   
   mapPlot     <- .fixNames(mapPlot, all  = TRUE)$fixed
-  tdata$plot  <- .fixNames(tdata$plot, all  = TRUE)$fixed
-  sdata$plot  <- .fixNames(sdata$plot, all  = TRUE)$fixed
+  tdat$plot  <- .fixNames(tdat$plot, all  = TRUE)$fixed
+  sdat$plot  <- .fixNames(sdat$plot, all  = TRUE)$fixed
   xytree$plot <- .fixNames(xytree$plot, all  = TRUE)$fixed
   xytrap$plot <- .fixNames(xytrap$plot, all  = TRUE)$fixed
   
   if(length(specNames) == 1)LEGEND <- FALSE
   
   xytrap$trapID <- columnPaste(xytrap$plot,xytrap$trap)
-  sdata$trapID <- columnPaste(sdata$plot,sdata$trap)
+  sdat$trapID <- columnPaste(sdat$plot,sdat$trap)
   xytree$treeID <- columnPaste(xytree$plot,xytree$tree)
-  tdata$treeID <- columnPaste(tdata$plot,tdata$tree)
+  tdat$treeID <- columnPaste(tdat$plot,tdat$tree)
   
   
   mapTreeYr <- mapYears
   
-  wp <- which(tdata$plot == mapPlot)
-  if(length(wp) == 0 & MAPTREES)stop('no trees on this plot')
+  wp <- which(tdat$plot == mapPlot)
+  if(length(wp) == 0 & MAPTREES)stop('\nno trees on this plot\n')
   
-  censYr <- table(tdata$plot,tdata$year)[drop = FALSE,mapPlot,]
+  censYr <- table(tdat$plot,tdat$year)[drop = FALSE,mapPlot,]
   cmiss  <- which(censYr[as.character(mapYears)] == 0)
   cmiss  <- as.numeric(names(cmiss))
   cmiss  <- sort(c(cmiss, mapYears[!mapYears %in% names(censYr)]))
@@ -9778,9 +10767,9 @@ mastMap <- function(mapList){
     mpp <- paste0(mapTreeYr, collapse=', ')
   }
   
-  wtdata <- which(tdata$year %in% mapTreeYr & 
-                  as.character(tdata$plot) %in% mapPlot)
-  tree <- tdata[wtdata,]
+  wtdata <- which(tdat$year %in% mapTreeYr & 
+                  as.character(tdat$plot) %in% mapPlot)
+  tree <- tdat[wtdata,]
   
   wt <- match(as.character(tree$treeID),
               as.character(xytree$treeID) )
@@ -9794,9 +10783,9 @@ mastMap <- function(mapList){
     treeSymbol <- treeSymbol[wtdata]
   }
   
-  wsdata <- which(sdata$year %in% mapYears & 
-                    as.character(sdata$plot) %in% mapPlot)
-  seed <- sdata[wsdata,]
+  wsdata <- which(sdat$year %in% mapYears & 
+                    as.character(sdat$plot) %in% mapPlot)
+  seed <- sdat[wsdata,]
   ws   <- match(as.character(seed$trapID),
               as.character(xytrap$trapID) )
   seed$x <- xytrap$x[ws]
@@ -10334,7 +11323,7 @@ values2grid <- function(x, y, z, nx=NULL, ny=NULL, dx=NULL, dy=NULL,
 }
 
 .updateAlphaRand <- function(ntree, yA, xfecA, sg, reIndexA, reGroups,
-                             Arand, priorVA, dfA, minmax = 4){
+                             Arand, priorVA, dfA, specNames, minmax = 3){
   
   # any individual that is mature only one year cannot have random effects
   
@@ -10347,21 +11336,26 @@ values2grid <- function(x, y, z, nx=NULL, ny=NULL, dx=NULL, dy=NULL,
                               xfecA, yA, sg, solve(Arand))
   alphaRand[alphaRand < -minmax] <- -minmax
   alphaRand[alphaRand > minmax]  <- minmax
-
   
   if(ONEA){
-    alphaRand <- alphaRand - mean(alphaRand)
+    mrand     <- mean(alphaRand)
+    names(mrand) <- specNames
+    mrand[ !is.finite(mrand) ] <- 0
+    alphaRand <- alphaRand - mrand
     arand[reGroups,] <- alphaRand
     Arand <- matrix(1/rgamma(1,1 + length(reGroups)/2, 1 + 1/2*sum(alphaRand^2)),1)
   }else{
-    mrand <- colMeans(alphaRand)
+    mrand <- colSums(alphaRand)/colSums(xfecA)
+    mrand[ !is.finite(mrand) ] <- 0
     alphaRand <- alphaRand - matrix(mrand, nrow(alphaRand), ncol(alphaRand), byrow  = TRUE)
     arand[reGroups,] <- alphaRand
     AA    <- crossprod(alphaRand)
     Arand <- .updateCovariance(AA, priorVA, length(reGroups), dfA)
   }
+  arand[arand < -minmax] <- -minmax
+  arand[arand > minmax]  <- minmax
   
-  list(alphaRand = arand, Arand = Arand)
+  list(alphaRand = arand, Arand = Arand, meanRand = mrand)
 }
 
 .rwish <- function(df,SS){
@@ -10411,6 +11405,8 @@ print.mastif <- function(x, ...){
 
 summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){ 
   
+  SEEDDATA <- TRUE
+  
   betaFec   <- object$parameters$betaFec
   betaRep   <- object$parameters$betaRep
   priorTable <- object$inputs$priorTable
@@ -10424,14 +11420,19 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
   nplot     <- length(plots)
   words     <- character(0)
   
+
+  
+  if(is.null(sdata))SEEDDATA <- FALSE
+  
   if(latex)verbose <- FALSE
   
   out <- list()
 
   AR <- YR <- RANDOM <- SAMPR <- FALSE
   
-  RMSPE <- object$fit$RMSPE
-  DIC   <- object$fit$DIC
+  trapRMSPE <- object$fit$RMSPE
+  trapDIC   <- object$fit$DIC
+  cropRMSPE <- object$fit$rmspeCrop
   
   if("arList" %in% names(object$data)){
     AR <- TRUE
@@ -10492,41 +11493,39 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
   trees <- table(tdata$species[wd],tdata$plot[wd])[,plots,drop = FALSE]
   rownames(trees) <- paste('trees',rownames(trees), sep='_')
   
-  wd <- which(!duplicated(sdata$trapID))
-  traps <- table(sdata$plot[wd])[plots]
-  ntr   <- names(traps)
-  traps <- matrix(traps,1)
-  colnames(traps) <- ntr
-  rownames(traps) <- 'traps'
-  
   treeYears <- table(tdata$species,tdata$plot)[,plots,drop = FALSE]
   rownames(treeYears) <- paste('tree-yrs',rownames(treeYears), sep='_')
-  trapYears <- table(sdata$plot)[plots]
-  dataTab <- rbind(trees,treeYears,traps,trapYears)
-  rownames(dataTab)[nrow(dataTab)] <- 'trap-yrs'
+  dataTab <- rbind(trees,treeYears)
   
-  
-  ####################################
-  
-  totalSeed <- buildSeedByPlot(sdata, seedNames)
-  censSeed  <- buildSeedByPlot(sdata, paste(seedNames,'_min',sep=''))
-  
-  
-  ww <- which(!colnames(dataTab) %in% colnames(totalSeed))
-  if(length(ww) > 0){
-    mm <- matrix(NA, nrow(totalSeed),ncol=length(ww))
-    colnames(mm) <- colnames(dataTab)[ww]
-    totalSeed <- cbind(totalSeed, mm)
-  }
-  
-  total <- totalSeed[,colnames(dataTab),drop = FALSE]
-  
-  dataTab <- rbind(dataTab,total)
-  
-  
-  if(nplot > 1){
-    total   <- rowSums(dataTab)
-    dataTab <- cbind(dataTab,total)
+  if(SEEDDATA){
+    wd <- which(!duplicated(sdata$trapID))
+    traps <- table(sdata$plot[wd])[plots]
+    ntr   <- names(traps)
+    traps <- matrix(traps,1)
+    colnames(traps) <- ntr
+    rownames(traps) <- 'traps'
+    
+    trapYears <- table(sdata$plot)[plots]
+    dataTab <- rbind(dataTab,traps,trapYears)
+    rownames(dataTab)[nrow(dataTab)] <- 'trap-yrs'
+    
+    totalSeed <- buildSeedByPlot(sdata, seedNames)
+    censSeed  <- buildSeedByPlot(sdata, paste(seedNames,'_min',sep=''))
+    
+    ww <- which(!colnames(dataTab) %in% colnames(totalSeed))
+    if(length(ww) > 0){
+      mm <- matrix(NA, nrow(totalSeed),ncol=length(ww))
+      colnames(mm) <- colnames(dataTab)[ww]
+      totalSeed <- cbind(totalSeed, mm)
+    }
+    
+    total   <- totalSeed[,colnames(dataTab),drop = FALSE]
+    dataTab <- rbind(dataTab,total)
+    
+    if(nplot > 1){
+      total   <- rowSums(dataTab)
+      dataTab <- cbind(dataTab,total)
+    }
   }
   
   rownames(betaFec) <- .replaceString(rownames(betaFec), 'species','')
@@ -10573,33 +11572,50 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
     attr(byrRand, 'caption') <- 'Year random effects for fecundity by random group'
     attr(byrRSE, 'caption')  <- 'Year standard error for fecundity by random group'
     
-    if(verbose){
-      cat("\nYear effects, random group means:\n")
-      print( byrRand )
-      cat("\nYear effects, standard deviation between groups:\n")
-      print( byrRSE )
+    if(sum(byrRand) != 0){
+      
+      if(verbose){
+        cat("\nYear effects, random group means:\n")
+        print( byrRand )
+        cat("\nYear effects, standard deviation between groups:\n")
+        print( byrRSE )
+      }
+      
+      out$betaYrRand   <- byrRand
+      out$betaYrRandSE <- byrRSE
     }
-    
-    out$betaYrRand   <- byrRand
-    out$betaYrRandSE <- byrRSE
   }
+  
+  if( !is.matrix(object$parameters$pacfMat) )object$parameters$pacfMat <- 
+    t( as.matrix( object$parameters$pacfMat ) )
+ # if( !is.matrix(object$parameters$pacsMat) )object$parameters$pacsMat <- 
+ #   t( as.matrix( object$parameters$pacsMat ) )
+  if( !is.matrix(object$parameters$pacfSe) )object$parameters$pacfSe <- 
+    t( as.matrix( object$parameters$pacfSe ) )
   
   pacfmu <- signif( object$parameters$pacfMat[,-1,drop = FALSE], 4 )
   pacfse <- signif( object$parameters$pacfSe[,-1,drop = FALSE], 4 )
-  pacfss <- signif( object$parameters$pacsMat[-1,drop = FALSE], 4 )
   
   if(ncol(pacfmu) > 8)pacfmu <- pacfmu[,1:8]
   if(ncol(pacfse) > 8)pacfse <- pacfse[,1:8]
-  if(length(pacfss) > 8)pacfss <- pacfss[1:8]
-
+  
   attr(pacfmu, 'caption') <- 'Partial autocorrelation in fecundity (log scale)'
   attr(pacfse, 'caption') <- 'Partial autocorrelation standard error in fecundity'
-  attr(pacfss, 'caption') <- 'Partial autocorrelation in seed rain, all plots'
-  
+ 
   out$pacfmu <- pacfmu
   out$pacfse <- pacfse
-  out$pacfss <- pacfss
-
+  
+  
+  if(SEEDDATA){
+    pmat <- object$parameters$pacsMat
+    if(!is.null(pmat)){
+      pacfss <- signif( pmat[-1,drop = FALSE], 4 )
+      if(length(pacfss) > 8)pacfss <- pacfss[1:8]
+      attr(pacfss, 'caption') <- 'Partial autocorrelation in seed rain, all plots'
+      out$pacfss <- pacfss
+    }
+  }
+  
   
   if('aMu' %in% names(object$parameters)){
     RANDOM <- TRUE
@@ -10644,6 +11660,7 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
   }
   
   sigma <- object$parameters$sigma
+  if(!SEEDDATA)sigma <- sigma[drop=FALSE,'sigma',]
   
   if(verbose){
     cat("\nSigma, RMSPE:\n")
@@ -10652,21 +11669,22 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
   attr(sigma, 'caption') <- 'Sigma^2, RMSPE, and deviance'
   out$sigma <- signif(sigma, 3)
   
-  utab <- object$parameters$upars
- 
-  upars <- utab[grep('u',rownames(utab)),]
-  pu    <- rownames(utab)
-  rownames(utab) <- NULL
-  utab  <- data.frame(parameter = pu, utab)
-  
-  rownames(utab) <- NULL
-  
-  if(verbose){
-    cat("\nKernel estimates:\n")
-    print(utab)
+  if(SEEDDATA){
+    utab <- object$parameters$upars
+    
+    upars <- utab[grep('u',rownames(utab)),]
+    pu    <- rownames(utab)
+    rownames(utab) <- NULL
+    utab  <- data.frame(parameter = pu, utab)
+    
+    rownames(utab) <- NULL
+    
+    if(verbose){
+      cat("\nKernel estimates:\n")
+      print(utab)
+    }
+    attr(utab, 'caption') <- 'Kernel estimates, parameter u in 2Dt kernel and kernel mean d'
   }
-  attr(utab, 'caption') <- 'Kernel estimates, parameter u in 2Dt kernel and kernel mean d'
-
   
   if(AR){
     out$eigenMu <- signif(object$parameters$eigenMu, 3)
@@ -10676,23 +11694,34 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
   }
   
   ty <- dataTab[grep('tree-yrs',rownames(dataTab)),]
-# sy <- dataTab[grep('trap-yrs',rownames(dataTab)),]
   
   ntreeYr  <- sum(ty)
-  ntrapYr  <- sum(dataTab['trap-yrs',])
   years    <- object$data$setupData$years
-  ntree    <- ncol(object$data$setupData$distall)
-  ntrap    <- nrow(object$data$setupData$distall)
+  ntree    <- nrow( object$data$setupData$zmat )
   plots    <- object$data$setupData$plots
   nplot    <- length(plots)
   nyr      <- length(years)
   
-  words <- paste("The sample contains ", ntreeYr, " tree-years and ",
-                 ntrapYr, " trap-years on ", ntree, " individuals and ", 
-                 ntrap, " seed traps.  There are ", nplot, " plots over ", nyr, 
-                 " years. The RMSPE is ",
+  words <- paste("The sample contains ", ntreeYr, " tree-years on ", ntree, 
+                 " individuals. There are ", nplot, " plots sampled over ", nyr, 
+                 " years. ", sep="")
+  if(SEEDDATA){
+    ntrapYr  <- sum(dataTab['trap-yrs',])
+    ntrap    <- nrow(object$data$setupData$distall)
+    words <- paste(words, 'There are ', ntrapYr, ' trap-years on', ntrap, 
+                 ', seed traps. The RMSPE is ',
                  signif(object$fit$RMSPE,3),
-                 ", and the DIC is ",round(object$fit$DIC),". ", sep="")
+                 ", and the DIC is ",round(object$fit$DIC),". ",
+                   sep='')
+  }
+  if('rmspeCrop' %in% names(object$fit)){
+    ww <- which(is.finite(object$inputs$treeData$cropCount))
+    ctab <- table(object$inputs$treeData$species[ww])
+    cnames <- paste0( names(ctab), collapse=', ')
+    ctot   <- sum(ctab)
+    words <- paste(words, 'There are ',ctot,' cropCounts on ',cnames,'. ',
+                   sep='')
+  }
   
   if('trueValues' %in% names(object$inputs)){
     words <- paste('The data are generated by mastSim. ', words, sep='')
@@ -10716,6 +11745,7 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
     ww <- .replaceString(ww, '. .','. ')
     ww <- .replaceString(ww, ':.',': ')
     words <- paste( words, ww, sep='. ')
+    words <- .replaceString( words, '. .', '.')
   }
   
   if(RANDOM){
@@ -10730,8 +11760,16 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
     cat("\n",words)
   }
   
-  fit <- cbind(round(object$fit$DIC), object$fit$RMSPE)
-  colnames(fit) <- c('  DIC','  RMSPE')
+  fit <- numeric(0)
+  if('rmspeCrop' %in% names(object$fit)){
+    fit <- matrix(object$fit$rmspeCrop, 1, 1)
+    colnames(fit) <- 'cropRMSPE'
+  }
+  if(SEEDDATA){
+    sfit <- cbind(round(object$fit$DIC), object$fit$RMSPE)
+    colnames(sfit) <- c('  DIC','  RMSPE')
+    fit <- cbind(fit,sfit)
+  }
   attr(fit, 'caption') <- 'Model fit'
   
   out$fit   <- fit
@@ -10761,9 +11799,9 @@ summary.mastif <- function(object, verbose  = TRUE, latex = FALSE, ...){
 mastSim <- function(sim){       # setup and simulate fecundity data
   
   if(!'seedNames' %in% names(sim))
-    stop('sim must include seedNames')
+    stop('\nsim must include seedNames\n')
   if(!'specNames' %in% names(sim))
-    stop('sim must include specNames')
+    stop('\nsim must include specNames\n')
   
   .dsim( sim ) 
 }
@@ -10771,7 +11809,9 @@ mastSim <- function(sim){       # setup and simulate fecundity data
 .dsim <- function(sim){
   
   nyr <- 5; ntree  <-  10; ntrap <- 20; plotWide  <-  100; nplot  <-  3
-  meanDist  <-  25; Q  <-  2
+  meanDist <- priorDist  <-  25; Q  <-  2
+  minDist <- 10
+  maxDist <- 40
   minDiam <- 10
   maxDiam <- 40
   yearEffect <- NULL
@@ -10792,7 +11832,11 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   if(length(seedNames) > 1)SAMPR <- TRUE
   nyr <- max(nyrPlot)
   
-  upar <- (2*meanDist/pi)^2
+  
+  upar <- priorU <- (2*meanDist/pi)^2
+  priorVU <- 10
+  minU <- (2*minDist/pi)^2
+  maxU <- (2*maxDist/pi)^2
   
   year <- plot <- tree <- trap <- yrsd <- plsd <- numeric(0)
   
@@ -10805,6 +11849,15 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     yrsd <- c( yrsd, rep(1:nyrPlot[j], ntrapPlot[j]) ) 
     plsd <- c( plsd, rep(j, (nyrPlot[j]*ntrapPlot[j]) ) )
   }
+  
+  priorTable <- setupPriors(specNames, nn = length(tree), 
+                            priorTable = NULL, priorList = NULL, 
+                            priorDist, priorVDist = 10, 
+                            maxDist, minDist,
+                            minDiam, maxDiam, sigmaMu = NULL, 
+                            maxF = maxFec, maxFec = maxFec,
+                            ug = upar, priorTauWt = NULL, priorVU, 
+                            ARSETUP = F, USPEC = F)$priorTable
   
   tree <- data.frame(plot = plotNames[plot], year = yearNames[year], tree = tree )
   tree$plot <- as.character(tree$plot)
@@ -10848,12 +11901,12 @@ mastSim <- function(sim){       # setup and simulate fecundity data
  
   xdata   <- data.frame( species = tree$species, xfec)
   
-  formulaFec <- as.formula( '~ diam'  )
-  formulaRep <- as.formula( '~ diam' )
+  formulaFec <- formula( ~ diam )
+  formulaRep <- formula( ~ diam )
   
   if(SPECS){
-    formulaFec <- as.formula( '~ species*diam'  ) 
-    formulaRep <- as.formula( ' ~ species*diam' )
+    formulaFec <- formula( ~ species*diam  ) 
+    formulaRep <- formula( ~ species*diam )
   }
   xfec    <- model.matrix(formulaFec, xdata)
   Qf      <- ncol(xfec)
@@ -10927,10 +11980,20 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   treeData$obs <- 1
   seedData$obs <- 1
   
-  tmp <- .setupData(formulaFec, formulaRep, treeData, seedData, 
-                    xytree, xytrap, specNames, seedNames, 
-                    AR = FALSE, YR = FALSE, yearEffect, minDiam, maxDiam, TREESONLY = FALSE, 
-                    maxFec=maxFec, CONES = FALSE)
+  plotTreeYr <- columnPaste(as.character(treeData$treeID), 
+                            as.character(tree$year), '_')
+  rownames(treeData) <- plotTreeYr
+  rownames(seedData) <- columnPaste(seedData$trapID, 
+                                    as.character(seedData$year), '_')
+  
+  tmp <- .setupData(formulaFec, formulaRep,  
+                    tdata = treeData, sdata = seedData, 
+                    xytree, xytrap, specNames, seedNames, AR = FALSE, YR = FALSE, 
+                    yearEffect, minDiam, maxDiam, TREESONLY = FALSE, 
+                    maxFec, CONES = FALSE,
+                    notFit = NULL, priorTable, 
+                    seedTraits = NULL, verbose = FALSE)
+  
   
   treeData  <- tmp$tdata
   seedData  <- tmp$sdata
@@ -10986,8 +12049,7 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     dmax <- c(dmax, wf[!wf %in% c(0,1)][1])
   }
   
-  plotTreeYr <- columnPaste(as.character(treeData$treeID), 
-                            as.character(tree$year), '_')
+  
   
    dcols <- grep('diam',colnames(xfec))
    dd    <- rowSums(xfec[,dcols, drop = FALSE])
@@ -11006,11 +12068,12 @@ mastSim <- function(sim){       # setup and simulate fecundity data
    zmat  <- tmp$zmat
    matYr <- tmp$matYr
    z <- zmat[tyindex]
+
    
    species <- as.factor(treeData$species)
    
-   form <- as.formula(z ~ treeData$diam)
-   if(nspec > 1) form <- as.formula( z ~ species*treeData$diam)
+   form <- formula( z ~ treeData$diam) 
+   if(nspec > 1) form <- formula( z ~ species*treeData$diam)
    
    br <- suppressWarnings(
      glm(form, family=binomial("probit") )$coefficients
@@ -11039,15 +12102,15 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   ztrue <- z
   q <- which(ztrue == 1)
   
-   hi  <- 0*fec + 2*log(maxFec)
-   lo <- -hi/3
-   hi[z == 0] <- 0
-   lo[z ==1] <- 0
-   
-   for(j in 1:10){
-     fec <- .tnorm(nrow(xfec), lo, hi, xfec%*%betaFec, .01)
-     betaFec <- solve( crossprod(xfec) )%*%crossprod(xfec,fec)
-   }
+  hi  <- 0*fec + log(maxFec)
+  lo <- -hi/3
+  hi[z == 0] <- 0
+  lo[z ==1] <- 0
+  
+  for(j in 1:10){
+    fec <- .tnorm(nrow(xfec), lo, hi, xfec%*%betaFec, .01)
+    betaFec <- solve( crossprod(xfec) )%*%crossprod(xfec,fec)
+  }
   
  
   zmat[ sample(n,n/20) ] <- NA
@@ -11081,6 +12144,10 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     }
     R[,wun] <- 2
     R <- sweep(R, 1, rowSums(R), '/')
+  }else{
+    sr <- columnSplit(rr, '-')[,1]
+    ir <- match(sr, seedNames)
+    R[ cbind(1:length(rr), ir) ] <- 1
   }
   tmp <- columnSplit(rownames(R),'-')
   attr(R, 'species') <- tmp[,1]
@@ -11090,10 +12157,14 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   
   obsRows <- which(treeData$fit == 1)
   
-  lambda <- .getLambda(treeData[obsRows,c('specPlot','year','dcol')], 
-                       seedData[,c('year','drow')], 
-                       seedData$area, upar, fec[obsRows]*z[obsRows], R,
-                       SAMPR, USPEC, distall, years, PERAREA = FALSE) 
+  
+  lambda <- .getLambda(tdat1 = treeData[obsRows,c('specPlot','year','plotyr','dcol')], 
+                       sdat1 = seedData[,c('year','plotyr','drow')], 
+                       AA = seedData$area, ug = upar, 
+                       fz = fec[obsRows]*z[obsRows], R,
+                       SAMPR, USPEC, 
+                       distance = distall, yrs = years, PERAREA = FALSE) 
+  rownames(lambda) <- rownames(seedData)
   lambda <- lambda + 1e-12
   ss     <- matrix(rpois(length(lambda),lambda),nrow(lambda), ncol(lambda))
   seedData[,seedNames] <-   ss
@@ -11111,22 +12182,26 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   
   form <- as.character( formulaFec )
   form <- .replaceString( form, 'species *', '')
-  formulaFec <- as.formula(form)
+  formulaFec <- as.formula( paste(form, collapse = ' ') )
   
   form <- as.character( formulaRep )
   form <- .replaceString( form, 'species *', '')
-  formulaRep <- as.formula(form)
+  formulaRep <- as.formula( paste(form, collapse = ' ') )
   
-  names(fec) <- names(ztrue) <- plotTreeYr
+  names(fec) <- names(ztrue) <- rownames(xfec)
   
   trueValues <- list(fec = fec, repr = ztrue, betaFecStnd = betaFec,
                      betaRepStnd = betaRep, betaFec = bfecSave, 
                      betaRep = brepSave,upar = upar, R = R)
   
+  rownames(treeData) <- columnPaste(treeData$treeID,treeData$year,'_')
+  rownames(seedData) <- columnPaste(seedData$trapID,seedData$year,'_')
+  
   treeData <- treeData[,c('plot','tree','year','species','diam','repr','repMu')]
   seedData <- seedData[,c('plot','trap','year','area','active',seedNames)]
   xytree   <- xytree[,c('plot','tree','x','y')]
   xytrap   <- xytrap[,c('plot','trap','x','y')]
+  
   
   out <- list(trueValues = trueValues, treeData = treeData, seedData = seedData, 
        distall = distall, xytree = xytree, xytrap = xytrap, formulaFec = formulaFec,
@@ -11138,21 +12213,25 @@ mastSim <- function(sim){       # setup and simulate fecundity data
 }
       
 .seedFormat <- function(sfile, lfile, trapFile = NULL, seedNames = NULL, 
-                        genusName = NULL, omitNames = NULL, plot,
+                        specNames, genusName = NULL, omitNames = NULL, plot,
                         newplot = plot, trapID = 'trap', monthYr = 7, active = 1,
                         area = .5, verbose = FALSE ) {
   
+  # always include specNames due to ambiguous substr(genusName, 1, 4)
+  
   if(is.null(newplot))newplot <- plot
   
-  scols      <- c('site','plot','trap','trapID','trapnum','X','Y','month','day','year',
+  scols      <- c('site','plot','trap','trapID','trapnum','X','Y',
+                  'month','day','year',
                   'UTMx','UTMy')
   
   hcols <- c('plot','trap','basket','month','day','year',
-             'site','trapID','trapNum','X','Y','UTMx','UTMy')
+             'site','trapID','trapNum','trapName','X','Y','UTMx','UTMy')
   
   midCD <- c( 273890.6, 3938623.3 )  #plot center for (x,y) at GSNP_CD
   
   loc  <- read.csv(lfile, stringsAsFactors = F)
+  
   loc  <- loc[loc$plot == plot,]
     xy <- loc[,c('UTMx','UTMy')]
     xy <- round(sweep(xy,2,colMeans(xy),'-'),1)
@@ -11184,7 +12263,6 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   counts <- read.csv(sfile, stringsAsFactors = F)
   counts <- counts[counts$plot == plot,]
   
-  
   if('area' %in% colnames(counts))area <- counts$area[1]
     
   
@@ -11193,21 +12271,26 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     counts[counts[,'month'] < monthYr,'year'] - 1
   
   #all NA
-  dmat <- as.matrix( counts[,!colnames(counts) %in% hcols] )
+  
+  mcols <- c(hcols, 'Notes','notes')
+  dmat <- as.matrix( counts[,!colnames(counts) %in% mcols] )
   dmat[is.finite(dmat)] <- 1
   miss <- which(rowSums(dmat, na.rm  = TRUE) == 0)
   
-  if(is.null(genusName)){
-    if(!is.null(seedNames)){
-      sj <- counts[,colnames(counts) %in% seedNames, drop = FALSE]
-    }else{
-      sj <- counts[,!colnames(counts) %in% scols, drop = FALSE]
-    }
-    seedNames <- colnames(sj)
-  }else{
-    sj <- counts[,grep(genusName, colnames(counts)), drop = FALSE]
-    seedNames <- colnames(sj)
+  gee <- gregexpr("[A-Z]", specNames[1])[[1]][1] - 1
+  
+  specNames <- c( specNames, paste( substr(specNames[1], 1, gee), 'UNKN', sep='') )  
+  seedNames <- sort(unique(c(seedNames, specNames)))
+  
+  
+  sj <- numeric(0)
+  for(k in 1:length(specNames)){
+    sj <- cbind( sj, as.matrix( counts[,grep(specNames[k], 
+                                             colnames(counts)), drop = FALSE]) )
   }
+  seedNames <- colnames(sj)
+  # }
+  
   if(!is.null(omitNames)){
     sj <- sj[,!colnames(sj) %in% omitNames, drop = FALSE]
     seedNames <- colnames(sj)
@@ -11215,8 +12298,9 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   
   if(length(sj) == 0){
     sj <- matrix(0,nrow(counts),1)
-    seedNames <- colnames(sj) <- paste(genusName,'UNKN',sep='')
+    seedNames <- colnames(sj) <- paste( substr(genusName, 1, 4) ,'UNKN',sep='')
   }
+  
   
   yr <- sort(unique(counts[,'year']))
   tn <- sort(unique(counts[,trapID]))
@@ -11241,7 +12325,7 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     ik <- tn[ii[wk]]
     jk <- jj[wk]
     ky <- tapply(ck, list(trap = ik, year = jk), sum, na.rm  = TRUE)
-    colnames(ky) <- yr
+    colnames(ky) <- yr[ as.numeric(colnames(ky)) ]
     smat[rownames(ky), colnames(ky)] <- ky
     ky <- smat
     
@@ -11252,9 +12336,9 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     nk[wk] <- 1
     ik <- tn[ii]
     jk <- jj
-    ny <- tapply(ck, list(ik, jk), sum, na.rm  = TRUE)       #active intervals
+    ny <- tapply(ck, list(ik, jk), sum, na.rm  = TRUE) #active intervals
     my <- tapply(nk, list(ik, jk), sum, na.rm  = TRUE) #total intervals
-    colnames(ny) <-  colnames(my) <- yr
+    colnames(ny) <-  colnames(my) <- yr[ as.numeric(colnames(ny)) ]
     smat[rownames(ny), colnames(ny)] <- ny
     tmat[rownames(my), colnames(my)] <- my
     
@@ -11316,9 +12400,25 @@ mastSim <- function(sim){       # setup and simulate fecundity data
        seedNames = seedNames )
 }
 
+multiStemBA <- function(diam){
+  
+  # effective diameter for BA matching diam for multiple stems
+  # can be a single vector for one tree or a matrix, with each row being a different tree
+  
+  if(is.data.frame(diam)){
+    diam <- as.matrix(diam)
+  }
+  if(is.matrix(diam)){
+    return( round( sqrt(apply( diam^2, 1, sum, na.rm=T )), 1) )
+  }
+  
+  round( sqrt( sum(diam^2, na.rm=T) ), 1 )
+}
+
 .treeFormat <- function( tfile, specNames = NULL, genusName = NULL, 
                          changeNames = NULL, plot,  
-                         years, yrCols, MUSTHAVE = FALSE, keepCols = NULL, verbose = FALSE){
+                         years = NULL, yrCols, MUSTHAVE = FALSE, keepCols = NULL, 
+                         verbose = FALSE){
   
   # if MUSTHAVE, tree rejected if any yrCols are missing
   
@@ -11326,13 +12426,21 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     
   midCD <- c( 273890.6, 3938623.3 )  #plot center for (x,y) at GSNP_CD
   
-  region <- unlist(strsplit(plot,'_'))[1]
+  site <- unlist(strsplit(plot,'_'))[1]
   
   CSV <- endsWith(tfile,'.csv')
   if(CSV){
     trees <- read.csv(tfile, stringsAsFactors = FALSE)
   }else{
     trees  <- read.table( tfile, header  = TRUE, stringsAsFactors = FALSE)
+  }
+  
+  wd <- grep('diam', colnames(trees))
+  
+  kk <- which( sapply(trees[,wd], is.character) )
+  
+  if(length(kk) > 0){
+    stop( paste('character in column',names(kk)) )
   }
   
   
@@ -11351,6 +12459,9 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   }
 
   trees$ID   <- as.character(trees$tree)
+  
+  if('UTMX' %in% colnames(trees))colnames(trees)[colnames(trees) == 'UTMX'] <- 'UTMx'
+  if('UTMY' %in% colnames(trees))colnames(trees)[colnames(trees) == 'UTMY'] <- 'UTMy'
   
   if(!'UTMx' %in% colnames(trees))trees$UTMx <- trees$x
   if(!'UTMy' %in% colnames(trees))trees$UTMy <- trees$y
@@ -11381,6 +12492,11 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   if(length(wj) == 0)return( list(yrDat = numeric(0)) )
   
   trees  <- trees[drop = FALSE,wj,]
+  
+  mcol <- grep('diam', colnames(trees))
+  dmm  <- suppressWarnings( max(trees[,mcol], na.rm=T) )
+  if(dmm < 0)return( list(yrDat = numeric(0)) )
+  
   wchange <- which( as.character(trees$species) %in% changeNames[,1])
   if(length(wchange) > 0){
     ts <- as.character(trees$species)
@@ -11412,21 +12528,20 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   
   if(length(dup) > 0){
     
-    omit <- numeric(0)
-    
     for(j in dup){
       
       idup <- which(ID == ID[j])
-      tj   <- apply(trees[idup,diamCol], 1, max, na.rm  = TRUE)
-      tj   <- which.max(tj)
-      omit <- c(omit, idup[-tj])
+      
+      ID[idup] <- paste(ID[idup], letters[1:length(idup)], sep='')
+      trees$tree[idup] <- ID[idup]
     }
-    omit <- unique(omit)
-    trees <- trees[-omit,]
+    trees$ID <- ID
   }
   
-  if('serotinous' %in% colnames(trees)){
-    trees$serotinous <- as.character(trees$serotinous)
+  ser <- grep( 'serotinous', colnames(trees) )
+  if( length(ser) > 0 ){
+    trees[,ser] <- lapply( trees[,ser], as.character )
+    
     ww <- which(!trees$serotinous %in% c('B','NS','S',NA))
     if(length(ww) > 0 & verbose){
       print('serotinous includes:')
@@ -11449,9 +12564,12 @@ mastSim <- function(sim){       # setup and simulate fecundity data
       trees$deathyr <- NA
     }
     if(!'censoryr' %in% colnames(trees)){
-      trees$censoryr <- max(dataYr)
+      trees$censoryr <- max(dataYr) + 1
     }
   }
+  
+  
+  colnames(trees) <- .replaceString(colnames(trees), 'cropFractionSD', 'cropFractionSd')
   
   wk <- grep('cropCount',colnames(trees))
   if(length(wk) > 0)yrCols <- c(yrCols, 'cropCount')
@@ -11465,6 +12583,7 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   yrange <- numeric(0)
   
   for(k in 1:length(yrCols)){
+    
     wk <- which( startsWith(colnames(trees), yrCols[k]) )
     
     if(length(wk) == 0)next
@@ -11533,6 +12652,17 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   colnames(yrDat) <- yrCols
   
   
+  if( !'censinyr' %in% colnames(trees) ){
+    trees$censinyr <- min(years,na.rm  = TRUE)
+  }
+  if( !'censoryr' %in% colnames(trees) ){
+    trees$censoryr <- NA
+  }
+  if( !'deathyr' %in% colnames(trees) ){
+    trees$deathyr <- NA
+  }
+  
+  
   elev <- NA
   if('elev' %in% colnames(trees))elev <- trees[,'elev']
   
@@ -11542,6 +12672,8 @@ mastSim <- function(sim){       # setup and simulate fecundity data
                    collapse='-')
   xytree <- data.frame(treeID = id, plot = newplot, tree = trees$ID, xytree)
   xytree$elev <- elev
+  
+  yrCols <- yrCols[yrCols != 'sex']
 
   fcols <- grep('crop',yrCols)
   
@@ -11554,7 +12686,7 @@ mastSim <- function(sim){       # setup and simulate fecundity data
       next
     }
     
-    if(yrCols[k] == 'cropFraction' & length(grep('Sd', colnames(tk))) > 0){
+    if( yrCols[k] == 'cropFraction' & length( grep('Sd', colnames(tk)) ) > 0 ){
       sdcol <- grep('Sd', colnames(tk))
       tk    <- tk[,-sdcol,drop = FALSE]
     }
@@ -11563,22 +12695,13 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     rownames(dmat) <- rownames(tk)
     colnames(dmat) <- years
     
-    kk <- matrix( unlist(strsplit(colnames(tk),yrCols[k])), ncol=2,byrow  = TRUE)[,2]
+    kk <- matrix( unlist(strsplit(colnames(tk), yrCols[k])), ncol=2, byrow  = TRUE)[,2]
                        
     yk <- as.numeric(kk)
     if(min(yk) < min(years) | max(yk) > max(years))
-      stop('years do not span diam years')
+      stop('\nyears do not span diam years\n')
     yseq <- min(yk):max(yk)
     
-    if(!'censinyr' %in% colnames(trees)){
-      trees$censinyr <- min(years,na.rm  = TRUE)
-    }
-    if(!'censoryr' %in% colnames(trees)){
-      trees$censoryr <- NA
-    }
-    if(!'deathyr' %in% colnames(trees)){
-      trees$deathyr <- NA
-    }
       
     syr  <- trees[,'censinyr']                             # left censored
     imat <- matrix(years, nrow(trees), length(years), byrow  = TRUE) 
@@ -11610,23 +12733,29 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     
     wf <- which(is.finite(start) & is.finite(end) & end > start)
     
-    if(!k %in% fcols){
+    if( !k %in% fcols ){
       
       if(length(wf) > 0){
         minVal <- 0
         maxVal <- 400
+        rr     <- 1
+        tinySlope <- .0001
         if(yrCols[k] == 'canopy'){
-          minVal <- 0
-          maxVal <- 2
+          minVal <- suppressWarnings( apply( dmat[drop = FALSE,wf,], 1, min, na.rm = T) )
+          maxVal <- suppressWarnings( apply( dmat[drop = FALSE,wf,], 1, max, na.rm = T) )
+          minVal[ minVal < 1 | !is.finite(minVal) ] <- 1
+          maxVal[ maxVal > 5 | !is.finite(maxVal) ] <- 5
+          rr     <- 0
+          tinySlope <- NULL
         } 
         
         tmp <- .interpRows(dmat[drop = FALSE,wf,],startIndex=start[wf],endIndex=end[wf],
                            INCREASING = FALSE,minVal=minVal,maxVal=maxVal,
-                           defaultValue=NULL,tinySlope=.001)
-        dmat[wf,] <- round(tmp, 1)
+                           defaultValue=NULL,tinySlope = tinySlope)
+        dmat[wf,] <- round(tmp, rr)
       }
       
-      if(yrCols[k] == 'canopy'){
+      if( yrCols[k] == 'canopy' ){
         maxVal <- suppressWarnings( apply(dmat[drop = FALSE,wf,], 1, max,na.rm  = TRUE) )
         wmm    <- which(is.finite(maxVal))
         mmat   <- matrix(maxVal[wmm],length(wmm),ncol(tmp))
@@ -11634,10 +12763,9 @@ mastSim <- function(sim){       # setup and simulate fecundity data
         tmp[wmm,][ww] <- mmat[ww]
         dmat[wf,] <- round(tmp)
       }
-      
     }
     
-    dvec <- dmat[is.finite(imat)]
+    dvec <- dmat[is.finite(imat), drop=F]
     
     it   <- tmat[is.finite(imat)]
     iy   <- imat[is.finite(imat)]
@@ -11645,13 +12773,6 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     mm   <- match(inn, index)
     yrDat[mm,k] <- dvec
     
-    if(yrCols[k] == 'diam'){
-      dinc <- t(apply(dmat,1,diff,na.rm  = TRUE))
-      dinc <- cbind(dinc[,1],dinc)
-      dinc <- dinc[is.finite(imat)]
-      growth  <- rep(NA,nrow(yrDat))
-      growth[match(inn, index)] <- dinc
-    }
   }
   
   mm <- match(tindex,trees[,'tree'])
@@ -11686,58 +12807,21 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   
   rownames(yrDat) <- NULL
   
-  inat <- NULL
-  yrDat <- yrDat[drop = FALSE, is.finite(yrDat$diam),]
+ # yrDat <- yrDat[drop = FALSE, is.finite(yrDat$diam),]
   xytree <- xytree[xytree$treeID %in% yrDat$treeID,]
   
-  wc <- grep('cropFraction',colnames(yrDat))
-  if(length(wc) > 0){
-    ww <- which(is.finite(yrDat$cropCount))
-    if(length(ww) > 0){
-      sitePlot <- columnSplit(yrDat$plot[ww], '_')
-      inatCols <- c('species guess','Date','Description','Location',
-                    'Latitude','Longitude','Tags','Geoprivacy','stemDiameter',
-                    'stemCircumference','units for stemDiameter or stemCircumference*',
-                    'cropYear*','cropCount*','cropFraction*','cropFractionError','
-                  canopyClass*','treeIdentifier')
-      cropFraction <- .95
-      if('cropFraction' %in% colnames(yrDat))cropFraction <- yrDat$cropFraction[ww]
-      if(length(cropFraction) > 1)cropFraction[is.na(cropFraction)] <- .90
-      cropFractionError <- .01
-      if('cropFractionSd' %in% colnames(yrDat))cropFractionError <- yrDat$cropFractionSd[ww]
-      canopyClass <- NULL
-      if('canopy' %in% colnames(yrDat))canopyClass = yrDat$canopy[ww]
-      Tags <- rep('', length(ww))
-      inat <- data.frame(species.guess = yrDat$species[ww], Date = paste('7/1/',yrDat$year[ww],sep=''),
-                         Description = 'Duke survey', Location = sitePlot[,1],
-                         Latitude = yrDat$UTMy[ww], Longitude = yrDat$UTMx[ww], Tags, 
-                         Geoprivacy = 'Obscurred', stemDiameter = yrDat$diam[ww],
-                         stemCircumference  = Tags, 
-                         'units for stemDiameter or stemCircumference' = 'cm',
-                         cropYear = yrDat$year[ww], cropCount = yrDat$cropCount[ww],
-                         cropFraction, cropFractionError, canopyClass, 
-                         treeIdentifier = yrDat$treeID[ww], stringsAsFactors = FALSE)
-      
-      colnames(inat) <- .replaceString(colnames(inat),'.',' ')
-     
-      colnames(inat)[colnames(inat) == 'Latitude'] <- 'Latitude/y coord/northing'
-      colnames(inat)[colnames(inat) == 'Longitude'] <- 'Longitude/x coord/easting'
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'or stemCircumference','or stemCircumference*')
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'cropYear','cropYear*')
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'cropCount','cropCount*')
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'cropFraction','cropFraction*')
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'cropFraction*Error','cropFractionError')
-      colnames(inat) <- .replaceString(colnames(inat),
-                                       'canopyClass','canopyClass*')
-    }
-  }                   
-  list(yrDat = yrDat, xytree = xytree[,c('plot','tree','treeID','x','y','elev')],
-       inat = inat)
+  rownames(yrDat) <- columnPaste(yrDat$treeID, yrDat$year, '_')
+  
+  if('censoryr' %in% colnames(trees)){
+    
+    wc <- which(is.finite(trees$censoryr))
+    tid <- columnPaste(trees$plot[wc], trees$tree[wc])
+    tid <- columnPaste(tid, trees$censoryr[wc], '_')
+    yrDat <- yrDat[!rownames(yrDat) %in% tid,]
+    xytree <- xytree[xytree$treeID %in% yrDat$treeID,]
+  }
+  
+  list(yrDat = yrDat, xytree = xytree[,c('plot','tree','treeID','x','y','elev')])
 }
 
 .fac2num <- function(xx){ 
@@ -11827,6 +12911,8 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     return( list(x = x, missx = integer(0), specCols = numeric(0) ) )
   }
   
+  data$species <- factor(data$species)
+  
   attr(data$species,'contrasts') <- contrasts(data$species, contrasts = FALSE)
   
   tmp1 <- .get.model.frame(formula, data )
@@ -11834,10 +12920,10 @@ mastSim <- function(sim){       # setup and simulate fecundity data
   sp1  <- names(tn1)[tn1 == 'numeric' | tn1 == 'nmatrix.1']
   sp1  <- .Iformat2Var(sp1)
   sp1  <- unique(sp1)
-  miss <- which(is.na(data[,sp1]),arr.ind  = TRUE)
+  miss <- which(is.na(data[,sp1,drop=F]),arr.ind  = TRUE)
   
   if(length(miss) > 0){
-    xmean <- colMeans(data[,sp1], na.rm  = TRUE)
+    xmean <- colMeans(data[,sp1,drop=F], na.rm  = TRUE)
     data[,sp1][miss] <- 1e+10
     if(verbose)cat('\nNote: missing values in xfec filled with mean values\n')
   }
@@ -11861,7 +12947,6 @@ mastSim <- function(sim){       # setup and simulate fecundity data
     x  <- x[,ws]
   }
   
-  # specNames <- attr(data$species,'levels')
   specCols  <- numeric(0)
   if(nspec > 1){
     for(j in 1:length(specNames)){
@@ -11922,14 +13007,488 @@ specPriorVector <- function(pVar, tdata){
 }
 
 
+
+setupDistMat <- function(tdata1, sdata1, xytree1, xytrap1, verbose){
+  
+  # set up distall
+  # sdata$drow are rows in distall
+  # 
+  
+  pord <- sort(tdata1$plot)
+  pord <- pord[!duplicated(pord)]
+  
+  treeIDs <- unique(as.character(tdata1$treeID))  # do not sort
+
+  plotRm <- plotKp <- character(0)
+  distTreeID <- numeric(0)
+  tdata1$dcol <- sdata1$drow <- NA
+  
+  for(j in 1:length(pord)){
+    
+    tj <- which(xytree1$plot == pord[j] & xytree1$fit == 1)
+    
+    if(length(tj) == 0){
+      plotRm <- c(plotRm, pord[j])
+      next
+    }
+  }
+  
+  if(length(plotRm) > 0 & verbose){
+    
+    kk <- which(!sdata1$plot %in% plotRm)
+    sdata1 <- sdata1[kk,]
+    kk <- which(!xytrap1$plot %in% plotRm)
+    xytrap1 <- xytrap1[kk,]
+    
+    kp <- paste0( plotRm, collapse=', ')
+    kwords <- paste(' Trees absent from xytree in',kp)
+    cat( paste('\nNote: ',kwords, '\n') )
+  }
+  
+  trapIDs <- unique(as.character(sdata1$trapID))
+  pord <- sort(sdata1$plot)
+  pord <- pord[!duplicated(pord)]
+  
+  for(j in 1:length(pord)){
+    
+    tj <- which(xytree1$plot == pord[j] & xytree1$fit == 1)
+    sj <- which(xytrap1$plot == pord[j])
+    
+    if(length(tj) == 0){
+      plotRm <- c(plotRm, pord[j])
+      next
+    }
+    if(length(sj) == 0)stop( paste('plot', pord[j] ,'has no traps in xytrap') )
+    
+    xy1     <- xytree1[tj,]
+    xy2     <- xytrap1[sj,]
+    
+    species <- as.character(xytree1$species[tj])
+    da      <- .distmat(xy1[,'x'],xy1[,'y'],xy2[,'x'],xy2[,'y']) 
+    da      <- round(da, 1)
+    sa      <- matrix(species, nrow(da), ncol(da), byrow=T)
+    rownames(da) <- xy2$trapID
+    
+    distTreeID <- append( distTreeID, list(xytree1$treeID[tj]))
+    plotKp     <- c(plotKp, pord[j])
+    
+    jj <- match(tdata1$treeID, xytree1$treeID[tj])
+    wf <- which(is.finite(jj))
+    tdata1$dcol[wf] <- jj[wf]
+    
+    if(j == 1){
+      distall <- da
+      specall <- sa
+      
+    }else{
+      if( ncol(da) > ncol(distall) ){
+        nnc     <- ncol(da) - ncol(distall)
+        newCols <- matrix(NA, nrow(distall), nnc )
+        distall <- cbind(distall,newCols)
+        newCols <- matrix(species[1], nrow(distall), nnc )
+        specall <- cbind(specall, newCols)
+      }
+      if( ncol(distall) > ncol(da) ){
+        nnc     <- ncol(distall) - ncol(da)
+        newCols <- matrix(NA, nrow(da), nnc)
+        da <- cbind(da,newCols)
+        newCols <- matrix(species[1], nrow(da), nnc)
+        sa <- cbind(sa,newCols)
+      }
+      distall <- rbind(distall, da)
+      specall <- rbind(specall, sa)
+    }
+  }
+  rownames(specall) <- rownames(distall)
+  names(distTreeID) <- plotKp
+  
+  sdata1$drow <- match(sdata1$trapID, rownames(distall))
+  
+  trapid  <- rownames(distall)
+  attr(distall,'species') <- specall
+  
+  list(tdata = tdata1, sdata = sdata1, distall = distall, distTreeID = distTreeID)
+}
+
+
+kernYrR <- function(dmat, fec, seedrow, treecol, plotyrs,
+                    treeplotYr, seedplotYr){
+  
+  # kernYrRcpp in R
+  
+  ny <- length(plotyrs)
+  nf <- ncol(fec)
+  lambda <- matrix(0, ny, nf)
+  
+  for(j in 1:ny){
+    
+    ws <- which(seedplotYr == plotyrs[j])
+    wt <- which(treeplotYr == plotyrs[j])
+    ds <- seedrow[ ws ]
+    dt <- treecol[ wt ]
+    
+    lambda[ws,] <- dmat[ds,dt]%*%fec[wt,]
+  }
+  lambda
+}
+
+trimData <- function(treeData, xytree, seedData = NULL, xytrap = NULL,
+                     formulaFec = NULL, formulaRep = NULL, 
+                     specNames = NULL, seedNames = NULL){
+  
+  # when treeData is trimmed, clean other data.frames
+  
+  if(is.null(specNames))specNames <- sort(unique(treeData$species))
+  
+  nspec <- length(specNames)
+  
+  xid      <- columnPaste(xytree$plot,xytree$tree)
+  tid      <- columnPaste(treeData$plot,treeData$tree)
+  xytree   <- xytree[xid %in% tid, ]
+  
+  if(!is.null(seedData)){
+    seedData <- seedData[seedData$plot %in% treeData$plot, ] 
+    xytrap   <- xytrap[xytrap$plot %in% treeData$plot, ]
+    if(nrow(seedData) == 0)seedData <- xytrap <- NULL
+    
+    if(nrow(xytree) == 0){
+      xytree <- NULL
+    }else{
+      mm <- match(tid, xid)        # add locations to treeData
+      treeData$x <- xytree$x[mm]
+      treeData$y <- xytree$y[mm]
+      xid      <- columnPaste(xytree$plot,xytree$tree)
+      tid      <- columnPaste(treeData$plot,treeData$tree)
+      xytree   <- xytree[xid %in% tid, ]
+    }
+  }
+  if(!is.null(seedNames))seedNames <- seedNames[ seedNames %in% colnames(seedData) ]
+  nold  <- nspec
+  nspec <- length(specNames)
+  
+  if(nspec == 1){
+    ff <- as.character(formulaFec)
+  
+    if( length( grep('species', ff[2]) ) > 0 ){
+      ff <- .replaceString( ff, 'species * ', '')
+      formulaFec <- as.formula( paste0( ff[1], ff[2], collapse='') )
+      ff <- as.character(formulaRep)
+      ff <- .replaceString( ff, 'species * ', '')
+      formulaRep <- as.formula( paste0( ff[1], ff[2], collapse='') )
+    }
+  }
+  specNames <- sort(unique(treeData$species))
+  
+  list(treeData = treeData, xytree = xytree, seedData = seedData, xytrap = xytrap,
+       formulaFec = formulaFec, formulaRep = formulaRep, 
+       specNames = specNames, seedNames = seedNames)
+}
+
+
+checkPlotName <- function(pdata){
+  
+  ss <- pdata[,'plot']
+  nt <- sapply((gregexpr("_", ss, fixed=TRUE)), function(i) sum(i > 0))
+  
+ # nt <- str_count(pdata[,'plot'], "_")
+  w0 <- which(nt != 1)
+  if(length(w0) > 0){
+    print("plot names without one and only one '_'")
+    stop( pdata[w0,'plot'] )
+  }
+}
+
+
+treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
+                           seedNames = NULL, minTrees = 5, minYears = 2,
+                           formulaFec = NULL, formulaRep = NULL, 
+                           skipSpec = character(0), omitNames = character(0), 
+                           combineSeeds = NULL, combineSpecs = NULL, 
+                           cropCountCols = c('fecMin','fecMax','cropCount'), 
+                           verbose = FALSE){
+  SEEDDATA <- FALSE
+  
+  if( !is.null(sdata) ){
+    if(nrow(sdata) > 1)SEEDDATA <- T
+  }
+  
+  tdata$plot  <- .fixNames( tdata$plot, all  = TRUE, MODE='character')$fixed
+
+  
+  priorTable <- as.data.frame( priorTable )
+  
+  # plots where there are either seed traps or crop counts
+  wk <- which(colnames(tdata) %in% cropCountCols)
+  pall <- table(tdata$plot, tdata$species)
+  
+  if(length(wk) == 0){
+    suppressWarnings(
+      cmax <- apply( tdata[,wk, drop=F], 1, max, na.rm=T)
+    )
+    wf <- which( is.finite( cmax) )
+    if( length(wf) > 0 )pall[ tdata$plot[wf], tdata$species[wf] ] <- 1 # crop counts
+  }
+  if(SEEDDATA){
+    sdata$plot  <- .fixNames( sdata$plot, all  = TRUE, MODE='character')$fixed
+    xytree$plot <- .fixNames( xytree$plot, all  = TRUE, MODE='character')$fixed
+    xytrap$plot <- .fixNames( xytrap$plot, all  = TRUE, MODE='character')$fixed
+    
+    sdata$trap  <- .fixNames( sdata$trap, all  = TRUE, MODE='character')$fixed
+    xytrap$trap <- .fixNames( xytrap$trap, all  = TRUE, MODE='character')$fixed
+    wp <- which(rownames(pall) %in% tdata$plot & rownames(pall) %in% sdata$plot)
+    wk <- which( tdata$plot %in% rownames(pall)[wp] )
+    tall <- table(tdata$plot[wk], tdata$species[wk])
+    wr <- which( tall > 0, arr.ind=T )
+    pall[ cbind(rownames(wr), colnames(tall)[wr[,2]]) ] <- 1
+  }
+  pkeep <- rownames(pall)[ rowSums(pall) > 0 ]
+  
+  tdata <- tdata[ tdata$plot %in% pkeep, ]
+  
+  # sufficient years
+  pvec  <- tdata$plot
+  yvec  <- tdata$year
+  if(SEEDDATA){
+    pvec <- c(pvec, sdata$plot)
+    yvec <- c(yvec, sdata$year)
+  }
+  
+  tplus <- names( which( sapply( tapply( yvec, pvec, range ), diff ) >= (minYears-1) ) )
+  ww    <- which( tdata$plot %in% tplus )
+  
+  tdata <- tdata[ tdata$species %in% tdata$species[ww], ]
+  
+  if(nrow(tdata) == 0){
+    print( 'no trees with enough years' )
+    return( list( treeData = NULL ) )
+  }
+  
+  tid   <- columnPaste(tdata$plot, tdata$tree)
+  maxd  <- tapply(tdata$diam, tid, max, na.rm=T)
+  maxd  <- maxd[ tid ]
+  maxy  <- max(table(tid))
+  
+  mm    <- match(tdata$species, rownames(priorTable))  
+  mind  <- priorTable$minDiam[ mm ]
+  sites <- columnSplit(tdata$plot, '_')[,1]
+  
+  wi    <- which(!duplicated(tid) & maxd > mind/2 )
+  sbys  <- table(tdata$species[wi], sites[wi])
+  stot  <- rowSums(sbys)                           # trees > mind
+  
+  if(verbose){
+    print( 'number trees above min diam:' )
+    print(stot)
+  }
+  
+  specNames <- names(stot)[ stot > minTrees ]      # minimum large trees
+  if(length(specNames) == 0){
+    print( 'no trees big enough' )
+    return( list( treeData = NULL ) )
+  }
+  
+  tdata <- tdata[ tdata$species %in% specNames, ]
+  tid   <- columnPaste(tdata$plot, tdata$tree)
+  maxd  <- tapply(tdata$diam, tid, max, na.rm=T)
+  maxd  <- maxd[ tid ]
+  
+  mm    <- match(tdata$species, rownames(priorTable)) 
+  mind  <- priorTable$minDiam[ mm ]
+  sites <- columnSplit(tdata$plot, '_')[,1]
+  
+  wfirst <- unlist( gregexpr("[A-Z]", tdata$species[1]) ) # position where species starts
+  gen4   <- substr(tdata$species[1], 1, wfirst - 1)
+  
+  if( SEEDDATA ){
+    
+    if( is.null(seedNames) ){
+      ss <- colnames(sdata)[startsWith(colnames(sdata), gen4 )]
+      ss <- .replaceString(ss,'_min','')
+      ss <- .replaceString(ss,'_max','')
+      seedNames <- sort(unique(ss))
+    }
+    sdata <- sdata[, !colnames(sdata) %in% skipSpec]
+    
+    
+    ws   <- which( startsWith(colnames(sdata), gen4)  )
+    cc   <- colnames(sdata)[ws]
+    wk   <- grep('_min', colnames(sdata))
+    wm   <- grep('_max', colnames(sdata))
+    ws   <- ws[ !ws %in% c(wk, wm) ]
+    
+    seedNames <- colnames(sdata)[ws]
+    totSeed   <- sum(as.vector(sdata[,cc]), na.rm=T)
+  #  checkPlotName(sdata)
+  #  checkPlotName(xytrap)
+    
+    onames <- c( omitNames, paste(seedNames, 'cones', sep='_'),
+                 paste(seedNames, 'emptyseeds', sep='_'))
+    
+    womit <- which(seedNames %in% onames)
+    if(length(womit) > 0)seedNames <- seedNames[-womit]
+    
+    specNames <- sort(unique(as.character(tdata$species)))
+    
+    wc <- grep('_caps', colnames(sdata))
+    if(length(wc) > 0){
+      from <- colnames(sdata)[wc]
+      to   <- columnSplit(from, '_')[,1]
+      wu    <- which(nchar(to) == 4)
+      if(length(wu) > 0){
+        if(length(wu) > 1){
+          print( 'multiple short seedNames' )
+          return( list(treeData = NULL) )
+        }
+        to[wu] <- paste(to[wu], 'UNKN',sep='')
+      }
+      cmore <- cbind(from,to)
+      combineSeeds <- rbind(combineSeeds, cmore)
+    }
+    
+    tmp <- combineSeedNames(sdata, seedNames, 
+                            rbind(combineSeeds,combineSpecs))
+    sdata     <- tmp$seedData
+    seedNames <- tmp$seedNames
+    
+    wg <- unlist( gregexpr("[A-Z]", specNames) ) # position where species starts
+    
+    als <- c(specNames, paste(specNames, '_min', sep=''),
+             paste(specNames,'_max',sep=''),
+             paste( substr(specNames, 1, wg-1), 'UNKN',sep='') )
+    ttt <- seedNames[seedNames %in% als]
+    
+    if(length(ttt) == 0){
+      print(specNames)
+      print(seedNames)
+      print('seedNames not in specNames')
+      return( list(treeData = NULL) )
+    }
+    seedNames <- ttt
+  }else{
+    sdata <- NULL
+  }
+  
+  tmp <- combineSpecies(tdata$species, specNames, combineSpecs)
+  tdata$species <- tmp$species
+  specNames     <- tmp$specNames
+  nspec <- length(specNames)
+  
+  # remove a species if no cropCount, no seeds on any plot, less than 2 yr
+  CROP <- FALSE
+  treeSeeds <- rep(0, nrow(tdata))
+  
+  wcc <- which( cropCountCols %in% colnames(tdata) )
+  if( length(wcc) > 0 ){
+    treeSeeds <- rowSums(tdata[,cropCountCols[wcc],drop=F], na.rm=T)
+    CROP <- TRUE
+  }
+  
+  
+  allp <- sort(unique( c(tdata$plot, sdata$plot) ))
+  allt <- unique( c(specNames, seedNames) )
+  tpy  <- matrix( 0, length(allp), length(allt) )   #tree years by plot/species
+  colnames(tpy) <- allt
+  rownames(tpy) <- allp
+  spy <- tpy                                        #seeds counted
+  
+  for(j in 1:length(allp)){
+    
+    ssum <- tpy[drop=F,1,]*0
+    
+    wt <- which(tdata$plot == allp[j] &  (mind < maxd | treeSeeds > 0) )
+    ws <- which(sdata$plot == allp[j])
+    ttab <- table(tdata$species[wt], tdata$year[wt])
+    ttab[ ttab > 0 ] <- 1
+    tyr  <- rowSums(ttab)
+    if(CROP){
+      crop <- tdata[wt, cropCountCols[wcc] ]
+      if( length(wcc) > 1 )crop <- rowSums(crop, na.rm=T)
+      crop <- tapply( crop, tdata$species[wt], sum, na.rm=T)
+      crop[ crop > 1 ] <- 1
+      ssum[ 1,names(crop) ] <- crop
+    }
+
+    if(length(ws) > 0){
+      
+      stab <- suppressWarnings( 
+        tapply( as.matrix(sdata[ws,seedNames, drop=FALSE]), 
+                list( year = rep(sdata$year[ws], length(seedNames)), 
+                      type = rep(seedNames, each = length(ws))), max, na.rm=T) )
+      stab[ stab > 1 ] <- 1
+      ssum <- colSums(stab)  # any seeds?
+      if(CROP)ssum[ names(crop) ] <- ssum[ names(crop) ] + crop
+      
+      syr  <- ssum*0 + nrow(stab)
+      syr  <- syr[ names(syr) %in% names(tyr) ]
+      tyr[ names(syr) ] <- apply( rbind(tyr[ names(syr) ],syr), 2, max )
+    }
+    spy[j, names(ssum)] <- ssum
+    tpy[ j, names(tyr) ] <- tyr
+  }
+  # plots/species with no tree years | (tree years but never any seeds)
+  
+  w0 <- which( colSums(spy) == 0 & colSums(tpy) == 0 )  # never any seeds
+  wu <- which( endsWith( colnames(spy), "UNKN" ) )      # could be seeds in UNKN class
+  w0 <- w0[ !w0 %in% wu ]
+  
+  if( length(w0) > 0 ){
+    tpy[, -w0, drop=F] <- 0    # never seeds
+  }
+
+  keep <- outer( rownames(tpy), colnames(tpy), paste, sep='-' )
+  pltr <- columnPaste( tdata$plot, tdata$species )
+  keep <- which( pltr %in% keep )
+  
+  tdata <- tdata[keep,]
+  
+  if(nrow(tdata) == 0){
+    print( 'no trees produced seeds' )
+    return( list( treeData = NULL ) )
+  }
+  
+  ttt   <- trimData(tdata, xytree, sdata, xytrap,
+                    formulaFec, formulaRep, specNames, seedNames)
+  tdata <- ttt$treeData
+  sdata <- ttt$seedData
+  xytree <- ttt$xytree
+  xytrap <- ttt$xytrap
+  specNames <- ttt$specNames
+  seedNames <- ttt$seedNames
+  formulaFec <- ttt$formulaFec
+  formulaRep <- ttt$formulaRep
+  
+  # species by site
+  site <- columnSplit(tdata$plot,'_')[,1]
+  wg    <- grep('.', site, fixed=T)
+  if(length(wg) > 0)site[wg] <- columnSplit(site[wg],'.')[,1]
+  if(verbose)  print( table(site,tdata$species) )
+  
+  
+  list( treeData = tdata, seedData = sdata, xytree = xytree, xytrap = xytrap, 
+        specNames = specNames, seedNames = seedNames, formulaFec = formulaFec,
+        formulaRep = formulaRep)
+}
+
+
 .setupData <- function(formulaFec, formulaRep, tdata, sdata,
                        xytree, xytrap, specNames, seedNames, AR, YR, 
                        yearEffect, minDiam, maxDiam, TREESONLY, maxFec, CONES,
+                       notFit, priorTable,
                        seedTraits = NULL, verbose = FALSE){
+  
+  SEEDDATA <- TRUE
+  if(is.null(sdata))SEEDDATA <- FALSE
   
   # formulas have 'species *' already
   arList <- numeric(0)
   plag <- p <- 0
+  
+  if(!is.null(seedTraits)){
+    ww <- which(!specNames %in% rownames(seedTraits))
+    if(length(ww) > 0)
+      stop( paste('\nspecNames not in rownames(seedTraits): ',specNames[ww],
+                  sep='') )
+  }
   
   if(!is.null(yearEffect)){
     if('p' %in% names(yearEffect))p <- plag <- yearEffect$p
@@ -11938,52 +13497,73 @@ specPriorVector <- function(pVar, tdata){
   notCols <- designTable <- NULL
   words <- character(0)
   
-  plotNames <- sort(unique( as.character(xytrap$plot) ))
-  years <- sort(unique(c(sdata$year[sdata$obs == 1],tdata$year[tdata$obs == 1])))
+  plotNames <- sort(unique( as.character(tdata$plot) ))
+  years <- sort(unique( tdata$year[tdata$obs == 1]) )
+  if(SEEDDATA)years <- sort(unique(c( sdata$year[sdata$obs == 1], years )))
   years <- c(min(years):max(years))
   
   nplot <- length(plotNames)
   nspec <- length(specNames)
   
+  # if no crop count and seed never observed, remove
+  
+  ttt <- treeSeedPlots( tdata, sdata, xytree, xytrap, priorTable, 
+                        seedNames = seedNames, 
+                        formulaFec = formulaFec, formulaRep = formulaRep )
+  tdata  <- ttt$treeData
+  
+  if(length(tdata) == 0)stop( 'insufficient data' )
+  
+  sdata  <- ttt$seedData
+  xytree <- ttt$xytree
+  xytrap <- ttt$xytrap
+  specNames  <- ttt$specNames
+  seedNames  <- ttt$seedNames
+  formulaFec <- ttt$formulaFec
+  formulaRep <- ttt$formulaRep
+  
+  nspec <- length(specNames)
+  nseed <- length(seedNames)
+  
+    
   # note: reorganizes tdata to put known immature and serotinous at end
   # trees in plots with seeds, but only small trees: decrease minDiam
   
   minD  <- specPriorVector(minDiam, tdata)
+  maxD  <- specPriorVector(maxDiam, tdata)
   wd    <- which(tdata$diam > minD)
   
-  i <- rep(sdata$plot, length(seedNames))
-  j <- rep(seedNames, each=nrow(sdata))
-  
-  stab <- tapply(as.matrix(sdata[,seedNames]),list(i, j), sum, na.rm  = TRUE)
   ttab <- table(tdata$plot, tdata$species)
   dtab <- ttab*0
-  tmp <- table(tdata$plot[wd],tdata$species[wd])
-  
-  
+  tmp  <- table(tdata$plot[wd],tdata$species[wd])
   dtab[rownames(tmp),colnames(tmp)] <- tmp
   ww <- which(ttab > 0 & dtab == 0, arr.ind  = TRUE)
   
-  if(length(ww) > 0){  # largest on plot must be mature
-    
+  if( SEEDDATA & length(ww) > 0 ){  # if there are seeds and nothing mature
+                                    # then largest tree on plot initialized as mature
     for(k in 1:nrow(ww)){
       
       wk <- which( tdata$plot == rownames(ww)[k] &
                      tdata$species == colnames(ttab)[ww[k,2]] )
-      mk <- max(tdata$diam[wk])
-      tdata$repr[wk][tdata$diam[wk] > (mk - 2)] <- 1
+      qk <- quantile(tdata$diam[wk], .75)
+      
+      if( min(minDiam) > qk )minD[wk] <- qk
+      
+      tdata$repr[wk][tdata$diam[wk] >= qk] <- 1
       if( 'lastRepr' %in% colnames(tdata) ){
-        tdata$lastRepr[wk][tdata$diam[wk] > (mk - 2)] <- 1
-        tdata$lastFec[wk][tdata$diam[wk] > (mk - 2)] <- 1.1
+        tdata$lastRepr[wk][tdata$diam[wk] >= qk] <- 1
+        tdata$lastFec[wk][tdata$diam[wk] >= qk] <- 1.1
       }
       if( 'serotinous' %in% colnames(tdata) ){
-        tdata$serotinous[wk][tdata$diam[wk] > (mk - 2)] <- 0
+        tdata$serotinous[wk][tdata$diam[wk] > qk] <- 0
       }
     }
   }
   
+  if(verbose) print(seedTraits)
   
-  tmp <- setupZ(tdata, xytree, specNames, years, minDiam, maxDiam, maxFec, CONES, 
-                seedTraits)
+  tmp <- setupZ(tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,  
+                seedTraits, verbose)
   z           <- tmp$z
   zmat        <- tmp$zmat
   zknown      <- tmp$zknown
@@ -11994,12 +13574,21 @@ specPriorVector <- function(pVar, tdata){
   fecMaxCurrent <- tmp$fecMaxCurrent
   fstart        <- tmp$fstart
   seedTraits    <- tmp$seedTraits
+  tdata         <- tmp$tdata
+  
+  if(verbose){
+    cat('\nMaximum diameter:\n')
+    ww <- which.max(tdata$diam)
+    print(tdata[ww,])
+  }
   
   xytree$fit <- last0first1[xytree$treeID, 'fit']
   
-  
-  tdata$obsTrap <- addObsTrap(tdata, sdata)
-  
+  if(SEEDDATA){
+    tdata$obsTrap <- addObsTrap(tdata, sdata)
+  }else{
+    tdata$obsTrap <- 0
+  }
   
   mm <- last0first1[tdata$treeID,'fit']
   tdata$obsTrap <- tdata$obsTrap*mm
@@ -12013,7 +13602,7 @@ specPriorVector <- function(pVar, tdata){
   
   tdata$group <- 1
   
-  if(YR | AR){
+  if( YR | AR ){
     
     gnames <- character(0)
     if('groups' %in% names(yearEffect)){
@@ -12041,6 +13630,7 @@ specPriorVector <- function(pVar, tdata){
       }
       group <- apply( tdata[,gnames], 1, paste0, collapse='-')
     }
+    group <- .replaceString(group, ' ', '')
     tdata$groupName <- group
     yeGr <- sort(unique(as.character(group)))
     tdata$group <- match(as.character(group), yeGr)
@@ -12050,18 +13640,11 @@ specPriorVector <- function(pVar, tdata){
   
   allYears <- min(tdata$year):max(tdata$year)
   
-  times   <- match(tdata$year, allYears)
-  yrIndex <- cbind(tdata$group, times)
-  colnames(yrIndex) <- c('group','year')
-  
-  
-  
-  if(AR){        
+  if( AR ){        
     
-    plag   <- yearEffect$p
-    
-    tmp   <- msarSetup(tdata, plag, icol='treeID', jcol = 'year',
-                       gcol = 'groupName', yeGr)
+    plag <- yearEffect$p
+    tmp  <- msarSetup(tdata, plag, icol='treeID', jcol = 'year',
+                       gcol = 'groupName', yeGr, verbose = verbose)
     groupByInd <- tmp$groupByInd
     betaYr     <- tmp$betaYr
     ngroup     <- length(yeGr)
@@ -12085,42 +13668,45 @@ specPriorVector <- function(pVar, tdata){
     tdata$plotyr <- match(tdata$plotYr, plotYrs)
     tdata$group <- match(as.character(group), yeGr)
     
-    
-    yrIndex    <- cbind(tdata$group, tdata$times)
-    colnames(yrIndex) <- c('group','year')
-    
     lagMat <- msarLagTemplate(plag, tdata, icol='treeID', jcol='year', 
-                              gcol='group', ocol='obs', yeGr)
-    
+                              gcol='group', ocol='obs', yeGr,
+                              verbose = verbose)
     arList <- list(times = tdata$times, groupByInd = groupByInd, betaYr = betaYr,
                    yeGr = rownames(betaYr), ngroup = length(yeGr),
                    lagMatrix = lagMat$matrix, lagGroup = lagMat$group)
   }
   
+  times   <- match(tdata$year, allYears)
+  yrIndex <- cbind(tdata$group, tdata$tnum, times)
+  colnames(yrIndex) <- c('group','tnum','year')
   
-  seedSummary <- with(sdata, table(plot, year) )
+  
+  seedSummary <- NULL
+  if(SEEDDATA)seedSummary <- with(sdata, table(plot, year) )
   treeSummary <- with(tdata, table(plot, year) )
   plotNames   <- rownames(treeSummary)
   
   if(nspec == 1){
-    formulaFec <- as.formula( .replaceString( as.character(formulaFec), 'species *','') )
-    formulaRep <- as.formula( .replaceString( as.character(formulaRep), 'species *','') )
+    fc <- .replaceString( as.character(formulaFec), 'species *','')
+    fr <- .replaceString( as.character(formulaRep), 'species *','')
+    formulaFec <- as.formula( paste(fc, collapse = ' ') )
+    formulaRep <- as.formula( paste(fr, collapse = ' ') )
   }
   
-  tmp   <- .get.model.frame( formulaFec, tdata )
-  
-  if(ncol(tmp) == 1){
-    checkNA <- range(tmp)
+  tunstand   <- .get.model.frame( formulaFec, tdata ) # check only, not yet standardized
+ 
+  if(ncol(tunstand) == 1){
+    checkNA <- range(tunstand)
     if(is.na(checkNA[1])){
-      pmiss <- colnames(tmp)
+      pmiss <- colnames(tunstand)
       if(verbose){
         cat('\nFix missing values in:\n')
         print(pmiss)
       }
     }
   }else{
-    inn     <- which( !sapply(tmp, is.factor) )
-    checkNA <- sapply(tmp[inn], range)
+    inn     <- which( !sapply(tunstand, is.factor) )
+    checkNA <- sapply(tunstand[inn], range)
     wna <- which(is.na(checkNA[drop = FALSE,1,]))
     if(length(wna) > 0){
       pmiss <- paste0(colnames(checkNA)[wna],collapse=', ')
@@ -12131,24 +13717,24 @@ specPriorVector <- function(pVar, tdata){
     }
   }
   
-  if(length(tmp) == 0)tmp <- numeric(0)
+  if(length(tunstand) == 0)tunstand <- numeric(0)
   tmp1  <- .get.model.frame(formulaRep, tdata)
   
-  if(length(tmp1) > 0){
+  if( length(tmp1) > 0 ){
     
-    wnew <- which(!colnames(tmp1) %in% colnames(tmp))
+    wnew <- which(!colnames(tmp1) %in% colnames(tunstand))
     
     if(length(wnew) > 0){                               # all unique columns
-      tmp <- cbind(tmp,tmp1[,wnew])
+      tunstand <- cbind(tunstand,tmp1[,wnew])
     }
   }
-  xallNames <- colnames(tmp)
+  xallNames <- colnames(tunstand)
   
-  scode <- names(tmp[ which(sapply( tmp, is.factor )) ])
+  scode <- names(tunstand[ which(sapply( tunstand, is.factor )) ])
   if(length(scode) > 0){
     for(j in 1:length(scode)) tdata[,scode[j]] <- droplevels(tdata[,scode[j]])
   }
-  ccode <- names(tmp[ which(sapply( tmp, is.character )) ])
+  ccode <- names(tunstand[ which(sapply( tunstand, is.character )) ])
   scode <- c(ccode, scode)
   
   specNames <- sort(unique(as.character(tdata$species)))
@@ -12156,12 +13742,12 @@ specPriorVector <- function(pVar, tdata){
   standX <- character(0)
   xmean <- xsd <- numeric(0)
   
-  wstand <- which(!colnames(tmp) %in% scode)
+  wstand <- which(!colnames(tunstand) %in% scode)
   
   # standardize columns in tdata
-  if(length(wstand) > 0){
+  if( length(wstand) > 0 ){
     
-    standX <- colnames(tmp)[wstand]
+    standX <- colnames(tunstand)[wstand]
     
     wlog <- grep( "log(", standX, fixed  = TRUE)
     if(length(wlog) > 0)standX <- standX[ -wlog ]
@@ -12170,8 +13756,8 @@ specPriorVector <- function(pVar, tdata){
     wlog <- grep( "^2", standX, fixed  = TRUE)
     if(length(wlog) > 0)standX <- standX[ -wlog ]
     
-    if(length(standX) > 0){
-      treeUnstand <- tdata[,standX, drop = FALSE]                 # original scale
+    if( length(standX) > 0 ){
+      treeUnstand <- tdata[,standX, drop = FALSE] # original scale
       
       xmean <- colMeans(tdata[,standX, drop = FALSE],na.rm  = TRUE)
       xsd   <- apply(tdata[,standX, drop = FALSE],2, sd, na.rm  = TRUE)
@@ -12180,13 +13766,13 @@ specPriorVector <- function(pVar, tdata){
     }
   }
   
-  tmp  <- .getDesign(formulaFec, tdata)
+  tmp  <- .getDesign(formulaFec, tdata, verbose = verbose)
   xfec <- tmp$x
   if(nspec > 1)xfec <- xfec[,grep('species',colnames(xfec)),drop = FALSE]
   xfecMiss <- tmp$missx
   xfecCols <- tmp$specCols
   
-  tmp  <- .getDesign(formulaRep, tdata)
+  tmp  <- .getDesign(formulaRep, tdata, verbose = verbose)
   xrep <- tmp$x
   
   if(nspec > 1)xrep <- xrep[,grep('species',colnames(xrep)),drop = FALSE]
@@ -12194,12 +13780,7 @@ specPriorVector <- function(pVar, tdata){
   xrepCols <- tmp$specCols
   
   rank <- qr(xfec)$rank
-  notFit <- notFull <- character(0)
-  
-  diamVec <- tdata$diam
-  
-  
-  if( ncol(xfec)/nspec > 2 ){   # more than intercept and slope
+  if(rank < ncol(xfec)){
     
     for(m in 1:nspec){
       
@@ -12207,64 +13788,164 @@ specPriorVector <- function(pVar, tdata){
       if(nspec > 1){
         sname <- paste('species',specNames[m],sep='')
         wk <- grep( sname, colnames(xfec) )
-        wn <- which(colnames(xfec)[wk] != sname)
+        wn <- which(colnames(xfec)[wk] != sname & !colnames(xfec)[wk] %in% notFit)
         wk <- wk[wn]
+        snew <- colnames(xfec)[wk]
+        snew <- .replaceString( snew, paste(sname,':',sep=''), '')
       }else{
         wk <- colnames(xfec)[colnames(xfec) != sname]
+        snew <- colnames(xfec)[-1]
       }
-      wr <- which(xfec[,sname] == 1 & tdata$fit == 1)
+      wr <- which( xfec[,sname] == 1 & z == 1 )
       
-      xfecm <- xfec[wr,wk]
+      xfecm <- xfec[wr,wk, drop=F]
+      rspec <- qr(xfecm)$rank
       
-      rmm <- qr(xfecm)$rank
-      #     cc <- suppressWarnings( cor(xfec[wr,wk][,-1]) )
-      cc <- suppressWarnings( cor(xfecm) )
-      cc[upper.tri(cc, diag  = TRUE)] <- 0
-      ww <- which(abs(cc) > .95 | is.na(cc), arr.ind  = TRUE)
-      if(length(ww) > 0){                                  # don't exclude quadratic
-        gw <- grep("diam^2", rownames(ww), fixed  = TRUE)
-        if(length(gw) > 0)ww <- ww[drop = FALSE, -gw, ]
-      }
-      
-      if(rmm < length(wk) | length(ww) > 0){
-        notw <- unique(rownames(ww))
-        notFit <- c(notFit, notw)
-      }
+      if(rspec < ncol(xfecm))stop( paste(specNames[m],'not full rank') )
     }
   }
   
-  if(length(notFit) > 0){
+  if( is.null(notFit) ){
+    notFit <- character(0)
+  }else{
+    if(nspec == 1)notFit <- .replaceString(notFit, paste('species',specNames,':',sep=''), '')
+  }
+  
+  notFull <- character(0)
+  
+  diamVec <- tdata$diam
+  
+ # notFit <- notFit[ notFit %in% colnames(xfec) ]
+  
+  nff <- character(0)
+  ncc <- numeric(0)
+  
+  
+  if( ncol(xfec)/nspec > 2 ){   # more than intercept and slope
     
-    xff <- xfec[,!colnames(xfec) %in% notFit]
-    rank1 <- qr(xff)$rank
-    
-    if(rank1 < ncol(xff)){
+    for(m in 1:nspec){
       
-      cx <- round(cor(xff), 1)
-      diag(cx) <- 0
-      ww <- which(cx > .85, arr.ind  = TRUE)
+      notw  <- character(0)
+      sname <- "(Intercept)"
+      pname <- paste('species',specNames[m],sep='')
       
-      if(length(ww) > 0){
-        wn <- rownames(ww)[grep(':',rownames(ww))]
+      if(nspec > 1){
         
-        gd <- grep('diam',wn)
-        if(length(gd) > 0)wn <- wn[-gd]
+        nff <- c(nff, notFit[ notFit %in% colnames(xfec) ])
+        ncc <- c(ncc, match(nff, colnames(xfec)))
         
-        notFit <- unique( c(notFit, wn) )
+        sname <- pname
+        wk <- grep( sname, colnames(xfec) )
+        wn <- which(colnames(xfec)[wk] != sname & !colnames(xfec)[wk] %in% notFit)
+        wk <- wk[wn]
+        snew <- colnames(xfec)[wk]
+        snew <- .replaceString( snew, paste(sname,':',sep=''), '')
+      }else{
+        wk <- colnames(xfec)[colnames(xfec) != sname]
+        snew <- colnames(xfec)[-1]
+        
+        pname <- paste(pname, ':',colnames(xfec),sep='')
+        nff   <- c(nff, notFit[ notFit %in% pname ] )
+        ncc   <- c(ncc, match(nff, pname))
+      }
+      
+      wr <- which( xfec[,sname] == 1 )
+      
+      xfecm <- xfec[wr,wk, drop=FALSE]
+      
+      # quadratic or interactions that lack main effects
+      
+      gw <- grep("^2)", colnames(xfecm), fixed  = TRUE)
+      if(length(gw) > 0){
+        
+        for(i in gw){
+          fi <- colnames(xfecm)[i]
+          f2 <- .replaceString(fi,'I(','')
+          f2 <- .replaceString(f2,'^2)','')
+          if( !f2 %in% colnames(xfecm) ){
+            notw <- c(notw, fi)
+          }
+        }
+        xfecm <- xfecm[,-gw,drop=F]
+        snew <- snew[ -gw ]
+      }
+      
+      gw <- grep(":", snew, fixed  = TRUE)
+      if(length(gw) > 0){
+        for(i in gw){
+          fi <- colnames(xfecm)[i]
+          si <- columnSplit(snew[i], ':' )
+          if( !si[1] %in% snew | !si[2] %in% snew )notw <- c(notw, fi)
+        }
+        xfecm <- xfecm[,-gw,drop=F]
+        snew <- snew[ -gw ]
+      }
+      
+      colnames(xfecm) <- snew
+      cc <- suppressWarnings( cor(xfecm) )
+      diag(cc) <- 0
+      
+      ww <- which(abs(cc) > .95 | is.na(cc), arr.ind  = TRUE)
+      if(length(ww) > 0){                                  
+        mvars <- unique( c(rownames(cc)[ww[,1]],colnames(cc)[ww[,2]]) )
+        kvars <- rep(0, length(mvars))
+        #unique values
+        for(k in 1:length(mvars)){
+          
+          xcc <- xfecm[,!colnames(xfecm) == mvars[k]]
+          xcc <- cbind( 1, xcc )
+          colnames(xcc)[1] <- 'intercept'
+          xcheck <- .checkDesign(xcc)
+          VIF <- xcheck$VIF
+          kvars[k] <- sum(VIF)
+        }
+        m0 <- mvars[ which.min(kvars) ]
+        m1   <- paste( 'species',specNames[m], ':', m0, sep='' )
+        m2   <- paste( 'species',specNames[m], ':I(', m0, '^2)', sep='' )
+        notw <- c(m0, m1, m2)
+        notw <- notw[ notw %in% colnames(xfec) ]
+      }
+      
+      if( length(notw) > 0 ){
+        nff <- c(nff, notw)
       }
     }
     
+  }
+  
+ # notFit <- notFit[ notFit %in% colnames(xfec) ]
+  notFit <- unique( c(notFit, nff) )
+  
+  
+  if( length(notFit) > 0 ){
     kwords <- paste0(notFit, collapse='\n')
     kwords <- paste(' Fecundity is not full rank, omitted columns:\n',kwords)
     if(verbose)cat( paste('\nNote: ',kwords, '\n') )
     
-    notCols <- match(notFit, colnames(xfec))
-    words <- paste(words, kwords)
+    nff <- character(0)
+    for(k in 1:length(notFit)){  # formula contains variables without species
+      kk <- columnSplit(notFit[k], ':')
+      vk <- kk[2]
+      sk <- kk[1]
+      sk <- .replaceString(sk, 'species', '')
+      sr <- specNames[ !specNames == sk ]   #species not in notFit
+      if(length(sr) == 0){                  #remove from formula
+        ff <- as.character(formulaFec)[2]
+        ff <- .replaceString(ff, paste('+',vk), '' )
+        formulaFec <- as.formula( paste('~',ff, collapse = ' ') )
+        nff <- c(nff, notFit[k])
+      }
+    }
+    if(length(nff) > 0)notFit <- notFit[ notFit %in% nff ]
+      
+    if(length(notFit) > 0){
+      notCols <- match(notFit, colnames(xfec))
+      words <- paste(words, kwords)
+    }
   }
   
-  
   rank <- qr(xrep)$rank
-  if(rank < ncol(xrep))stop('maturation design not full rank')
+  if(rank < ncol(xrep))stop('\nmaturation design not full rank\n')
   
   xfecU <- xfec
   xrepU <- xrep
@@ -12278,119 +13959,65 @@ specPriorVector <- function(pVar, tdata){
   xfecu2s <- xfecs2u
   xrepu2s <- xreps2u
   
-  if(length(xmean) > 0){   # unstandardized
+  if( length(xmean) > 0 ){   # unstandardized
     
     tdata[,standX] <- treeUnstand
+    
     tmp <- .unstandBeta(formula = formulaFec, xdata = tdata, xnow = xfec, 
-                        xmean = xmean, notCols = notCols)
+                        xmean = xmean, notCols = notCols, notFit = notFit,
+                        specNames = specNames)
     xfecU   <- tmp$x          
-    xfecs2u <- tmp$unstand    # multiply by beta_s to get beta_u
-    xfecu2s <- tmp$stand      # multiply by beta_u to get beta_s
+    xfecs2u <- tmp$s2u      # multiply by beta_s to get beta_u
+    xfecu2s <- tmp$u2s      # multiply by beta_u to get beta_s
     
     tmp <- .unstandBeta(formula = formulaRep, xdata = tdata, xnow = xrep, 
-                        xmean = xmean, notCols = notCols)
+                        xmean = xmean, notCols = NULL, specNames = specNames)
     xrepU   <- tmp$x
-    xreps2u <- tmp$unstand
-    xrepu2s <- tmp$stand
+    xreps2u <- tmp$s2u
+    xrepu2s <- tmp$u2s
     
     xmean[abs(xmean) < 1e-10] <- 0
   }
   
+  
   tdata <- cleanFactors(tdata)
-  sdata <- cleanFactors(sdata)
   
-  pord <- tdata$plot
-  pord <- pord[!duplicated(pord)]
+  distTreeID <- NULL
   
-  treeIDs <- unique(as.character(tdata$treeID))  # do not sort!
-  trapIDs <- unique(as.character(sdata$trapID))
-  
-  distall  <- numeric(0)
-  species <- character(0)
-  
-  plotRm <- character(0)
-  
-  for(j in pord){
+  if(SEEDDATA){
     
-    tj <- which(xytree$plot == j & xytree$fit == 1)
-    sj <- which(xytrap$plot == j)
+    sdata <- cleanFactors(sdata)
+    tmp   <- setupDistMat(tdata, sdata, xytree, xytrap, verbose)
+    tdata <- tmp$tdata
+    sdata <- tmp$sdata
+    distall <- tmp$distall
+    distTreeID <- tmp$distTreeID
     
-    if(length(tj) == 0){
-      plotRm <- c(plotRm,j)
-      next
+    # CHECK THAT TREESONLY ARE AT END
+    
+    fitTrees <- unique(tdata$treeID[tdata$fit == 1])
+    
+    if( !'obsTrap' %in% colnames(tdata) ){           # observation period for traps
+      tdata$obsTrap <- addObsTrap(tdata, sdata)
     }
-    if(length(sj) == 0)message( paste('plot', j ,'has no traps in xytrap') )
+    tdata$obsTrap <- tdata$obsTrap*tdata$fit         # only include fit
     
-    xy1     <- xytree[tj,]
-    xy2     <- xytrap[sj,]
-    #   treeid  <- c(treeid,xytree$treeID[tj])
-    #   trapid  <- c(trapid,xytrap$trapID[sj])
-    species <- c(species, as.character(xytree$species[tj]))
-    da      <- .distmat(xy1[,'x'],xy1[,'y'],xy2[,'x'],xy2[,'y']) 
-    da      <- round(da, 1)
-    colnames(da) <- xy1$treeID
-    rownames(da) <- xy2$trapID
-    distall      <- .blockDiag(distall,da)
+    trapRows  <- which(tdata$fit == 1)
+    seedNames <- seedNames[seedNames %in% colnames(sdata)]
+    
+    keepCol <- c('plot','trap','trapID','year','plotYr','plotyr','drow',
+                 'area','active','obs',seedNames)
+    sdata   <- sdata[,keepCol]
   }
-  names(species) <- colnames(distall)
-  fitTrees <- unique(tdata$treeID[tdata$fit == 1])
-  distall  <- distall[,fitTrees] # kernel contains only fitted trees
-  species  <- species[fitTrees]
-  
-  mm <- match(tdata$treeID, fitTrees)
-  wf <- which(is.finite(mm))
-  wn <- which(!is.finite(mm))
-  
-  tdata$dcol[wf] <- mm[wf]
-  wee <- which(tdata$dcol[wn] <= max(tdata$dcol[wf]))
-  if(length(wee) > 0)
-    stop('error in tdata$dcol')
-  
-  
-  if(length(plotRm) > 0 & verbose){
-    kp <- paste0( plotRm, collapse=', ')
-    kwords <- paste(' Trees absent from xytree in',kp)
-    cat( paste('\nNote: ',kwords, '\n') )
-  }
-  
-  treeid  <- colnames(distall)
-  trapid  <- rownames(distall)
-  distall <- distall[trapid,]
-  names(species) <- NULL
-  attr(distall,'species') <- species
-  
-  if( !'obsTrap' %in% colnames(tdata) ){           # observation period for traps
-    tdata$obsTrap <- addObsTrap(tdata, sdata)
-  }
-  tdata$obsTrap <- tdata$obsTrap*tdata$fit         # only include fit
-  
-  trapRows <- which(tdata$treeID %in% treeid &     # has seed trap and not serotinous
-                      tdata$fit == 1)
-  
-  drow  <- match(as.character(sdata$trapID), trapid)
-  sdata$drow <- drow
-  
-  ww <- which(is.na(tdata$dcol))      # if there are treesOnly
-  if(length(ww) > 0){
-    tidww  <- unique(tdata$treeID[ww])
-    mm     <- match(tdata$treeID[ww],tidww)
-    mm     <- mm + max(tdata$dcol, na.rm  = TRUE)
-    tdata$dcol[ww] <- mm
-  }
-  
-  distall[distall == 0] <- 10000
   
   tdata$species <- as.character(tdata$species)
   
-  seedNames <- seedNames[seedNames %in% colnames(sdata)]
-  
-  keepCol <- c('plot','trap','trapID','year','plotYr','plotyr','drow',
-               'area','active','obs',seedNames)
-  sdata   <- sdata[,keepCol]
   ynow    <- colnames(yrIndex)
   gy      <- columnPaste(tdata$group, yrIndex[,'year'])
   gyall   <- unique(gy)
   groupYr <- match(gy,gyall)
+  if( !'dcol' %in% colnames(tdata) )tdata$dcol <- 0
+  
   yrIndex <- cbind(yrIndex, tdata$dcol, groupYr)
   colnames(yrIndex) <- c(ynow, 'dcol','groupYr')
   
@@ -12434,6 +14061,9 @@ specPriorVector <- function(pVar, tdata){
       colnames(xt)    <- .replaceString(colnames(xt), st, '')
     }
     
+    s2 <- grep('^2',colnames(xt), fixed = TRUE)
+    if(length(s2) > 0)xt <- xt[,-s2]
+    
     if(ncol(xt) < 3)next
     
     xcheck <- .checkDesign(xt)
@@ -12465,34 +14095,48 @@ specPriorVector <- function(pVar, tdata){
   tdata$treeID  <- as.factor(tdata$treeID)
   if(!'repMu' %in% colnames(tdata))tdata$repMu <- .5
   
-  tdata$repMu[tdata$repr == 1] <- .99
-  tdata$repMu[tdata$repr == 0] <- .01
   tdata$repMu[!is.finite(tdata$repMu)] <- .5
   
   
-  plotYears <- sort(unique( c(as.character(tdata$plotYr), 
-                              as.character(sdata$plotYr))) )
+  plotYears <- sort(unique( as.character(tdata$plotYr)) )
+  if(SEEDDATA)plotYears <- sort(unique( c(plotYears, 
+                                          as.character(sdata$plotYr))) )
   
-  list(tdata = tdata, sdata = sdata, z = z, zmat = zmat, zknown = zknown,
-       distall = distall, seedNames = seedNames,
+  out <- list(tdata = tdata, z = z, zmat = zmat, zknown = zknown,
        specNames = specNames, arList = arList, plotYears = plotYears,
-       xytree = xytree, xytrap = xytrap, plotNames = plotNames,
-       plots = plotNames, years = years, xfec = xfec, xrep = xrep, scode = scode,
+       plotNames = plotNames, plots = plotNames, years = years, 
+       xfec = xfec, xrep = xrep, scode = scode,
        xfecMiss = xfecMiss, yeGr = yeGr,
        xrepMiss = xrepMiss, xfecCols = xfecCols, xrepCols = xrepCols,
        xmean = xmean, xsd = xsd, xfecU = xfecU, 
        xfecs2u = xfecs2u, xfecu2s = xfecu2s, xreps2u = xreps2u, xrepu2s = xrepu2s,
        xrepU = xrepU, xrepT = xrepT, specPlots = specPlots, yrIndex = yrIndex, 
-       notFit = notFit, trapRows = trapRows, VIF = vif, fstart = fstart,
+       notFit = notFit, notCols = notCols,
+       VIF = vif, fstart = fstart,
        fecMinCurrent = fecMinCurrent, fecMaxCurrent = fecMaxCurrent,
-       matYr = matYr, last0first1 = last0first1)
+       matYr = matYr, last0first1 = last0first1, minDiam = minDiam,
+       distTreeID = distTreeID)
+  if(SEEDDATA){
+    out$sdata <- sdata
+    out$seedNames <- seedNames
+    out$distall <- distall
+    out$xytree <- xytree
+    out$xytrap <- xytrap
+    out$trapRows <- trapRows
+  }
+  out
 }
+ 
 
-
-.unstandBeta <- function(formula, xdata, xnow, xmean=NULL, notCols=NULL){
+.unstandBeta <- function(formula, xdata, xnow, xmean=NULL, notCols=NULL, notFit = NULL,
+                         specNames){
   
   # xnow  - current standardized matrix
   # xdata - data.frame, unstandardized variables
+  
+  nspec <- length(specNames)
+  
+  xdata$species <- factor(xdata$species)
   
   tmp <- .get.model.frame(formula, xdata)  #unstandardized
   
@@ -12502,51 +14146,25 @@ specPriorVector <- function(pVar, tdata){
   
   xfu  <- .getDesign(formula, xdata)$x    # unstandardized
   
-  if(length(st) > 0 & length(xterm) > 1)xfu  <- xfu[,grep('species',colnames(xfu))]
+  if(length(st) > 0 & length(xterm) > 1)
+    xfu  <- xfu[,grep('species',colnames(xfu))]
   
-  xmm <- xfu
+  xuu <- xfu
   xss <- xnow  # standardized
   
-  if(length(notCols) > 0){
-    xmm <- xfu[,-notCols, drop  = TRUE]
-    xss <- xnow[,-notCols, drop  = TRUE]
+  
+  if( is.null(notFit) & !is.null(notCols))notFit <- colnames(xfu)[notCols]
+  
+  if(length(notFit) > 0){
     
+    xuu <- xfu[, !colnames(xfu) %in% notFit, drop  = TRUE]
+    xss <- xnow[, !colnames(xfu) %in% notFit, drop  = TRUE]
   }
-  UU <- crossprod(xss)                    # unstandardized
   
-  testv <- try( chol(UU) ,T)
-  if( inherits(testv,'try-error') ){
-    diag(UU)  <- diag(UU)*1.001
-    testv <- try(chol(UU, pivot  = TRUE),T)
-  }
-  V  <- chol2inv(testv)
-  rownames(V) <- colnames(V) <- rownames(UU)
+  u2s <- solveRcpp(crossprod(xss))%*%crossprod(xss,xuu)
+  s2u <- solveRcpp(crossprod(xuu))%*%crossprod(xuu,xss)
   
- # unstand <- solve(UU)%*%crossprod(xmm,xss) # stand to unstand
-  stand <- V%*%crossprod(xss,xmm)   # unstand to stand
-  
-  SS <- crossprod(xmm)                      # standardardized
-  
-  testv <- try( chol(SS) ,T)
-  if( inherits(testv,'try-error') ){
-    diag(SS)  <- diag(SS)*1.001
-    
-    testv <- try(chol(SS, pivot  = TRUE),T)
-  }
-  V  <- chol2inv(testv)
-  rownames(V) <- colnames(V) <- rownames(SS)
-  
-  unstand <- V%*%crossprod(xmm,xss) # stand to unstand
-  
-  if(length(notCols) > 0){                  # reorder
-    m1 <- m2 <- crossprod(xnow)*0
-    m1[rownames(unstand),colnames(unstand)] <- unstand
-    m2[rownames(stand),colnames(stand)] <- stand
-    unstand <- m1
-    stand <- m2
-  }
-    
-  list(x = xfu, unstand = unstand, stand = stand)
+  list(x = xfu, s2u = s2u, u2s = u2s)
 }
 
 .blockDiag <- function(mat1,mat2){
@@ -12602,14 +14220,22 @@ specPriorVector <- function(pVar, tdata){
   }
   
   uvec <- ug[1]
-  if(USPEC) uvec <- ug[ attr(distance,'species') ]
+#  if(USPEC) uvec <- ug[ attr(distance,'species') ]
+  
+  if(USPEC){
+    uvec <- matrix( ug[attr(distance, 'species')], nrow(distance), ncol(distance) )
+  }
  
-  dmat <- t(uvec/pi/(uvec + t(distance)^2)^2)
+  dmat <- uvec/pi/(uvec + distance^2)^2
   dmat[dmat < 1e-8] <- 0
+#  dmat[is.na(dmat)] <- 0
+  
+  plotyrs <- unique(sdat1$plotyr)
 
-  lambda <- kernYrRcpp(dmat, ff, yrs, seedyear = sdat1[,'year'],
-                    treeyear = tdat1[,'year'], seedrow = sdat1[,'drow'],
-                    treecol = tdat1[,'dcol'])
+  lambda <- kernYrRcpp(dmat, ff, seedrow = sdat1[,'drow'],
+                    treecol = tdat1[,'dcol'], plotyrs, 
+                    treeplotYr = tdat1[,'plotyr'], seedplotYr = sdat1[,'plotyr'])
+  
   if(SPECPRED){
     colnames(lambda) <- rownames(R)
     sname  <- sort(unique(attr(R,'species')))
@@ -12739,7 +14365,10 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
                             bottom = c(25:30) ) )
     return( list( mfrow=c(6,5), left = c(1,6,11,16,21,26), bottom = 26:30 ) )
   }
-  return( list( mfrow=c(6,6), left = c(1, 7, 13, 19, 25, 31), bottom = c(31:36) ) )
+  if(np <= 36){
+    return( list( mfrow=c(6,6), left = c(1, 7, 13, 19, 25, 31), bottom = c(31:36) ) )
+  }
+  return( list( mfrow=c(7,6), left = c(1, 7, 13, 19, 25, 31, 37), bottom = c(37:42) ) )
 }
 
 .seedProb <- function(tdat1, ug, fz, distall, sdat1, 
@@ -12757,9 +14386,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   
   nn <- length(x)
   if( nn != length(i) | nn != length(j) )
-    stop('vectors unequal in byFunctionRcpp')
+    stop('\nvectors unequal in byFunctionRcpp\n')
   if( nrow(summat) < max(i) | ncol(summat) < max(j) )
-    stop('matrix too small')
+    stop('\nmatrix too small\n')
   
   ww <- which(is.na(x))
   if(length(ww) > 0){
@@ -12801,7 +14430,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   hi[hi > 1000]  <- 1000
   
   if(max(whichSample) > length(muvec))
-    stop('whichSample outside length(muvec)')
+    stop('\nwhichSample outside length(muvec)\n')
   
   whichSample <- sample(whichSample) # randomize order
   
@@ -12826,40 +14455,44 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   tt <- tdata[ match(id,as.character(tdata$treeID)), ]  #unique trees
   zobs <- tdata$repr
   
- # wr <- sort(unique(tdata$dcol[trapRows]))
- # tt <- tt[wr,]
-  
   tdata$fecMin[zobs == 0 & tdata$fecMin > tiny] <- tiny
   tdata$fecMin[zobs == 1 & tdata$fecMin < 1] <- 1 + tiny
   tdata$fecMax[zobs == 0 & tdata$fecMax > 1] <- 1
   tdata$fecMax[zobs == 1 & tdata$fecMax < (1 + tiny)] <- 1 + tiny
   
   nspec  <- length(specNames)
-  dcol   <- numeric(0)
-  wdcol  <- unique(tdata$dcol[trapRows])
+  tnum   <- numeric(0)
   
-  # trees to include
-  for(j in 1:nspec){
+  plotyrs <- unique(tdata$plotyr[trapRows])
+  ny      <- length(plotyrs)
+  
+  for(j in 1:ny){
     
-    if(nspec > 1){
-      wj <- which(tt$species == specNames[j] & tt$fit == 1)
-      tj <- tt[drop = FALSE,wj,]
-    }else{
-      wj <- which(tt$fit == 1)
-      tj <- tt
+    ws <- which(sdata$plotyr == plotyrs[j])
+    wt <- which(tdata$plotyr == plotyrs[j])
+    wt <- wt[wt %in% trapRows]
+    
+    ds <- sdata$drow[ ws ]
+    dt <- tdata$dcol[ wt ]
+    
+    ys <- suppressWarnings( apply( distall[drop=F, ds, dt], 2, min, na.rm=T ) )
+    
+    close <- which(ys < 25)
+    
+    dj   <- wt[ close  ]
+    
+    if(length(dj) > 100){
+      ww <- order(ys, decreasing = F)[1:100]
+      dj <- dt[ww]
     }
-    tj <- tj[tj$dcol %in% wdcol,]
+    if(length(dj) == 0)dj <- wt
     
-    dtmp <- distall[,tj$treeID,drop = FALSE]   #####DCOL > NCOL(DISTALL)
-    dtmp[dtmp > 1000] <- NA
+    if( is.na(range(dj)[1]))stop()
     
-    dmin  <- apply(dtmp,2,min, na.rm  = TRUE)
-    qdiam <- quantile(tj$diam,.5)
-    
-    ww  <- which(dmin < 30 & tj$diam > qdiam)
-    dcol <- c(dcol, tj$dcol[ww])
+    tnum <- c(tnum, dj )
   }
-  wtree <- which(tdata$dcol %in% dcol & zobs != 0 & tdata$fit == 1)
+  
+  wtree <- which(tdata$tnum %in% tnum & zobs != 0 & tdata$fit == 1)
   
   fg <- rep(.5,nrow(tdata))
   
@@ -12871,34 +14504,38 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   wfix <- which(is.finite(fstart))
   if(length(wfix) > 0)FSTART <- TRUE
   
-  plotYr <- unique(tdata$plotYr[trapRows])
-  
-  for(j in 1:length(plotYr)){
+  for(j in 1:length(plotyrs)){
     
-    i  <- which(as.character(tdata$plotYr) == plotYr[j] )
+    i  <- which(tdata$plotyr == plotyrs[j] )
     m  <- i[ which(i %in% wtree) ]
-    k  <- which(sdata$plotYr == plotYr[j])
+    
+    k  <- which(sdata$plotyr == plotyrs[j])
     sj <- sum(ss[k])
     
     if(length(k) == 0)next
     if(length(i) == 0)next
     if(length(m) == 0 & sj > 0){
-      m <- which(as.character(tdata$plotYr) == plotYr[j] &
-                   tdata$fit == 1)
+      m <- which(tdata$plotyr == plotyrs[j] & tdata$fit == 1)
+      if(length(m) > 50)m <- sample(m, 50)
     }
     if(length(m) == 0)next
     
-    d <- unique(tdata$dcol[m])
-    dj <- d[d %in% dcol]
-    ij <- m[d %in% dcol]
+ #   d <- unique(tdata$tnum[m])
+ #   dj <- d[d %in% tnum]
+ #   ij <- m[d %in% tnum]
+ #   dcol <- tdata$dcol[dj]
+    
+    dcol <- tdata$dcol[m]
     if(length(dj) < 1){
-      ij <- which(tdata$plotYr == plotYr[j] & tdata$dcol %in% d)
-      dj <- tdata$dcol[ij]
+      ij <- which(tdata$plotyr == plotyrs[j] )# & tdata$tnum %in% d)
+   #   dj <- tdata$tnum[ij]
+      dcol <- tdata$dcol[ij]
     }
  
-    dk     <- distall[ sdata[k,'drow'], dj, drop = FALSE ]
+    dk     <- distall[ sdata[k,'drow'], dcol, drop = FALSE ]
+    
     kern   <- priorU/pi/(priorU + dk^2)^2
-    fg[ij] <- .getF( kern, gg = ss[k]/(.1 + sdata$area[k]) )
+    fg[m] <- .getF( kern, gg = ss[k]/(.1 + sdata$area[k]) )
   }
   
   fg[!is.finite(fg)] <- .1
@@ -12920,10 +14557,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   propU <- .1
   
   # by plot-yr
-  ii <- tdata$plotyr     #consider bnow[znow == 0] = 0
   sm <- matrix(0, max(c(tdata$plotyr, sdata$plotyr)), 1)
   
-  pcheck <- seq(1,nsim,by=20)
+  pcheck <- seq(1,nsim,by=20)  
   
   if(verbose)cat("\ninitializing\n")
   
@@ -12950,18 +14586,18 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   
   wwf <- which(is.finite(fss))
   
+  
   for(g in 1:nsim){
     
     fnew <- .tnorm(nn, lk, hk, fk, rexp(nn,1/pf))
     fnew[trapFix] <- fk[trapFix]
-  #  fnew[fnew < 0] <- 0
     
     if(FSTART)fnew[wwf] <- fss[wwf]
 
-    pnow <- .seedProb(tdata[trapRows,c('specPlot','year','dcol')],
-                      ug, fz = fk*zk, distall, sdata, 
+    pnow <- .seedProb(tdat1 = tdata[trapRows,c('specPlot','year','plotyr','dcol')],
+                      ug, fz = fk*zk, distall, sdat1 = sdata, 
                       seedNames, R, SAMPR, USPEC, years)
-    pnew <- .seedProb(tdata[trapRows,c('specPlot','year','dcol')],
+    pnew <- .seedProb(tdata[trapRows,c('specPlot','year','plotyr','dcol')],
                       ug, fnew*zk, distall, sdata, 
                       seedNames, R, SAMPR, USPEC, years)
     
@@ -12996,6 +14632,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       dl   <- pq - pall
       pall <- pq
       
+      
+      
+      
       if(dl < 0){
         count <- count + 1
         if(count > 4)break
@@ -13022,6 +14661,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   fstart[wtree] <- fg[wtree]
   fstart[fstart >= .95 & z == 0] <- .95
   fstart[fstart < 1 & z == 1] <- 1.01
+  fstart[fstart < 1e-4] <- 1e-4
   fstart
 }
 
@@ -13045,7 +14685,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   if(length(wi) > 0)colnames(x)[wi] <- 'intercept'
   
   wx <- grep(xflag,colnames(x))
-  wi <- which(colnames(x) == 'intercept')
+  wi <- which(colnames(x) == intName )
   wi <- unique(c(wi,wx))
   
   xname <- colnames(x)
@@ -13072,6 +14712,8 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     notk <- xname[xname != xname[k] & !xname %in% xname[wi]]
     ykk  <- x[,xname[k]]
     xkk  <- x[,notk,drop = FALSE]
+    
+    if(ncol(xkk) == 0)next
     
     wna <- which(is.na(ykk) | is.na(rowSums(xkk)))
     if(length(wna) > 0){
@@ -13120,9 +14762,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
        isFactor = isFactor, designTable = designTable, range = rr)
 }
 
-.wrapperBeta <- function( rvp, rVPI, priorB, priorIVB, SAMPR, obsRows, obsRowSeed,
+.wrapperBeta <- function( rvp, rVPI, priorB, priorIVB, SAMPR, obsRows,
                           tdata, xfecCols, xrepCols, last0first1, ntree, nyr, 
-                          betaPrior, years, distall, YR, AR, yrIndex,
+                          betaPrior, years, YR, AR, yrIndex,
                           RANDOM, reIndex, xrandCols, RANDYR, fitCols, 
                           specNames, FECWT){
   
@@ -13138,8 +14780,6 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     alphaRand <- pars$alphaRand
     Arand     <- pars$Arand
     ngroup    <- length(pars$ug)
-    
-    qf <- length(fitCols)
     qr <- ncol(xrep)
     
     accept <- 0
@@ -13161,7 +14801,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     if(FECWT)weight <- tdata$fecWt[obsRows]
     
     w0  <- which( colSums(xfz) == 0 )  
+    
     fitCols <- fitCols[!fitCols %in% w0]
+    qf <- length(fitCols)
     xfz <- xfz[,fitCols, drop = FALSE]
     bgf <- bgf[drop = FALSE,fitCols,]
     
@@ -13180,7 +14822,16 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       yg <- yg - reffect[obsRows]
     }
     
+    
+    if(!is.null(betaPrior)){
+      lims <- betaPrior$fec[fitCols,]
+    }
+    
     zrow <- z[obsRows]
+    
+    if(sum(zrow) <= ncol(xfz)){                     # insufficient mature trees
+      return( list(bgFec = bgFec, bgRep = bgRep) )
+    }
     
     if(ONEF){
       
@@ -13211,7 +14862,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       
       testv <- try( chol(XX) ,T)
       if( inherits(testv,'try-error') ){
-        diag(XX)  <- diag(XX) + .001
+        diag(XX)  <- diag(XX)*1.00001
         testv <- try(chol(XX, pivot  = TRUE),T)
       }
       V  <- chol2inv(testv)
@@ -13227,8 +14878,8 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
         }
       }else{
         diag(V) <- diag(V)*1.000000001
-        lims <- betaPrior$fec[fitCols,]
-        bgf  <- t(.tnormMVNmatrix( avec=t(V%*%v), muvec=t(V%*%v), smat=V,
+        ma   <- t(V%*%v)
+        bgf  <- t(.tnormMVNmatrix( avec=ma, muvec=ma, smat=V,
                                    lo=matrix(lims[,1],1), 
                                    hi=matrix(lims[,2],1)))
       }
@@ -13236,6 +14887,14 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     
     bgFec <- bgFec*0
     bgFec[fitCols,] <- bgf
+    
+    ww <- which(bgFec < betaPrior$fec[,1])
+    vv <- which(bgFec > betaPrior$fec[,2])
+    
+    if(length(ww) > 0 | length(vv) > 0){
+      print(bgFec)
+      stop( 'bgfec error' )
+    }
     
     # maturation
     if(ONER){
@@ -13269,7 +14928,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
                       seedNames, nspec, trapRows, obsRowSeed, obsYr, 
                       tau1, tau2, SAMPR, RANDYR, USPEC){
   
-  tdat <- tdata[trapRows,c('specPlot','year','dcol')]
+  tdat <- tdata[trapRows,c('specPlot','year','plotyr','dcol')]
   
   function(pars, z, propU, sdata){
                     
@@ -13284,7 +14943,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       names(unew) <- names(ug)
     }else{
       unew <- ug
-      unew[1:nspec] <- .tnorm(1, minU[1], maxU[1], ug[1], rexp(1, 1/propU) )
+      unew[1] <- .tnorm(1, minU[1], maxU[1], ug[1], rexp(1, 1/propU) )
     }
     
     if(!RANDYR){
@@ -13292,23 +14951,21 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       uvar  <- priorVU
     }
     
-    
-    pnow <- .seedProb(tdat, ug, fg[trapRows]*z[trapRows], distall, 
-                      sdata[obsRowSeed,], seedNames, 
-                      R, SAMPR, USPEC, obsYr)
-    pnew <- .seedProb(tdat, unew, fg[trapRows]*z[trapRows], distall, 
-                      sdata[obsRowSeed,], seedNames, 
-                      R, SAMPR, USPEC, obsYr) 
+    pnow <- .seedProb(tdat1 = tdat, ug, fz = fg[trapRows]*z[trapRows], distall, 
+                      sdat1 = sdata[obsRowSeed,], seedNames, 
+                      R, SAMPR, USPEC, year1 = obsYr)
+    pnew <- .seedProb(tdat1 = tdat, unew, fz = fg[trapRows]*z[trapRows], distall, 
+                      sdat1 = sdata[obsRowSeed,], seedNames, 
+                      R, SAMPR, USPEC, year1 = obsYr) 
     
     pnow <- sum(pnow) + sum( dnorm(ug, umean, sqrt(uvar),log  = TRUE) )
     pnew <- sum(pnew) + sum( dnorm(unew, umean, sqrt(uvar),log  = TRUE) )
-    
     pdif <- pnew - pnow
     
     a <- exp(pdif)
     if(is.finite(a)){
       if( runif(1,0,1) < a){
-        ug    <- unew
+        ug <- unew
         propU <- min(c( ug/4, propU*2) )
       }else{
         propU <- propU*.9 + .02
@@ -13358,11 +15015,12 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   dmat <- t(uvec/pi/(uvec + t(distall)^2)^2)
   dmat[dmat < 1e-8] <- 0
   
-  lambda <- kernYrRcpp(dmat, fz, years = obsYr, 
-                       seedyear = sdata$year[obsRowSeed],
-                       treeyear = tdata$year[obsRows], 
-                       seedrow = sdata$drow[obsRowSeed],
-                       treecol = tdata$dcol[obsRows])
+  plotyrs <- unique(sdata$plotyr[obsRows])
+  
+  lambda <- kernYrRcpp(dmat, fz, seedrow = sdata$drow[obsRowSeed],
+                       treecol = tdata$dcol[obsRows], plotyrs,
+                       treeplotYr = tdata$plotyr[obsRows], 
+                       seedplotYr = sdata$plotyr[obsRowSeed])
   if(SPECPRED){
     colnames(lambda) <- rownames(R)
     
@@ -13385,7 +15043,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   as.matrix( lambda*matrix( AA, nrow(lambda), ncol(lambda) ) )  # per trap
 }
 
-.wrapperStates <- function( maxFec, SAMPR, USPEC, RANDOM, obsTimes, plotYears,
+.wrapperStates <- function( SAMPR, USPEC, RANDOM, SEEDDATA, obsTimes, plotYears,
                             sdata, tdat, seedNames, last0first1, distall, 
                             YR, AR, trapRows, obsRows, obsTrapRows, obsYr, predYr, obsRowSeed, 
                             ntree, years, nyr, xrandCols, reIndex, yrIndex, 
@@ -13410,8 +15068,13 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     alphaRand <- pars$alphaRand
     Arand     <- pars$Arand
     R         <- pars$R
-    fecMinCurrent <- pars$fecMinCurrent
-    fecMaxCurrent <- pars$fecMaxCurrent
+    fecMinCurrent <- tdat$fecMin
+    fecMaxCurrent <- tdat$fecMax
+    
+    fecMinCurrent[z == 1 & fecMinCurrent < 1] <- 1
+    fecMinCurrent[z == 0 & fecMinCurrent > 1e-4] <- 1e-4
+    fecMaxCurrent[z == 0 & fecMaxCurrent > .999] <- .999
+
     
     nxx       <- length(fg)
     ngroup    <- nrow(betaYrR)
@@ -13421,15 +15084,18 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       
     nspec  <- nrow(R)
     
-    ONEF <- ONER <- ONEA <- FALSE
+    ONEF <- ONER <- ONEA    <- FALSE
     if(ncol(xfec) == 1)ONEF <- TRUE
     if(ncol(xrep) == 1)ONER <- TRUE
     if(length(Arand) == 1)ONEA <- TRUE
     
     if(AR)lindex <- 1:plag
     
-    fg[fg > fecMaxCurrent] <- fecMaxCurrent[fg > fecMaxCurrent]
-    fg[fg < fecMinCurrent] <- fecMinCurrent[fg < fecMinCurrent]
+    ww <- which(fg > fecMaxCurrent)
+    vv <- which(fg < fecMinCurrent)
+    
+    if(length(ww) > 0)fg[ww] <- fecMaxCurrent[ww]
+    if(length(vv) > 0)fg[vv] <- fecMinCurrent[vv]
     propF[propF > .1*fg] <- .1*fg[propF > .1*fg]
     
     yg <- log(fg)
@@ -13454,7 +15120,6 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     if(RANDOM){                        
       reffect <- xfec[,xrandCols]*alphaRand[reIndex,]
       if(!ONEA)reffect <- rowSums( reffect )
-  #    yg <- yg - reffect
     }
     
     lmu           <- xfec%*%bgFec
@@ -13464,9 +15129,10 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
     
     tt <- rbinom(1,1,pHMC)
     
-    if(tt == 1){
+    if(tt == 1 & SEEDDATA & !AR){
       
       fg[fg < 1e-6] <- 1e-6
+      
       tmp <- HMC(ff = fg[obsTrapRows], fMin = fecMinCurrent[obsTrapRows], 
                  fMax = fecMaxCurrent[obsTrapRows], 
                  ep = epsilon[obsTrapRows],   
@@ -13476,8 +15142,12 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       fg[obsTrapRows] <- tmp$fg
       epsilon[obsTrapRows] <- tmp$epsilon
       
-      fg[fg > fecMaxCurrent] <- fecMaxCurrent[fg > fecMaxCurrent]
-      fg[fg < fecMinCurrent] <- fecMinCurrent[fg < fecMinCurrent]
+      
+      ww <- which(fg > fecMaxCurrent)
+      vv <- which(fg < fecMinCurrent)
+      
+      if(length(ww) > 0)fg[ww] <- fecMaxCurrent[ww]
+      if(length(vv) > 0)fg[vv] <- fecMinCurrent[vv]
       
       fg[fg < 1e-6] <- 1e-6
       
@@ -13495,23 +15165,32 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       
       tmp      <- .propZ(zmat, last0first1, matYr)
       zmatNew  <- tmp$zmat
-      znew     <- zmatNew[ yrIndex[,c('dcol','year')] ] 
+      znew     <- zmatNew[ yrIndex[,c('tnum','year')] ] 
       
+    #  znew[ tdat$repr == 1 ] <- 1
+    #  znew[ tdat$repr == 0 ] <- 0
+      
+      zmatNew[ yrIndex[,c('tnum','year')] ] <- znew
       
       matYrNew <- tmp$matYr 
       mnow <- z*log(pr) + (1 - z)*log(1 - pr)
       mnew <- znew*log(pr) + (1 - znew)*log(1 - pr)
       
-      dz <- znew - z
+  #    dz <- znew - z
       lo <- fecMinCurrent
       hi <- fecMaxCurrent
-      lo[dz == 1] <- 1
-      hi[dz == 1] <- tdat[,'fecMax'][dz == 1]
-      lo[dz == -1] <- 1e-6
-      hi[dz == -1] <- 1
+      lo[znew == 0 & lo > 1] <- 1e-4
+      lo[znew == 1 & lo < 1] <- 1
+      hi[znew == 0 & hi > 1] <- 1
+      hi[znew == 1 & hi < 1] <- 1
+      
+      
+  #    lo[dz == 1] <- 1
+  #    hi[dz == 1] <- tdat[,'fecMax'][dz == 1]
+  #    lo[dz == -1] <- 1e-4
+  #    hi[dz == -1] <- 1
       
       fnew <- .tnorm(nall, lo, hi, fg, rexp(nxx,1/propF), .001)
-      fnew[fnew < 1e-6] <- 1e-6
       ynew <- log(fnew)
       
       # fecundity model
@@ -13522,52 +15201,62 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       bnow[z == 1]    <- dnorm(yg[z == 1], lmu[z == 1], ss, log  = TRUE) 
       bnew[znew == 1] <- dnorm(ynew[znew == 1], lmu[znew == 1], ss, log  = TRUE) 
       
-      if(!is.null(seedTraits)){
+      if( !is.null(seedTraits) ){
+        
         wc <- which(z == 1 & is.finite(tdat$cropCount))
-        fc <- round(fg[wc])
         
-        oss <- tdat$cropCount[wc]*seedTraits[tdat$species[wc],'seedsPerFruit']
-        
-        cnow <- cnew <- fc*0
-        tf <- tdat$cropFraction[wc]
-        ts <- tdat$cropFractionSd[wc]
-        cnow <- dbetaBinom(oss, round(fc), tf, ts, log  = TRUE)
-        
-        bnow[wc] <- bnow[wc] + cnow
-        
-        fn <- round(fnew[wc])
-
-        cnew <- dbetaBinom(oss, round(fn), tf, ts, log  = TRUE)
-        bnew[wc] <- bnew[wc] + cnew 
+        if(length(wc) > 0){
+          
+          fc <- round(fg[wc])
+          
+          oss <- tdat$cropCount[wc]*seedTraits[tdat$species[wc],'seedsPerFruit']
+          
+          cnow <- cnew <- fc*0
+          tf <- tdat$cropFraction[wc]
+          ts <- tdat$cropFractionSd[wc]
+          cnow <- dbetaBinom(oss, fc, tf, ts, log  = TRUE)
+          
+          bnow[wc] <- bnow[wc] + cnow
+          
+          fn <- round(fnew[wc])
+          
+          cnew <- dbetaBinom(oss, fn, tf, ts, log  = TRUE)
+          bnew[wc] <- bnew[wc] + cnew 
+        }
       }
       
       w0 <- which(z == 0 | znew == 0)
       bnew[w0] <- bnow[w0] <- 0
       
-      # seed
-      pnow <- pnew <- matrix(0,nrow(sdata),length(seedNames))
-      pnow[obsRowSeed,] <- .seedProb(tdat[obsTrapRows,c('specPlot','year','dcol')],
-                                     ug, fg[obsTrapRows]*z[obsTrapRows], 
-                                    distall, sdata[obsRowSeed,], seedNames, R, 
-                                    SAMPR, USPEC, obsYr)
-      pnew[obsRowSeed,] <- .seedProb(tdat[obsTrapRows,c('specPlot','year','dcol')], 
-                                     ug, fnew[obsTrapRows]*znew[obsTrapRows], 
-                                    distall, sdata[obsRowSeed,], seedNames, R, 
-                                    SAMPR, USPEC, obsYr)
-      pnow[pnow < -1e+10] <- -1e+10   # intensity parameter is zero
-      pnew[pnew < -1e+10] <- -1e+10
+      pdif <- 0
+      sm   <- matrix(0, max( tdat$plotyr ), 1)
       
-      # by plot-yr
-      ii <- tdat$plotyr     #consider bnow[znow == 0] = 0
-      sm <- matrix(0, max(c(tdat$plotyr, sdata$plotyr)), 1)
-      
-      mdif <- .myBy(mnew - mnow, ii, ii*0+1,summat = sm, fun='sum')
+      ii   <- tdat$plotyr     #consider bnow[znow == 0] = 0
       bdif <- .myBy(bnew - bnow, i = ii, j = ii*0 + 1, summat = sm*0, fun='sum')
+      mdif <- .myBy(mnew - mnow, ii, ii*0+1,summat = sm, fun='sum')
       
-      ii <- sdata$plotyr
-      ii <- rep(ii, length(seedNames))
+      if(SEEDDATA){
+        pnow <- pnew <- matrix(0,nrow(sdata),length(seedNames))
+        pnow[obsRowSeed,] <- .seedProb(tdat[obsTrapRows,c('specPlot','year','plotyr','dcol')],
+                                       ug, fg[obsTrapRows]*z[obsTrapRows], 
+                                       distall, sdata[obsRowSeed,], seedNames, R, 
+                                       SAMPR, USPEC, obsYr)
+        pnew[obsRowSeed,] <- .seedProb(tdat[obsTrapRows,c('specPlot','year','plotyr','dcol')], 
+                                       ug, fnew[obsTrapRows]*znew[obsTrapRows], 
+                                       distall, sdata[obsRowSeed,], seedNames, R, 
+                                       SAMPR, USPEC, obsYr)
+        pnow[pnow < -1e+10] <- -1e+10   # intensity parameter is zero
+        pnew[pnew < -1e+10] <- -1e+10
+        
+        # by plot-yr
+        
+        ii <- sdata$plotyr
+        ii <- rep(ii, length(seedNames))
+        
+        sm   <- matrix(0, max( c(tdat$plotyr, sdata$plotyr) ), 1)
+        pdif <- .myBy(as.vector(pnew - pnow), ii, ii*0 + 1, summat = sm*0, fun='sum')
+      }
       
-      pdif <- .myBy(as.vector(pnew - pnow), ii, ii*0 + 1, summat = sm*0, fun='sum')
 
       a  <- exp( pdif + bdif + mdif )        
       az  <- runif(length(a),0,1)
@@ -13585,7 +15274,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
         z[ wa ]  <- znew[ wa ]
         fecMinCurrent[wa] <- lo[wa]
         fecMaxCurrent[wa] <- hi[wa]
-        zmat[ yrIndex[,c('dcol','year')] ] <- z  
+        zmat[ yrIndex[,c('tnum','year')] ] <- z  
         
         tmp <- apply(zmat,1,which.max)
         tmp[rowSums(zmat) == 0] <- ncol(zmat)
@@ -13600,31 +15289,28 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
       }
       
     }else{         # AR
-      
+       
       #independence sampler
       
       p2s <- rep(0,length(plotYears))
       
       yy <- mu <- matrix(0, ntree, nyr)
-      yy[ yrIndex[,c('dcol','year')] ] <- yg
-      mu[ yrIndex[,c('dcol','year')] ] <- lmu
+      yy[ yrIndex[,c('tnum','year')] ] <- yg
+      mu[ yrIndex[,c('tnum','year')] ] <- lmu
       
       #prior for backcast based on obsRows
       
-      yprior <- .myBy(yg[obsRows], yrIndex[obsRows,'dcol'], 
+      yprior <- .myBy(yg[obsRows], yrIndex[obsRows,'tnum'], 
                       obsRows*0+1, fun='mean')
       
       for(t in 1:length(predYr)){        
         
         tii  <- which(yrIndex[,'year'] == t)  # row in tdat
         oii  <- tii[ tdat$obs[tii] == 1]      # with observations
-        yii  <- yrIndex[tii,'dcol']           # location in ytmp
+        yii  <- yrIndex[tii,'tnum']           # location in ytmp
         nii  <- length(yii)
         fmin <- log(tdat$fecMin[tii])       # from data
         fmax <- log(tdat$fecMax[tii])
-        
-     #   fminCurrent <- log(fecMinCurrent[tii]) # from imputation
-     #   fmaxCurrent <- log(fecMaxCurrent[tii])
         
         zt <- zmat[yii,t]
         zp <- rbinom(length(zt),1,.5)
@@ -13672,7 +15358,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
         }
         V <- sg/VI
         
-        if(t > max(obsTimes)){    ###### predict forward
+        if( t > max(obsTimes) ){    ###### predict forward
           
           if(length(aw) > 0){
             z[ tii[aw] ] <- zp[ aw ]
@@ -13705,7 +15391,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
         }
         vt <- vt/sg 
         
-        if(t <= plag){       #### imput backward
+        if(t <= plag){       #### impute backward
           
           if(length(aw) > 0){
             z[ tii[aw] ] <- zp[ aw ]
@@ -13730,9 +15416,9 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
         seed <- sdata[sii,]
         spy  <- seed$plotyr
         
-        wtt <- which(!tree$plotyr %in% spy) 
+        wtt <- which( !tree$plotyr %in% spy ) 
         
-        if(length(wtt) > 0){         #year before seed data, draw from conditional
+        if( length(wtt) > 0 ){         #year before seed data, draw from conditional
           if(length(aw) > 0){
             aww <- aw[aw %in% wtt]   #year before and update
             z[ tii[aww] ] <- zp[ aww ]
@@ -13755,11 +15441,13 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
           }
         }
         
-        if(length(spy) > 0){
+        cdif <- numeric(0)
+        
+        if( length(spy) > 0 ){
           
           cnow <- cnew <- 0
           
-          if(!is.null(seedTraits)){
+          if( !is.null(seedTraits) ){
             cc <- is.finite(tree$cropCount)
             wc <- which(z[tii] == 1 & cc)
             
@@ -13770,55 +15458,51 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
               oss <- tree$cropCount[wc]*seedTraits[tree$species[wc],'seedsPerFruit']
               
               cnow <- cnew <- fc*0
-              tf <- tree$cropFraction[wc]
-              ts <- tree$cropFractionSd[wc]
-              
+              tf   <- tree$cropFraction[wc]
+              ts   <- tree$cropFractionSd[wc]
               cnow <- dbetaBinom(oss, round(fc), tf, ts, log  = TRUE)
-              
-              fn <- round(exp(ynew[wc]))
+
+              fn   <- round(exp(ynew[wc]))
               cnew <- dbetaBinom(oss, round(fn), tf, ts, log  = TRUE)
-              ip <- match(tree$plotYr[wc],plotYears)
-              sm <- matrix(0,max(ip),1)
-              
-              cnow <- .myBy(cnow, ip, ip*0+1,summat = sm, fun='sum')
-              cnew <- .myBy(cnew, ip, ip*0+1,summat = sm, fun='sum')
+              ip   <- match(tree$plotYr[wc],plotYears)
+              sm   <- matrix(0,max(ip),1)
+              cdif <- .myBy(cnew - cnow, ip, ip*0+1,summat = sm, fun='sum')
             }
           }
           
           #########################
           
-          wii <- which(tii %in% obsTrapRows)
-          qii <- tii[wii]
-          
-          pnow <- .seedProb(tree[wii,c('specPlot','year','dcol')],
-                            ug, fg[qii]*z[qii], distall, seed,
-                            seedNames, R, SAMPR, USPEC, years[t])
-          pnew <- .seedProb(tree[wii,c('specPlot','year','dcol')],
-                            ug, exp(ynew[wii])*zp[wii], distall, seed,
-                            seedNames, R, SAMPR, USPEC, years[t]) ###############z[tii]
-          pnow[pnow < -1e+10] <- -1e+10   # intensity parameter is zero
-          pnew[pnew < -1e+10] <- -1e+10
-          
-          iy <- seed$plotyr
-          iy <- rep(iy,length(seedNames))
-          
-          
-          pnow <- .myBy(as.vector(pnow), iy, iy*0 + 1, fun='sum')
-          pnew <- .myBy(as.vector(pnew), iy, iy*0 + 1, fun='sum')
-          
-          pyID <- unique(iy)       # plot yr for pnew/pnow
-          p2s[pyID] <- p2s[pyID] + pnew[pyID] - pnow[pyID]
+          if(SEEDDATA){
+            wii <- which(tii %in% obsTrapRows)
+            qii <- tii[wii]
+            
+            pnow <- .seedProb(tree[wii,c('specPlot','year','plotyr','dcol')],
+                              ug, fg[qii]*z[qii], distall, seed,
+                              seedNames, R, SAMPR, USPEC, years[t])
+            pnew <- .seedProb(tree[wii,c('specPlot','year','plotyr','dcol')],
+                              ug, exp(ynew[wii])*zp[wii], distall, seed,
+                              seedNames, R, SAMPR, USPEC, years[t]) ###############z[tii]
+            pnow[pnow < -1e+10] <- -1e+10   # intensity parameter is zero
+            pnew[pnew < -1e+10] <- -1e+10
+            
+            iy   <- seed$plotyr
+            iy   <- rep(iy,length(seedNames))
+            pdif <- .myBy(as.vector(pnew - pnow), iy, iy*0 + 1, fun='sum')
+            
+            pyID <- unique(iy)       # plot yr for pnew/pnow
+            p2s[pyID] <- p2s[pyID] + pdif[pyID]
+            
+          }
           
           ip <- match(tree$plotYr,plotYears)
           sm <- matrix(0,max(ip),1)
           
-          mnow <- .myBy(mnow, ip, ip*0+1,summat = sm, fun='sum')
-          mnew <- .myBy(mnew, ip, ip*0+1,summat = sm, fun='sum')
+          mdif <- .myBy(mnew - mnow, ip, ip*0+1,summat = sm, fun='sum')
           
           myID <- unique(ip)
-          p2s[myID] <- p2s[myID] +  mnew[myID] - mnow[myID]
-          if(!is.null(seedTraits) & length(cnow) > 1)
-            p2s[myID] <- p2s[myID] +  cnew[myID] - cnow[myID]
+          p2s[myID] <- p2s[myID] +  mdif[myID] 
+          if(!is.null(seedTraits) & length(cdif) > 1)
+            p2s[myID] <- p2s[myID] + cdif[myID] 
           
           a  <- exp( p2s )        
           az  <- runif(length(a),0,1)
@@ -13834,10 +15518,11 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
             fecMaxCurrent[ tii[wa] ]  <- exp(hn[wa])
             #      zmat[wa,t] <- z[ tii[wa] ]
           }
+          if(is.na( max(fecMaxCurrent) ) ) stop()
         }
       }
       
-      yg <- yy[ cbind(tdat$dcol, tdat$times) ]
+      yg[obsRowSeed] <- yy[ cbind(tdat$dcol[obsRowSeed], tdat$times[obsRowSeed]) ]
       tmp <- apply(zmat,1,which.max)
       tmp[rowSums(zmat) == 0] <- ncol(zmat)
       matYr <- tmp
@@ -13861,7 +15546,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
          epsilon = epsilon, accept = accept) 
   } 
 }
-
+ 
 .getF <- function(kern, gg ){
   
   tiny <- .0001
@@ -13885,15 +15570,15 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   form <- .replaceString(form, '* 1','')
   form <- .replaceString(form, '*1','')
   if(NOINTERCEPT) form <- paste(form, '-1')
-  as.formula(form)
+  as.formula( paste(form, collapse = ' ') )
 }
 
 .getBetaPrior <- function(betaPrior, bgFec, bgRep, specNames){
   
-  fecHi <- bgFec*0 + 10
-  fecLo <- bgFec*0 - 10
-  repHi <- bgRep*0 + 10
-  repLo <- bgRep*0 - 10
+  fecHi <- bgFec*0 + 5
+  fecLo <- bgFec*0 - 5
+  repHi <- bgRep*0 + 5
+  repLo <- bgRep*0 - 5
   nspec <- length(specNames)
   
   if('pos' %in% names(betaPrior)){
@@ -13929,7 +15614,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   
   wz <- which(z == 1 & obs == 1)
   nk <- max(yrIndex[,'year'])              # no. years
-  yk <- yrIndex[wz,c('group','year')]      # year groups, years
+  yk <- yrIndex[wz,c('group','year'), drop=FALSE]      # year groups, years
   G  <- length(yeGr)
   bf <- betaYrF*0
   
@@ -13953,10 +15638,17 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   
   # random effects
   
-  ygroup <- .myBy(yfix, yk[,1], yk[,2], 
-                  summat=matrix(0, G, nk), fun='sum')
-  ngr  <- .myBy(wz*0+1, yk[,1], yk[,2], 
-                summat=matrix(0, G, nk), fun='sum')
+  summat <- matrix(0, G, nk)
+  if(nrow(yk) > 1){
+    ygroup <- .myBy(yfix, yk[,1, drop=FALSE], yk[,2, drop=FALSE], 
+                    summat = summat, fun='sum')
+    ngr  <- .myBy(wz*0+1, yk[,1, drop=FALSE], yk[,2, drop=FALSE], 
+                  summat = summat, fun='sum')
+  }else{
+    ygroup <- ngr <- summat
+    ygroup[ yk ] <- yfix
+    ngr[yk] <- 1
+  }
   
   v  <- ygroup/sg 
   V  <- 1/(ngr /sg + matrix(1/sgYr, G, nk, byrow  = TRUE))
@@ -13986,7 +15678,7 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
                      tdat, R, priorR, priorRwt, years, posR, plots){
   
   mnew <- R
-  mnew[posR] <- .tnorm(length(posR), 0, 1, R[posR], .02)
+  mnew[posR] <- .tnorm(length(posR), 0, 1, R[posR], rexp(length(posR),50))
   
   mnew <- sweep(mnew, 1, rowSums(mnew,na.rm  = TRUE), '/')
  # mnew[-posR] <- 0
@@ -14000,10 +15692,10 @@ dtpois <- function(lo, hi, mu, index = NULL, tiny = 1e-10){
   qnow <- tapply(as.vector(qnow), jj, sum, na.rm  = TRUE)
   qnew <- tapply(as.vector(qnew), jj, sum, na.rm  = TRUE)
 
-  tnow <- .seedProb(tdat[,c('specPlot','year','dcol')],
+  tnow <- .seedProb(tdat[,c('specPlot','year','plotyr','dcol')],
                     ug, fz, distall, sdata, seedNames,
                         R, SAMPR, USPEC, years)
-  tnew <- .seedProb(tdat[,c('specPlot','year','dcol')],
+  tnew <- .seedProb(tdat[,c('specPlot','year','plotyr','dcol')],
                     ug, fz, distall, sdata, seedNames,
                     mnew, SAMPR, USPEC, years)
   tnow[!is.finite(tnow)] <- -10   # intensity parameter is zero
@@ -14070,7 +15762,7 @@ sqrtSeq <- function(maxval){ #labels for sqrt scale
   
   if(!is.null(bins))nbin <- length(bins)
   
-  if(log & SQRT)stop('cannot have both log and SQRT scale')
+  if(log & SQRT)stop('\ncannot have both log and SQRT scale\n')
   
   yMean <- as.matrix(yMean)
   obs   <- as.matrix(obs)
@@ -14413,13 +16105,33 @@ smooth.na <- function(x,y){
   return(cbind(xnew,ynew))
 }
 
-.boxplotQuant <- function( xx, ..., boxfill=NULL ){
-  
-  tmp <- boxplot( xx, ..., plot = FALSE)
-  ss  <- apply( xx, 2, quantile, pnorm(c(-1.96,-1,0,1,1.96)), na.rm  = TRUE ) 
-  tmp$stats <- ss
+.boxplotQuant <- function( xx, ..., boxfill=NULL, omit.na = TRUE ){
   
   pars <- list(...)
+  
+  #print(pars)
+  
+  q    <- pnorm(c(-1.96, -1, 0, 1, 1.96))
+  qfec <- apply( xx, 2, quantile, q, na.rm=T )
+  
+  wf   <- which( is.finite(qfec[1,]) )
+  if(omit.na){
+    xx <- xx[,wf, drop=F]
+    qfec <- qfec[,wf, drop=F]
+    if('border' %in% names(list))border = border[wf]
+    if('whiskcol' %in% names(list))whiskcol = whiskcol[wf]
+    if('boxfill' %in% names(list))boxfill = boxfill[wf]
+  }else{
+    qfec[,wf, drop=F] <- 0
+  }
+  
+ # print('i2')
+  
+  tmp <- boxplot( xx, ..., na.rm=T, plot = FALSE)
+ # ss  <- apply( xx, 2, quantile, q), na.rm  = TRUE ) 
+  tmp$stats <- qfec
+  
+
   if( 'col' %in% names(pars) )boxfill <- pars$col
   
   bxp( tmp, ..., boxfill = boxfill )

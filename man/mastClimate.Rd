@@ -6,7 +6,7 @@ Annotates \code{treeData} for \code{mastif} to include covariates.
 }
 \usage{
   mastClimate(file, plots, years, months, FUN = 'mean', 
-              vname = character(0))
+              vname = '', lastYear = 2021)
 }
 \arguments{
   \item{file}{\code{character} giving the path and file name where covariate is stored in \code{mastif} covariate format (see Details).}
@@ -19,7 +19,9 @@ Annotates \code{treeData} for \code{mastif} to include covariates.
   
   \item{FUN}{\code{character} specifies how monthly covariate values are combined into annual values.}
   
-  \item{vname}{name to use for this variable in model.}
+  \item{vname}{name to use for a variable in the model that comes from \code{file}.}
+  
+  \item{lastYear}{last data year to include.}
 }
 
 \details{
@@ -63,7 +65,7 @@ inputs$treeData <- treeData
 formulaRep <- as.formula( ~ diam )
 formulaFec <- as.formula( ~ diam + tminSprAnomaly )        
   
-yearEffect <- list(groups ='species', p = 3)  # AR(3) model, species are lag groups, 
+yearEffect <- list(groups ='species', p = 3)  # AR(3) model, species are lag groups
   
 output <- mastif(inputs = inputs, formulaFec, formulaRep, 
                  yearEffect = yearEffect, ng = 2000, burnin = 1000)
@@ -73,7 +75,7 @@ output <- mastif(inputs = inputs, formulaFec, formulaRep,
 James S Clark, \email{jimclark@duke.edu}
 }
 \references{
-Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, in press.
+Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, e01381.
 }
 \seealso{
 

@@ -44,7 +44,7 @@ Maps dispersal data (trees and seed traps) with predictions.
   
   \code{SCALEBAR}: add a scale bar with distance to bottom of map.
   
-  \code{scaleValue}: \code{numeric} value in meters used if \code{SCALEBAR = T}.
+  \code{scaleValue}: \code{numeric} value in meters used if \code{SCALEBAR = TRUE}.
   
   \code{mfrow}: \code{numeric vector} of length-2, giving numbers of rows and columns for plots, see \code{help(pars)}. 
   
@@ -56,7 +56,7 @@ Maps dispersal data (trees and seed traps) with predictions.
 
 Generates of map of seed traps and trees, with symbols scaled to the sizes relative to seed counts in \code{sdata$seedNames} and \code{treeSymbol}.  Sizes are adjusted with \code{scaleTree} and \code{scaleTrap}.
 
-If \code{PREDICT = T}, then predictions come in the object fitted in \code{mastif} with \code{predictList} used to specify prediction plots and years.  See the help page for \code{mastif}. 
+If \code{PREDICT = TRUE}, then predictions come in the object fitted in \code{mastif} with \code{predictList} used to specify prediction plots and years.  See the help page for \code{mastif}. 
 
 More detailed vignettes can be obtained with:
 
@@ -91,7 +91,7 @@ mapList <- list( treeData = treeData, seedData = seedData,
                  specNames = specNames, seedNames = seedNames, 
                  xytree = xytree, xytrap = xytrap, mapPlot = 'DUKE_BW', 
                  mapYears = c(2004:2007), treeScale = .5, trapScale=1.2, 
-                 plotScale = 1.2, LEGEND=T)
+                 plotScale = 1.2, LEGEND=TRUE)
 mastMap(mapList) 
 }
 }
@@ -99,7 +99,7 @@ mastMap(mapList)
 James S Clark, \email{jimclark@duke.edu}
 }
 \references{
-Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, in press.
+Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, e01381.
 }
 \seealso{
 \code{\link{mastSim}} simulates data

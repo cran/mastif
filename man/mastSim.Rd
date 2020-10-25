@@ -85,10 +85,10 @@ Returns an object of \code{\link{class} "mastif"}, a list containing the followi
 \donttest{
 # simulate data 
 seedNames  <- specNames  <- 'acerRubr'
-sim <- list(nyr=10, ntree=30, nplot=5, ntrap=40, 
+sim <- list(nyr = 10, ntree = 30, nplot = 5, ntrap = 40, 
             specNames = specNames, seedNames = seedNames)
 inputs <- mastSim(sim)
-output <- mastif( inputs = inputs, ng = 200, burnin = 100 ) 
+output <- mastif( inputs = inputs, ng = 500, burnin = 200 ) 
 
 # increase iterations, then plot:
 

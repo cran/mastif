@@ -7,19 +7,20 @@ using namespace arma;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
-arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, arma::uvec years,
-                     arma::uvec seedyear, arma::uvec treeyear,
-                     arma::uvec seedrow, arma::uvec treecol){
-  int ny = years.size();
-  int nr = seedyear.size();
+arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, 
+                     arma::uvec seedrow, arma::uvec treecol, 
+                     arma::uvec plotyrs,
+                     arma::uvec treeplotYr, arma::uvec seedplotYr){
+  int ny = plotyrs.size();
+  int nr = seedrow.size();
   int nf = fec.n_cols;
   int sindex, tindex, dsindex, dtindex;
   arma::mat lambda(nr,nf); lambda.fill(0);
   
   for(int j = 0; j < ny; j++){
     
-    uvec ws = find(seedyear == years(j));
-    uvec wt = find(treeyear == years(j));
+    uvec ws = find(seedplotYr == plotyrs(j));
+    uvec wt = find(treeplotYr == plotyrs(j));
     if(ws.size() == 0) continue;
     
     uvec ds = seedrow.elem( ws ) - 1;
@@ -47,6 +48,47 @@ arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, arma::uvec years,
   return lambda;
 }
 
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+arma::mat kernYrRcppOld(arma::mat dmat, arma::mat fec, arma::uvec years,
+                     arma::uvec seedyear, arma::uvec treeyear,
+                     arma::uvec seedrow, arma::uvec treecol){
+  int ny = years.size();
+  int nr = seedyear.size();
+  int nf = fec.n_cols;
+  int sindex, tindex, dsindex, dtindex;
+  arma::mat lambda(nr,nf); lambda.fill(0);
+  
+  for(int j = 0; j < ny; j++){
+    
+    uvec ws = find(seedyear == years(j));
+    uvec wt = find(treeyear == years(j));
+    if(ws.size() == 0) continue;
+    
+    uvec ds = seedrow.elem( ws ) - 1;
+    uvec dt = treecol.elem( wt ) - 1;
+    
+    for(int l = 0; l < nf; l++){
+      
+      for(unsigned int i = 0; i < ws.n_elem; i++){
+        
+        sindex = ws(i);
+        dsindex = ds(i);
+        double lsum = 0.0;
+        
+        for(unsigned int k = 0; k < wt.n_elem; k++){
+          
+          tindex  = wt(k);
+          dtindex = dt(k);
+          
+          lsum = lsum + dmat(dsindex,dtindex)*fec(tindex,l);
+        }
+        lambda(sindex,l) = lsum;
+      }
+    }
+  }
+  return lambda;
+}
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
 Rcpp::List byRcpp(const int nr, const arma::mat frommat,

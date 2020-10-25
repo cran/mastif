@@ -8,5 +8,5 @@ citEntry(entry = "Article",
   journal = 'Ecological Monographs',
   url = "http://sites.nicholas.duke.edu/clarklab/code/",
   textVersion  = paste("Clark, J.S., C. Nunes, and B. Tomasek (2019).","Fecundity of trees and the colonization-competition hypothesis. Ecological Monographs",
-          "in press")
+          "e01381")
   )

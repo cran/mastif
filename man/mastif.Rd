@@ -211,7 +211,7 @@ mastPlot(output)
 James S Clark, \email{jimclark@duke.edu}
 }
 \references{
-Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, in press.
+Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, e01381.
 }
 \seealso{
 \code{\link{mastSim}} simulates data
