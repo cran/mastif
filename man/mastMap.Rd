@@ -5,7 +5,6 @@
 Maps dispersal data (trees and seed traps) with predictions.
 }
 \usage{
-                        
   mastMap(mapList)
 }
 \arguments{
@@ -76,7 +75,7 @@ sim    <- list(nyr=10, ntree=30, nplot=5,
 inputs <- mastSim(sim)
 
 inputs$mapPlot <- 'p1'
-inputs$ mapYears = inputs$years[1]
+inputs$mapYears = inputs$years[1]
 
 mastMap( inputs )
 

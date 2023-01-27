@@ -57,8 +57,8 @@ inputs <- mastFillCensus(inputs)
 
 formulaFec <- formulaRep <- as.formula(~ diam)
                   
-output <- mastif(inputs = inputs, formulaFec, formulaRep, ng = 2000, 
-                 burnin = 1000)
+output <- mastif(inputs = inputs, formulaFec, formulaRep, ng = 1000, 
+                 burnin = 400)
 }
 }
 \author{

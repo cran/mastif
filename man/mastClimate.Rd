@@ -5,8 +5,8 @@
 Annotates \code{treeData} for \code{mastif} to include covariates.
 }
 \usage{
-  mastClimate(file, plots, years, months, FUN = 'mean', 
-              vname = '', lastYear = 2021)
+  mastClimate( file, plots, years, months = 1:12, FUN = 'mean', 
+                         vname = '', normYr = c( 1990:2020 ), lastYear = 2021 )
 }
 \arguments{
   \item{file}{\code{character} giving the path and file name where covariate is stored in \code{mastif} covariate format (see Details).}
@@ -20,6 +20,8 @@ Annotates \code{treeData} for \code{mastif} to include covariates.
   \item{FUN}{\code{character} specifies how monthly covariate values are combined into annual values.}
   
   \item{vname}{name to use for a variable in the model that comes from \code{file}.}
+  
+  \item{normYr}{years for climate norm for calculating anomalies.}
   
   \item{lastYear}{last data year to include.}
 }
@@ -65,10 +67,9 @@ inputs$treeData <- treeData
 formulaRep <- as.formula( ~ diam )
 formulaFec <- as.formula( ~ diam + tminSprAnomaly )        
   
-yearEffect <- list(groups ='species', p = 3)  # AR(3) model, species are lag groups
+inputs$yearEffect <- list(groups ='species', p = 3)  # AR(3) model, species are lag groups
   
-output <- mastif(inputs = inputs, formulaFec, formulaRep, 
-                 yearEffect = yearEffect, ng = 2000, burnin = 1000)
+output <- mastif(inputs = inputs, formulaFec, formulaRep, ng = 1000, burnin = 400)
 }
 }
 \author{

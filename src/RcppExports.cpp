@@ -6,6 +6,11 @@
 
 using namespace Rcpp;
 
+#ifdef RCPP_USE_GLOBAL_ROSTREAM
+Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
+Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
+#endif
+
 // kernYrRcpp
 arma::mat kernYrRcpp(arma::mat dmat, arma::mat fec, arma::uvec seedrow, arma::uvec treecol, arma::uvec plotyrs, arma::uvec treeplotYr, arma::uvec seedplotYr);
 RcppExport SEXP _mastif_kernYrRcpp(SEXP dmatSEXP, SEXP fecSEXP, SEXP seedrowSEXP, SEXP treecolSEXP, SEXP plotyrsSEXP, SEXP treeplotYrSEXP, SEXP seedplotYrSEXP) {

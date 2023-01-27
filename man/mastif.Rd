@@ -8,10 +8,8 @@ Estimates productivity and dispersion of seeds observed at seed traps, using inf
 }
 \usage{
 
-  mastif(inputs, formulaFec=NULL, formulaRep=NULL, 
-         ng = NULL, burnin = NULL, predList = NULL, 
-         yearEffect = NULL, randomEffect = NULL, 
-         modelYears = NULL, plotDims = NULL)
+  mastif( inputs, formulaFec = NULL, formulaRep = NULL, 
+                   ng = NULL, burnin = NULL )
   
   \method{print}{mastif}(x, ...)
   
@@ -23,20 +21,10 @@ Estimates productivity and dispersion of seeds observed at seed traps, using inf
   \item{formulaFec}{R \code{formula} for fecundity model, e.g., \code{~ diam + x1}.}
   
   \item{formulaRep}{R \code{formula} for maturation model, e.g., \code{~ diam}.}
-  
-    \item{predList}{\code{list} holding \code{plots} and \code{years} for seed prediction.}
-    
-    \item{yearEffect}{\code{list} holding \code{groups} for year effects or AR(p) model.}
-    
-    \item{randomEffect}{\code{list} holding \code{randGroups} and \code{formulaRan} for random effects in fecundity.}
-    
-    \item{modelYears}{\code{numeric vector} can be a subset of years in data set.}
 
   \item{ng}{\code{numeric} number of Gibbs steps.}
   
   \item{burnin}{\code{numeric} number of burnin steps, before predictions are saved.}
-  
-  \item{plotDims}{\code{matrix} with plot dimensions, used in prediction to determine seed production per plot area.  Each row is one \code{plot}, with \code{rownames} giving the plot name.  Columns are \code{'x1','x2','y1','y2'}.}
   
   \item{object}{currently, also an object of \code{class mastif}.}
   
@@ -181,11 +169,10 @@ sim <- list(nyr=10, ntree=20, nplot=5, ntrap=40,
                specNames = specNames, seedNames = seedNames)
                
 inputs   <- mastSim(sim)        # simulate data
-predList <- list( mapMeters = 3, plots = inputs$plots[1], 
-                  years = inputs$years ) 
-output   <- mastif( inputs = inputs, ng = 3000, burnin = 2000, 
-                    predList = predList)
-mastPlot(output)
+inputs$predList <- list( mapMeters = 3, plots = inputs$plots[1], 
+                         years = inputs$years ) 
+output   <- mastif( inputs = inputs, ng = 3000, burnin = 2000 )
+# mastPlot(output)
 
 # for Liriodendron
 d <- "https://github.com/jimclarkatduke/mast/blob/master/liriodendronExample.rData?raw=True"
@@ -199,12 +186,13 @@ randomEffect <- list(randGroups = 'treeID',
                      formulaRan = as.formula( ~ 1 ) )
 inputs   <- list( specNames = specNames, seedNames = seedNames, 
                   treeData = treeData, seedData = seedData, 
-                  xytree = xytree, xytrap = xytrap)
-output <- mastif(inputs = inputs, formulaFec, formulaRep, ng = 2000, 
-                 burnin = 1000, yearEffect = yearEffect, 
-                 randomEffect = randomEffect)
+                  xytree = xytree, xytrap = xytrap, 
+                  yearEffect = yearEffect, randomEffect = randomEffect )
+output <- mastif(inputs = inputs, formulaFec, formulaRep, ng = 1000, 
+                 burnin = 400 )
 summary(output)
-mastPlot(output)
+# plot output:
+# mastPlot(output)
 }
 }
 \author{

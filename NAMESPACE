@@ -2,24 +2,29 @@ useDynLib(mastif, .registration = TRUE)
 
 importFrom("Rcpp", "evalCpp")
 importFrom("RANN", "nn2")
+importFrom("robustbase", "fullRank")
 importFrom("xtable", "xtable")
 importFrom("corrplot", "corrplot")
 importFrom("repmis", "source_data")
+importFrom("stringr", "str_count")
+importFrom("stringi", "stri_locate_first_regex")
 importFrom("grDevices", "pdf", "rgb", "dev.copy2pdf","graphics.off")
-importFrom("grDevices", "col2rgb", "colorRampPalette", "dev.off")
+importFrom("grDevices", "col2rgb", "colorRampPalette", "dev.off", "dev.list")
 importFrom("graphics", "barplot", "bxp", "strheight","strwidth", "segments")
 importFrom("graphics", "abline", "arrows", "Axis", "axis", "boxplot", 
            "hist", "legend", "lines", "mtext", "par", "plot", "points", "polygon",
             "rect", "symbols", "text", "title", "contour", ".filled.contour")
-importFrom("stats", "dbinom", "dpois", "formula", "ppois", "qpois", "as.formula", "cor", "lm",
-            "cov", "density", "rgamma", "rexp", "model.frame", "model.matrix",
-            "pnorm", "qnorm", "quantile", "rnorm", "runmed",
-            "rpois", "runif", "sd", "contrasts", "dnorm", "rbinom", 
-           "relevel", "terms", "var", "toeplitz","binomial","dbeta", 
-           "glm", "arima", "predict")
+importFrom("stats", "as.formula", "arima", "binomial", "contrasts", "cor", "cov", "dbeta",  
+           "dbinom", "density", "dnorm", "dpois", "formula", "glm", "lm", 
+           "model.frame", "model.matrix", "pnorm", "ppois", "predict", "qbinom",
+           "qnorm", "qpois", "quantile", "rbinom", "rexp", "relevel", "rgamma", 
+            "rnorm", "rpois", "runif", "runmed", "sd", "spectrum",
+           "terms", "toeplitz", "ts", "var")
 importFrom("utils", "setTxtProgressBar", "txtProgressBar", 
            "read.table", "read.csv", "write.table")
-export(mastif, mastMap, mastPlot, mastSim, mastFillCensus, mastClimate, mastPriors)
+importFrom("robustbase", "fullRank")
+export(mastif, mastMap, mastPlot, mastSim, mastFillCensus, mastClimate, mastPriors, 
+       mastSpectralDensity, mastVolatility)
 S3method(print, mastif)
 S3method(summary, mastif)
 

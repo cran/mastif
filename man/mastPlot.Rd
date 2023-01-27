@@ -43,8 +43,8 @@ sim <- list(nyr=10, ntree=30, nplot=5, specNames = specNames, seedNames = seedNa
 inputs <- mastSim(sim)
 output <- mastif( inputs = inputs, ng = 4000, burnin = 2000 )
 
-plotPars <- list(trueValues = inputs$trueValues)
-mastPlot(output, plotPars)
+# plot output 
+# mastPlot( output, plotPars = list(trueValues = inputs$trueValues) )
 }
 }
 \author{

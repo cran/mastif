@@ -91,10 +91,9 @@ inputs <- mastSim(sim)
 output <- mastif( inputs = inputs, ng = 500, burnin = 200 ) 
 
 # increase iterations, then plot:
-
-output   <- mastif( inputs = output, ng = 2000, burnin = 1000 ) 
-plotPars <- list(trueValues = inputs$trueValues)
-mastPlot(output, plotPars)
+# output   <- mastif( inputs = output, ng = 2000, burnin = 1000 ) 
+# plot output
+# mastPlot(output, plotPars = list(trueValues = inputs$trueValues) )
 }
 }
 \author{

@@ -43,7 +43,6 @@ A \code{data.frame} with a row for each \code{specNames} and columns for prior p
 
 \examples{
 \donttest{
-# data 
 d <- "https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True"
 repmis::source_data(d)
 
@@ -67,7 +66,7 @@ formulaRep <- as.formula( ~ diam )
 formulaFec <- as.formula( ~ diam )        
   
 output <- mastif(inputs = inputs, formulaFec, formulaRep,
-                 ng = 2000, burnin = 1000)
+                 ng = 1000, burnin = 400)
 }
 }
 \author{
