@@ -75,6 +75,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// condMVNRcpp
+Rcpp::List condMVNRcpp(const arma::uvec cdex, const arma::uvec gdex, const arma::mat xx, arma::mat mu, const arma::mat sigma);
+RcppExport SEXP _mastif_condMVNRcpp(SEXP cdexSEXP, SEXP gdexSEXP, SEXP xxSEXP, SEXP muSEXP, SEXP sigmaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::uvec >::type cdex(cdexSEXP);
+    Rcpp::traits::input_parameter< const arma::uvec >::type gdex(gdexSEXP);
+    Rcpp::traits::input_parameter< const arma::mat >::type xx(xxSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type mu(muSEXP);
+    Rcpp::traits::input_parameter< const arma::mat >::type sigma(sigmaSEXP);
+    rcpp_result_gen = Rcpp::wrap(condMVNRcpp(cdex, gdex, xx, mu, sigma));
+    return rcpp_result_gen;
+END_RCPP
+}
 // trMVNmatrixRcpp
 arma::mat trMVNmatrixRcpp(arma::mat avec, arma::mat muvec, arma::mat smat, arma::mat lo, arma::mat hi, arma::uvec whichSample, arma::uvec idxALL);
 RcppExport SEXP _mastif_trMVNmatrixRcpp(SEXP avecSEXP, SEXP muvecSEXP, SEXP smatSEXP, SEXP loSEXP, SEXP hiSEXP, SEXP whichSampleSEXP, SEXP idxALLSEXP) {
@@ -153,6 +168,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mastif_kernYrRcppOld", (DL_FUNC) &_mastif_kernYrRcppOld, 7},
     {"_mastif_byRcpp", (DL_FUNC) &_mastif_byRcpp, 6},
     {"_mastif_tnormRcpp", (DL_FUNC) &_mastif_tnormRcpp, 4},
+    {"_mastif_condMVNRcpp", (DL_FUNC) &_mastif_condMVNRcpp, 5},
     {"_mastif_trMVNmatrixRcpp", (DL_FUNC) &_mastif_trMVNmatrixRcpp, 7},
     {"_mastif_betaRcpp", (DL_FUNC) &_mastif_betaRcpp, 5},
     {"_mastif_randEffectRcpp", (DL_FUNC) &_mastif_randEffectRcpp, 6},

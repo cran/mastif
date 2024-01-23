@@ -1,9 +1,48 @@
 #  TOF
 
 
+colorScaleLegend <- function( xleg, yleg, zlim, ncol = 10, units = '',
+                              colorRamp, text.pos = 'left' ){
+  
+  lcol <- colorRampPalette(colorRamp)( ncol )
+  zseq <- seq( yleg[1], yleg[2], length = ncol + 1 )
+  
+  par( xpd = T )
+  for( i in 1:ncol ){
+    yi <- zseq[i:(i+1)]
+    rect(xleg[1], yi[1], xleg[2], yi[2], col = lcol[i], border = NA )
+  }
+  
+  ytext <- yleg
+  xtext <- xleg[1] - 1.5*diff(xleg)
+  if( text.pos == 'right' )xtext <- xleg[2] + 1.5*diff(xleg)
+  
+  leg <- zlim
+  
+  text( xtext[ c(1,1)], ytext, leg, col = colorRampPalette(colorRamp)( 2 ) )
+  text( mean( xleg ), yleg[2] + diff(yleg)/2, units )
+  
+  par( xpd = F )
+}
+
+
 intersectLines <- function (x, y1, y2){
   
   # intersection points and polygons for y1 > y2 and y2 > y1
+  
+  DATE <- F
+  
+  if( inherits(x[1], 'Date') ){
+    # assumes YYYY-MM-DD
+    DATE <- T
+    date <- x
+    xx <- columnSplit( as.character( x ), '-' )
+    x  <- as.numeric(xx[,1]) + as.POSIXlt(x)$yday/365
+ #   origin <- as.POSIXlt( as.Date(paste( min( xx[,1] ), '-01-01', sep = '' )) 
+  }
+  
+  tiny <- 1e-15
+  y1 <- y1 + rnorm( length(y1), 0, tiny )
   
   n <- length(x)
   above <- y1 > y2
@@ -27,14 +66,26 @@ intersectLines <- function (x, y1, y2){
   yPts <- c(yPts, y1[jointPts])
   
   ipoints <- cbind( xPts,  yPts)
+  
   pt1  <- rbind( c(x[1], y1[1]), ipoints, c(x[n], y1[n]) )
   pt2  <- rbind( c(x[1], y2[1]), ipoints, c(x[n], y2[n]) )
+  
+ # 
+  
+ # w0 <- which( diff(pt1[,1]) == 0 )
+ # if( length( w0 ) > 0 ){
+ #   pt1[w0+1,1] <- pt1[w0+1,1] + tiny
+ # }
+  
+  pt2 <- pt2[ !duplicated(pt1[,1]), ]
+  pt1 <- pt1[ !duplicated(pt1[,1]), ]
   
   p1 <- p2 <- numeric(0)
   
   for( k in 2:nrow(pt1) ){
     
     w <- which( x >= pt1[k-1,1] & x <= pt1[k,1] )
+    if( length(w) == 0 )next
     if( above[w[1]] ){
       pk <- rbind( pt1[k-1,], cbind(x[w], y1[w]), pt1[k,] )
       pb <- rbind( pt2[k-1,], cbind(x[w], y2[w]), pt2[k,] ) #bottom
@@ -54,6 +105,7 @@ intersectLines <- function (x, y1, y2){
   
   return( list(ipoints = ipoints, poly1 = p1, poly2 = p2) )
 }
+
 speciesRegion <- function( spec, reg ){
   
   # can have multiple regions per species
@@ -84,113 +136,38 @@ speciesRegion <- function( spec, reg ){
 
 
 
-trimX <- function( form, tdata, maxVIF = 20 ){
+removeTerms <- function( formula, terms ){
   
-  # new formula for design where no VIF exceeds maxVIF
+  # terms can be variable name or part of a name like '^2', ':', 'Site'
   
- # gg <- grep( 'species', as.character( form ) )
- # if( length( gg ) == 0 )ftt <- .specFormula( form, NOINTERCEPT = FALSE )
-  
- # xtmp <- .getDesign( ftt, tdata )$x
-  xtmp  <- model.matrix( form, tdata )
-  terms <- colnames( xtmp )
-  w2    <- grep( '^2', colnames( xtmp ), fixed = T )
-  wi    <- grep( ':', colnames( xtmp ), fixed = T )
-  wl    <- unique( c( wi, w2 ) )
-  if( length( wl ) > 0 )xtmp <- xtmp[, -wl]
-  
-  vif <- .checkDesign( xtmp )$VIF
-  dr  <- qr( xtmp )$rank - ncol( xtmp ) 
-  
-  if( max( vif ) < maxVIF & dr == 0 ){
-    return( list( form = form, dontUse = NULL ) )
-  }
-  
-  fnew  <- form
-  ft <- columnSplit( fnew, ' + ' )
+  ft <- columnSplit( formula, ' + ' )
   ft <- unique( ft )
   ft <- .replaceString( ft, ' ', '' )
   ft <- .replaceString( ft, '~', '' )
   ft <- unique( as.vector( ft ) )
   ft <- ft[ nchar( ft ) > 0]
-  w2 <- grep( '^2', ft, fixed = T )
-  wi <- grep( ':', ft, fixed = T )
-  wl <- unique( c( wi, w2 ) )
-  iterms <- ft[ wl]
-  if( length( wl ) > 0 ) ft <- ft[ -wl]
   
+  for( i in 1:length(terms) ){
+    
+    itt <- grep( terms[i], ft, fixed = T )
+    if( length(itt) > 0 )ft <- ft[ -itt ]
+    
+  }
   fnew <- paste0( ft, collapse = ' + ' )
-  fnew <- as.formula( paste( '~', fnew ) )
-  
-  vvars <- names( vif )
-  vvars <- vvars[ !vvars %in% c( 'diam', 'shade' )]
-  
-  while( max( vif ) > maxVIF ){
-    
-    ft <- columnSplit( fnew, ' + ' )
-    ft <- unique( ft )
-    ft <- .replaceString( ft, ' ', '' )
-    ft <- .replaceString( ft, '~', '' )
-    ft <- unique( as.vector( ft ) )
-    ft <- ft[ nchar( ft ) > 0]
-    
-    dvar <- names ( which.max( vif[ vvars] ) )
-    gas  <- grep( 'slope', dvar )
-    if( length( gas ) > 0 ){
-      vvars <- vvars[ -grep( 'aspect', vvars, fixed = T )]
-      ft    <- ft[ -grep( 'aspect', ft, fixed = T )]
-      ft    <- ft[ ft != 'slope']
-    }
-    gaa  <- grep( 'aspect', dvar )
-    if( length( gaa ) > 0 ){
-      vvars <- vvars[ -grep( 'aspect', vvars, fixed = T )]
-      ft    <- ft[ -grep( 'aspect', ft, fixed = T )]
-  #    ft    <- ft[ ft != 'slope']
-    }
-    if( length( gas ) == 0 & length( gaa ) == 0 ){
-      vvars <- vvars[ -grep( dvar, vvars, fixed = T )]
-      ft    <- ft[ -grep( dvar, ft, fixed = T )]
-    }
-    
-  #  fnew <- as.character( vars2formula( ft ) )
-  #  fnew[ 2] <- .replaceString( fnew[ 2], 'species + species', 'species' )
-  #  fnew[ 2] <- .replaceString( fnew[ 2], 'species * species', 'species' )
-    fnew <- paste0( ft, collapse = ' + ' )
-    fnew <- as.formula( paste( '~', fnew ) )
-    
-    xtmp <- model.matrix( fnew, tdata )
-    vif <- .checkDesign( xtmp )$VIF
-  }
-  
-  dont <-  terms[ !terms %in% ft]
-  dont <- dont[ !dont %in% c( '( Intercept )', iterms )]
-  inot <- character( 0 )
-  if( length( dont ) > 0 ){
-    for( k in 1:length( dont ) ){
-      dk <- grep( dont[ k], iterms )
-      if( length( dk ) > 0 ){
-        inot <- c( inot, iterms[ dk] )
-      }
-      if( length( iterms ) == 0 )stop( )
-    }
-  }
-  dont <- unique( c( dont, inot ) )
-  
-  itt <- iterms[ !iterms %in% inot]
-  
-  fnew <- paste0( c( ft, itt ), collapse = ' + ' )
-  fnew <- as.formula( paste( '~', fnew ) )
-  
-  list( form = fnew, dontUse = dont )
+  as.formula( paste( '~', fnew ) )
 }
-
 
 vars2formula <- function( terms, SPEC = T ){
   
   terms <- unique( terms )
-  if( SPEC )terms <- paste( 'species *', terms )
+  if( !SPEC ){
+    terms <- terms[ !terms == 'species' ]
+  }else{
+    terms <- paste( 'species *', terms )
+    terms <- terms[ terms != 'species * species' ]
+  }
   terms <- .replaceString( terms, 'species * species *', 'species *' )
-  terms <- c( 'species', terms )
+  if( SPEC )terms <- c( 'species', terms )
   terms <- unique( terms )
   v1    <- paste0( terms, collapse = ' + ' )
   as.formula( paste( '~', v1 ) )
@@ -454,13 +431,13 @@ grepVec <- function( c1, c2 ){
 short2longParName <- function( pnames, species ){ 
   
   
-  wi <- grep( '( Intercept )', pnames, fixed = T )
+  wi <- grep( '(Intercept)', pnames, fixed = T )
   
   if( length( wi ) > 0 ){                                # only one fitted species
     
     ssm <- paste( 'species', species, sep = '' )
     pnames   <- paste( ssm, ':', pnames, sep = '' )
-    pnames   <- .replaceString( pnames, ':( Intercept )', ':intercept' )
+    pnames   <- .replaceString( pnames, ':(Intercept)', ':intercept' )
     
   }else{                                            # multiple species
     
@@ -476,11 +453,12 @@ aspect2u <- function( slopeDegrees, aspectDegrees ){
   
   # slope, aspect are degrees
   # return radians
+  # 45 degrees is slope angle of 1
   
-  slope   <- slopeDegrees/360*2*pi
+  slope   <- slopeDegrees/45
   a       <- aspectDegrees/360*2*pi
-  aspect1 <- sin( slope )*sin( a )
-  aspect2 <- sin( slope )*cos( a )
+  aspect1 <- slope*sin( a )
+  aspect2 <- slope*cos( a )
   
   cbind( slope, aspect1, aspect2 )
 }
@@ -514,134 +492,6 @@ traitGroups <- function( trait ){
   trait
 }
 
-getTraits <- function( specNames = NULL, traitName, FAMILY = T,
-                       path2Traits = "/Users/jimclark/makeMastOnJimClark/traitsByGroup/" ){
-  
-  # if FAMILY, then search for family-level values where genus-level values are missing
-  
-  traitTab <- read.csv( paste( path2Traits, 'plantTraits.csv', sep = '' ), 
-                              stringsAsFactors = F )
-  
-  if( is.null( specNames ) ) specNames <- traitTab$code8
-  
-  mm    <- match( specNames, traitTab$code8 )
-  tvals <- traitTab[ mm, traitName]
-  names( tvals ) <- specNames
-  
-  if( traitName == 'section' )return( tvals )
-  
-  if( is.character( traitTab[, traitName] ) ){  # use modal value
-    
-    wna  <- which( is.na( tvals ) | nchar( tvals ) == 0 )
-    
-    if( length(wna) > 0 ){
-      section <- traitTab$section[ mm ]
-      wf      <- which( !is.na(section) & nchar(section) > 0 )
-      
-      if( length(wf) > 0 ){
-        names( tvals ) <- section
-        gg  <- which( traitTab$section %in% section[wf] )
-        
-        ttab  <- table( traitTab$section[ gg ], traitTab[ gg, traitName] )
-        ttab  <- ttab[, nchar( colnames( ttab ) ) > 0, drop = F]
-        cc    <- apply( ttab, 1, which.max )
-        tt    <- colnames(ttab)[cc]
-        names(tt) <- names(cc)
-        tvals[wna] <- tt[ names(tvals)[wna] ]
-        names( tvals ) <- specNames
-        tvals[ is.na(tvals) ] <- ''
-      }
-    }
-    
-    wna  <- which( is.na( tvals ) | nchar( tvals ) == 0 )
-    
-    if( length( wna ) == 0 ) return( tvals )
-    if( length( wna ) == length( tvals ) ) return( tvals ) 
-    
-    gen <- traitTab$genus[ mm ]
-    names( tvals ) <- gen
-    gg  <- which( traitTab$genus %in% gen )
-    
-    ttab  <- table( traitTab$genus[ gg ], traitTab[ gg, traitName] )
-    ttab  <- ttab[, nchar( colnames( ttab ) ) > 0, drop = F]
-    cc    <- apply( ttab, 1, which.max ) 
-    tt    <- colnames(ttab)[cc]
-    names(tt) <- names(cc)
-    tvals[wna] <- tt[ names(tvals)[wna] ]
-    names( tvals ) <- specNames
-    
-    
-    wna  <- which( is.na( tvals ) | nchar( tvals ) == 0 )
-    
-    if( length( wna ) == 0 | !FAMILY ) return( tvals )
-    
-    
-    fam <- traitTab$family[ mm ]
-    names( tvals ) <- fam
-    gg  <- which( traitTab$genus %in% fam )
-    
-    ttab  <- table( traitTab$family[ gg ], traitTab[ gg, traitName] )
-    ttab  <- ttab[, nchar( colnames( ttab ) ) > 0, drop = F]
-    if( length(ttab) > 0 ){
-      cc    <- apply( ttab, 1, which.max )
-      tt    <- colnames(ttab)[cc]
-      names(tt) <- names(cc)
-      tvals[wna] <- tt[ names(tvals)[wna] ]
-    }
-    names( tvals ) <- specNames
-    
-    return( tvals )
-  }
-  
-  wna   <- which( is.na( tvals ) ) 
-  
-  if( length( wna ) > 0 ){
-    
-    section <- traitTab$section[ mm ]
-    names( tvals ) <- section
-    gg  <- which( traitTab$section %in% section )
-    mu  <- tapply( traitTab[ gg, traitName], traitTab$section[ gg], mean, na.rm = T )
-    tvals[ wna ] <- mu[ names( tvals )[ wna ]]
-    names( tvals ) <- specNames
-  }
-  
-  wna   <- which( is.na( tvals ) )
-  
-  if( length( wna ) > 0 ){
-    
-    gen <- traitTab$genus[ mm ]
-    names( tvals ) <- gen
-    gg  <- which( traitTab$genus %in% gen )
-    mu  <- tapply( traitTab[ gg, traitName], traitTab$genus[ gg], mean, na.rm = T )
-    tvals[ wna ] <- mu[ names( tvals )[ wna ]]
-    names( tvals ) <- specNames
-  }
-  
-  if( FAMILY ){
-    
-    wna   <- which( is.na( tvals ) )
-    
-    if( length( wna ) > 0 ){
-      fam <- traitTab$family[ mm]
-      names( tvals ) <- fam
-      gg  <- which( traitTab$family %in% fam )
-      mu  <- tapply( traitTab[ gg, traitName], traitTab$family[ gg], mean, na.rm = T )
-      tvals[ wna] <- mu[ names( tvals )[ wna]]
-      names( tvals ) <- specNames
-    }
-  }
-  
-  wna   <- which( is.na( tvals ) )
-  
-  if( length( wna ) > 0 & traitName %in% c( 'seedsPerFruit' ) ){
-    
-    tvals[ wna ] <- 1
-  }
-  
-  tvals
-}
-  
-  
   
   
 species2code <- function( genus, specEpith, subSpec = NULL, length = 8 ){
@@ -711,10 +561,10 @@ code2species <- function( codes, ssep = ' subsp. ',
   # unknowns have 'UNKN' in last four characters
   l <- nchar( codes )
   u <- which( startsWith( codes, 'UNKN' ) )
-  if( length( u ) > 0 ) substr( codes[ u], 1, 4 ) <- 'unkn'
-  u <- grep( 'UNKN', substr( codes, l - 3, l ), ignore.case = T )
+  if( length( u ) > 0 ) substr( codes[ u ], 1, 4 ) <- 'unkn'
+  u <- grep( 'UNKN', substr( codes, l - 3, l ), ignore.case = T ) # ends with 'UNKN'
   
-  cnow <- regexpr( "[ A-Z]", codes )
+  cnow <- regexpr( "[A-Z]", codes )
   dnow <- regexpr( ".", codes, fixed = T )
   wss  <- which( dnow > 0 )
   gss  <- substr( codes, cnow*0 + 1, 100 )
@@ -722,16 +572,17 @@ code2species <- function( codes, ssep = ' subsp. ',
   
   gen <- upperFirstLetter( substr( gss, cnow*0 + 1, cnow-1 ) )
   spe <- lowerFirstLetter( substr( gss, cnow, cnow + 100 ) )
+ # spe[ spe == 'uNKN' ] <- 'UNKN'
   ssp <- rep( '', length( spe ) )
   if( length( wss ) > 0 )ssp[ wss] <- substring( codes[ wss], dnow[ wss]+1 )
   
-  ggg <- outer( traits$genus, gen, startsWith )
-  sss <- outer( traits$specEpith, spe, startsWith )
+  ggg <- outer( traits$genus, gen, startsWith )       # genus fit
+  sss <- outer( traits$specEpith, spe, startsWith )   # species fit
   
   sbs <- traits$subSpec
-  sbs[ nchar( sbs ) == 0] <- 'NOT'
-  ssp[ nchar( ssp ) == 0] <- 'NOT'
-  eee <- outer( sbs, ssp, startsWith )     # subspecies
+  sbs[ nchar( sbs ) == 0 | is.na( sbs) ] <- 'NOT'
+  ssp[ nchar( ssp ) == 0 ] <- 'NOT'
+  eee <- outer( sbs, ssp, startsWith )     # subspecies fit
   
   ii <- which( ggg & sss & eee, arr.ind = T )
   ii <- ii[ order( ii[, 2], ii[, 1] ), drop = F, ]
@@ -761,7 +612,7 @@ code2species <- function( codes, ssep = ' subsp. ',
       # first choice is genus in other codes
       utab <- table( iu[, 2], traits$genus[ iu[, 1]] )
       umax <- apply( utab, 1, which.max )
-      ugen[ ind] <- colnames( utab )[ umax]
+      ugen[ ind ] <- colnames( utab )[ umax]
       
       # for remaining find most common matching genus
       wu <- which( ugen == '' )
@@ -846,6 +697,8 @@ code2species <- function( codes, ssep = ' subsp. ',
   }
   
   species <- species[ match( codeFull, codes )]
+  
+  species[ is.na( species ) ] <- 'UNKN UNKN'
   species
 }
 
@@ -1556,14 +1409,14 @@ buildSeedByPlot <- function( sdata, snames, specNames, UNKN2TREE = FALSE, SHORTN
   seedCount <- as.matrix( sdata[, snames, drop = F] )
   rownames( seedCount ) <- rownames( sdata ) 
   
-  if( UNKN2TREE ){
+  if( UNKN2TREE & length( tnames ) > 0 ){
     
     gt <- grep( 'UNKN', snames )
     
     if( length( gt ) > 0 ){                      # credit UNKN to all specNames
       
-      gent <- gsub( 'UNKN', '', snames[ gt] )
-      tmat <- matrix( seedCount[, snames[ gt]], nseed, length( tnames ) )
+      gent <- gsub( 'UNKN', '', snames[ gt ] )
+      tmat <- matrix( seedCount[, snames[ gt ]], nseed, length( tnames ) )
       colnames( tmat ) <- tnames
       
       seedCount <- cbind( seedCount, tmat )
@@ -1597,7 +1450,7 @@ buildSeedByYear <- function( sdata, snames, specNames, UNKN2TREE = FALSE, SHORTN
   seedCount <- as.matrix( sdata[, snames, drop = F] )
   rownames( seedCount ) <- rownames( sdata ) 
   
-  if( UNKN2TREE ){
+  if( UNKN2TREE & length( tnames ) > 0 ){
     gt <- grep( 'UNKN', snames )
     
     if( length( gt ) > 0 ){                      # credit UNKN to all specNames
@@ -1622,55 +1475,6 @@ buildSeedByYear <- function( sdata, snames, specNames, UNKN2TREE = FALSE, SHORTN
 }
 
 
-rangeBySpec <- function( tdat, tvar = 'shade', minDiam = 1, 
-                         minPlots = 1, minYr = 1, minRange = .1, minSd = 1 ){
-  
-  # find species that do not span sufficient variation in predictor tvar
-  # tdat     - treeData
-  # tvar     - variable name
-  # minDiam  - examine on trees bigger than this
-  # minPlots - minimum number of plots
-  # minYr    - minimum no. years
-  # minRange - minimum range in tvar
-  # minSd    - minimum standard deviation in tvar
-  
-  td   <- tdat[ tdat$diam > minDiam, ]
-  ptab <- table( td$plot, td$species )
-  if( nrow( ptab ) < minPlots ) return( paste( 'species', colnames( ptab ), ':', tvar, sep = '' ) )
-  
-  ptab[ which( ptab > 1 )] <- 1
-  ptab  <- colSums( ptab )
-  wspec <- names( ptab )[ ptab < minPlots]
-  if( length( wspec ) > 0 ) td[ td$species %in% wspec , tvar] <- 0
-  
-  ptab <- table( td$year, td$species )
-  ptab[ ptab > 1] <- 1
-  ptab <- colSums( ptab )
-  wspec <- names( ptab )[ ptab < minYr]
-  if( length( wspec ) > 0 ) td[ td$species %in% wspec , tvar] <- 0
-  
-  
-  nf  <- character( 0 )
-  
-  rbys <- tapply( td[, tvar], td$species, range, na.rm = T )
-  rbys <- sapply( rbys, diff )
-  wm   <- which( rbys < minRange )
-  if( length( wm ) > 0 ){
-    qf <- names( wm )
-    nf <- paste( 'species', qf, ':', tvar, sep = '' )
-  }
-  
-  sbys <- tapply( td[, tvar], td$species, sd, na.rm = T )
-  wm <- which( sbys < minSd )
-  if( length( wm ) > 0 ){
-    qf <- names( wm )
-    nf <- c( nf, paste( 'species', qf, ':', tvar, sep = '' ) )
-  }
-  unique( nf )
-}
-
-
-
 climIndex <- function( tmp, months, tyears ){
   
   mi <- yi <- NULL
@@ -1690,121 +1494,6 @@ climIndex <- function( tmp, months, tyears ){
     mi <- mi[ wi ]
   }
   list( ym = ym, yi = yi, mi = mi )
-}
-
-tree2climate <- function( treeData, ylag = 0, xkname, 
-                          normYr = c( 1990:2020 ), months = 1:12, fun = 'mean', 
-                          clfile = "/Users/jimclark/Library/Mobile Documents/com~apple~CloudDocs/Documents/makeMastOnJimClark/makeMast/climateBuild/mastFormat/temp.csv" ){
-  
-  tmp <- temp <- prec <- def <- ppt <- pet <- data <- NULL
-  sumVars <- c( 'prec', 'ppt', 'pet', 'def' )  # variables that are summed
-  
-  for( i in 1:length( sumVars ) ){
-    ii <- grep( sumVars[ i], clfile )
-    if( length( ii ) > 0 )fun <- 'sum'
-  }
-  
-  if( endsWith( clfile, '.csv' ) ){
-    tmp  <- read.csv( clfile, stringsAsFactors = F, row.names = 1 )
-    rownames( tmp ) <- .replaceString( rownames( tmp ), '_', '' )
-    colnames( tmp ) <- .replaceString( colnames( tmp ), 'X', '' )
-  }else{
-    load( clfile, verbose = F )
-    assign( 'tmp', get( xkname ) )
-    
-    if( is.null( tmp ) )assign( 'tmp', data )
-  }
-  
-  rownames( tmp ) <- .replaceString( rownames( tmp ), 'MASTIF-', '' )
-  treeData$plot   <- .replaceString( treeData$plot, 'MASTIF-', '' )
-  
-  ww <- which( !treeData$plot %in% rownames( tmp ) )
-  if( length( ww ) > 0 ){
-    spl <- sort( unique( treeData$plot[ ww] ) )
-    cat( '\nmissing plots in climate file:\n' )
-    print( clfile )
-    cat( '\nplots missing:\n' )
-    print( spl )
-    stop( 'not all treeData$plot in climate file' )
-  }
-  
-  tmp <- tmp[ drop = F, rownames( tmp ) %in% treeData$plot, ]
-  
-  dataForm <- 'year_month'
-  if( length( grep( '_', colnames(tmp) ) ) == 0 )dataForm <- 'year'
-  
-  tyears <- range( treeData$year ) + ylag
-  tyears <- tyears[1]:tyears[2]
-  
-  cli    <- climIndex( tmp, months, tyears )
-  ym     <- cli$ym
-  yi     <- cli$yi
-  climyr <- sort( unique( yi ) )
-  wy     <- tyears[ !tyears %in% climyr ]
-  
-  if( length( wy ) > 0 ){
-    
-    closeyr <- RANN::nn2( climyr, wy, k = 1 )[[ 1]][, 1]
-    moreyr  <- cnow <- tmp[ drop = F, , ym[ match( climyr[ closeyr ], yi ) ] ]
-    
-    if( dataForm == 'year_month' ){
-      cnow <- columnSplit( colnames( moreyr ), '_' )
-      substr( colnames( moreyr ), 1, 4 ) <- as.character( wy )
-    }else{
-      colnames( moreyr ) <- wy
-    }
-    
-    tmp <- cbind( tmp, moreyr )
-    cli <- climIndex( tmp, months, tyears )
-    ym <- cli$ym
- #   yi <- cli$yi
-  }
-  
-  # norms
-  cli <- climIndex( tmp, months, normYr )
-  ymnorm <- cli$ym
-  yinorm <- cli$yi
-  
-  if( fun == 'mean' ){
-    
-    norm <- rowMeans( tmp[ drop = F, , ymnorm], na.rm = T )
-
-  }else{
-    
-    tnrm <- tmp[ drop = F, , ymnorm]
-    
-    # sum annually, then average
-    norm <- tapply( as.vector( as.matrix( tnrm ) ), 
-                    list( plot = rep( rownames( tnrm ), ncol( tnrm ) ), 
-                          year = rep( yinorm, each = nrow( tnrm ) ) ), sum, na.rm = T )
-    norm <- rowMeans( norm, na.rm = T )
-  }
-  
-  tmp <- tmp[ drop = F, , ym ]
-  yi  <- climIndex( tmp, months, tyears )$yi
-  
-  byyr <- tmp
-  if( dataForm == 'year_month' ){
-    byyr <- tapply( as.vector( as.matrix( tmp ) ), 
-                    list( plot = rep( rownames( tmp ), ncol( tmp ) ), 
-                          year = rep( yi, each = nrow( tmp ) ) ), fun, na.rm = T )
-  }
-  more <- max( treeData$year + ylag, na.rm = T ) - max( yi )
-  if( more > 0 ){
-    rcol <- ncol( byyr ) - more + 1
-    rcol <- rcol:ncol( byyr )
-    ttt  <- byyr[ drop = F, , rep( ncol( byyr ), more )]
-    colnames( ttt ) <- ( max( yi )+1 ):( max( yi ) + more )
-    byyr <- cbind( byyr, ttt )
-  }
-  
-  ycol   <- as.character( treeData$year + ylag )
-  norm   <- norm[ treeData$plot]
-  bi     <- cbind( treeData$plot, ycol )
-  annual <- byyr[ bi ]
-  anom   <- annual - norm
-  
-  signif( cbind( annual, norm, anom ), 4 )
 }
 
 mastClimate <- function( file, plots, years, months = 1:12, FUN = 'mean', 
@@ -2034,11 +1723,29 @@ combineSpecies <- function( specVec, specNames, combineSpecs ){
   list( specNames = specNames, species = specVec )
 }
 
-combineSeedNames <- function( sdata, snames, cseed = NULL ){
+combineSeedNames <- function( sdat, snames, genus, scols = NULL, cseed = NULL ){
   
   if( is.null( cseed ) )
-    return( list( seedNames = snames, seedData = sdata ) )
+    return( list( seedNames = snames, seedData = sdat ) )
   
+  code8 <- substr( genus, 1, 8 )
+  
+  if( !is.null( scols ) ){
+    gen  <- which( startsWith( colnames(sdat), code8 ) )
+    keep <- c( scols, colnames(sdat)[gen] )
+    
+    if( length( gen ) == 0 ){
+      sdat <- cbind( sdat, 0 )
+      colnames( sdat )[ncol(sdat) ] <- paste( code8, 'UNKN', sep = '' )
+      gen  <- which( startsWith( colnames(sdat), code8 ) )
+      keep <- c( scols, colnames(sdat)[gen] )
+      return( list( seedNames = colnames( sdat )[ncol(sdat) ], seedData = sdat[,keep] ) )
+    }else{
+      sdat <- sdat[, keep]
+    }
+  }
+  
+    
   from <- cseed[, 1]
   to   <- cseed[, 2]
   
@@ -2076,7 +1783,7 @@ combineSeedNames <- function( sdata, snames, cseed = NULL ){
   
   ww <- which( smb %in% cmb[, 'from'] )
   if( length( ww ) == 0 | is.null( cmb ) )
-    return( list( seedNames = snames, seedData = sdata ) )
+    return( list( seedNames = snames, seedData = sdat ) )
   
   mm <- match( smb[ ww], cmb[, 'from'] )
   
@@ -2086,25 +1793,25 @@ combineSeedNames <- function( sdata, snames, cseed = NULL ){
     fromk <- cmb[ mm[ k], 'from']
     tok   <- cmb[ mm[ k], 'to']
     smb[ ww[ k]] <- tok
-    if( !tok %in% colnames( sdata ) & fromk %in% colnames( sdata ) ){
-      colnames( sdata )[ colnames( sdata ) == fromk] <- tok
+    if( !tok %in% colnames( sdat ) & fromk %in% colnames( sdat ) ){
+      colnames( sdat )[ colnames( sdat ) == fromk] <- tok
       next
     }
-    if( tok %in% colnames( sdata ) & fromk %in% colnames( sdata ) ){
-      sdata[, tok] <- sdata[, tok] +
-        sdata[, fromk]
+    if( tok %in% colnames( sdat ) & fromk %in% colnames( sdat ) ){
+      sdat[, tok] <- sdat[, tok] +
+        sdat[, fromk]
     }else{
-      colnames( sdata )[ colnames( sdata ) == fromk] <- tok
+      colnames( sdat )[ colnames( sdat ) == fromk] <- tok
     }
   }
   
-  wm <- which( colnames( sdata ) %in% cmb[, 'from'] )
-  if( length( wm ) > 0 )sdata <- sdata[, -wm]
+  wm <- which( colnames( sdat ) %in% cmb[, 'from'] )
+  if( length( wm ) > 0 )sdat <- sdat[, -wm]
  
   seedNames <- snames[ !duplicated( snames )]
-  seedNames <- seedNames[ seedNames %in% colnames( sdata )]
+  seedNames <- seedNames[ seedNames %in% colnames( sdat )]
 
-  list( seedNames = seedNames, seedData = sdata )
+  list( seedNames = seedNames, seedData = sdat )
 }
 
 trimCharVec <- function( cvec, string = NULL, good = NULL, bad = NULL ){
@@ -2470,12 +2177,12 @@ cleanInputs <- function( inputs, beforeFirst = 20,
   ll <- !tdata$treeID %in% xytree$treeID       # missing from xytree
   ww <- which( ll )
   
-  if( length( ww ) > 0 ){                       # trees not on trapped plots must have cropCounts
+  if( length( ww ) > 0 ){                     # trees not on trapped plots must have cropCounts
     
-    wc <- tdata$treeID %in% xytree$treeID     # in a seedData plot
+    wc <- tdata$treeID %in% xytree$treeID       # in a seedData plot
     
     if( 'cropCount' %in% colnames( tdata ) ){
-      wc <- wc | is.finite( tdata$cropCount ) 
+      wc <- wc | is.finite( tdata$cropCount )   # trapped plot or cropCountlength
    }
     if( 'cropMin' %in% colnames( tdata ) ){
       wc <- wc | is.finite( tdata$cropMin )
@@ -2504,7 +2211,7 @@ cleanInputs <- function( inputs, beforeFirst = 20,
     xytrap <- xytrap[ order( xytrap$plot, xytrap$trap ), ]
     
     # columns in seedNames or seedNames_min/max
-    scols     <- c( "plot", "trap", "year", "area", "active" )
+    scols     <- c( "plot", "trap", "year", "area", "active", "trapID" )
     countCols <- colnames( sdata )[ !colnames( sdata ) %in% scols]
     
     ck <- numeric( 0 )
@@ -2524,6 +2231,8 @@ cleanInputs <- function( inputs, beforeFirst = 20,
     seedNames <- tmp$seedNames
     nseed     <- length( seedNames )
     
+    scols <- scols[ scols %in% colnames( sdata) ]
+    
     sdata <- sdata[, c( scols, seedNames ), drop = F]
     
     seedPlots <- sort( unique( sdata$plot ) )
@@ -2532,15 +2241,34 @@ cleanInputs <- function( inputs, beforeFirst = 20,
     sdata$trapID <- columnPaste( sdata$plot, sdata$trap )
     rownames( sdata ) <- NULL
     
+    scols <- c( scols, 'trapID' )
+    
     plotTrapYr <- columnPaste( sdata$trapID, sdata$year, '_' )
     
     rnames <- columnPaste( sdata$trapID, sdata$year, '_' )
+    wd  <- which( duplicated(rnames) )
+    if( length( wd ) > 0 ){
+      rnew <- sort( unique( rnames ) )
+      cnew <- colnames( sdata )[!colnames(sdata) %in% scols ]
+      snew <- matrix( NA, length(rnew), length(cnew),
+                      dimnames = list( rnew, cnew ) )
+      
+      for( k in 1:length(cnew)){
+        kk <- tapply( sdata[, cnew[k]], rnames, sum, na.rm = T )
+        snew[names(kk),k ] <- kk
+      }
+      rr <- paste( sdata$plot, '-', sdata$trap, '_', sdata$year, sep = '' )
+      ss <- colnames(sdata)[colnames(sdata) %in% scols]
+      rdata <- sdata[ match( rownames(snew), rr ), ss]
+      sdata <- cbind( rdata, snew )
+      rnames <- rownames(snew)
+    }
     
     rownames( sdata ) <- rnames
     
     if( is.null( censMin ) ){   # if censMin not built yet
       sall <- c( seedNames, paste( seedNames, '_min', sep = '' ), 
-                paste( seedNames, '_max', sep = '' ) )
+                 paste( seedNames, '_max', sep = '' ) )
       countCols <- countCols[ countCols %in% sall] 
       sdata <- sdata[, c( scols, countCols )]
     }
@@ -2552,211 +2280,217 @@ cleanInputs <- function( inputs, beforeFirst = 20,
     
     #only seedData on plots with trees
     psave     <- intersect( seedPlots, treePlots )
-    if( length( psave ) == 0 )stop( 'tree and seed data not from same plots' )
-    sdata     <- sdata[ sdata$plot %in% psave, ]
-    xytrap    <- xytrap[ xytrap$plot %in% psave, ]
-    
-    # treesOnly
-    ww <- which( !tdata$plot %in% sdata$plot )    # not on a seed trap plot
-    
-    if( length( ww ) > 0 ){
+    if( length( psave ) == 0 ){
+      sdata <- xytrap <- NULL
+      SEEDDATA <- F
+    }else{
+      sdata     <- sdata[ sdata$plot %in% psave, ]
+      xytrap    <- xytrap[ xytrap$plot %in% psave, ]
       
-      # if no crop counts, retain only trapped plots
+      # treesOnly
+      ww <- which( !tdata$plot %in% sdata$plot )    # not on a seed trap plot
       
-      wcrop <- which( cropCols %in% colnames( tdata ) )
-      
-      if( length( wcrop ) == 0 ){
-        tdata     <- tdata[ tdata$plot %in% psave, ]
-      }else{                                  # there are crop counts
+      if( length( ww ) > 0 ){
         
-        # not on trapped plots, but finite crop counts: keep but move to bottom
-        w1 <- !tdata$plot %in% sdata$plot
-        w2 <- rep( FALSE, length( w1 ) )
-        for( m in wcrop ){
-          w2[ is.finite( tdata[, cropCols[ m]] )] <- TRUE
+        # if no crop counts, retain only trapped plots
+        
+        wcrop <- which( cropCols %in% colnames( tdata ) )
+        
+        if( length( wcrop ) == 0 ){
+          tdata     <- tdata[ tdata$plot %in% psave, ]
+        }else{                                  # there are crop counts
+          
+          # not on trapped plots, but finite crop counts: keep but move to bottom
+          w1 <- !tdata$plot %in% sdata$plot
+          w2 <- rep( FALSE, length( w1 ) )
+          for( m in wcrop ){
+            w2[ is.finite( tdata[, cropCols[ m]] )] <- TRUE
+          }
+          wk <- which( w1 & w2 )
+          if( length( wk ) > 0 )tdata <- rbind( tdata[ -wk, ], tdata[ wk, ] )
+          TREESONLY <- TRUE
         }
-        wk <- which( w1 & w2 )
-        if( length( wk ) > 0 )tdata <- rbind( tdata[ -wk, ], tdata[ wk, ] )
-        TREESONLY <- TRUE
       }
-    }
-    
-    seedPlots <- sort( unique( sdata$plot ) )
-    treePlots <- sort( unique( tdata$plot ) )
-    
-    #tdata cannot start more than p yr before or after sdata
-    
-    pb <- p + beforeFirst
-    pl <- p + afterLast
-    
-    womit <- numeric( 0 )
-    for( k in 1:length( seedPlots ) ){
-      kp <- range( sdata$year[ sdata$plot == seedPlots[ k]] )
-      wt <- which( tdata$plot == seedPlots[ k] )
-      wk <- which( tdata$year[ wt] < ( kp[ 1] - pb ) )
-      if( length( wk ) > 0 )womit <- c( womit, wt[ wk] )
-      wk <- which( tdata$year[ wt] > ( kp[ 2] + pl ) )
-      if( length( wk ) > 0 )womit <- c( womit, wt[ wk] )
-    }
-    
-    # trees with cropCounts
-    if( TREESONLY ){
-      wf <- which( is.finite( tdata$cropCount ) )
-      womit <- womit[ !womit %in% wf]
-    }
-    
-    if( length( womit ) > 0 )tdata <- tdata[ -womit, ]
-    
-    # censor inactive traps
-    seedNames <- .fixNames( inputs$seedNames, all = TRUE, MODE = 'character', NODASH = F )$fixed
-    
-    ww <- which( !seedNames %in% colnames( sdata ) )
-    if( length( ww ) > 0 )seedNames <- seedNames[ -ww]
-    
-    #fix seed names in censored columns
-    ntype <- length( seedNames )
-    scens <- .multivarChainNames( c( 'min', 'max' ), seedNames )
-    wcens <- which( scens %in% colnames( sdata ) )   # data input as censored
-    mcols <- integer( 0 )
-    
-    if( length( wcens ) > 0 ){  # repair names, but leave '_min', '_max'
-      m1cols <- grep( '_min', colnames( sdata ) )
-      ncc <- .replaceString( colnames( sdata )[ m1cols], '_min', '' )
-      mc <- .fixNames( ncc, all = TRUE, MODE = 'character', NODASH = F )$fixed
-      colnames( sdata )[ m1cols] <- paste( mc, '_min', sep = '' )
       
-      m2cols <- grep( '_max', colnames( sdata ) )
-      ncc <- .replaceString( colnames( sdata )[ m2cols], '_max', '' )
-      mc <- .fixNames( ncc, all = TRUE, MODE = 'character', NODASH = F )$fixed
-      colnames( sdata )[ m2cols] <- paste( mc, '_max', sep = '' )
-      mcols <- c( m1cols, m2cols )
+      seedPlots <- sort( unique( sdata$plot ) )
+      treePlots <- sort( unique( tdata$plot ) )
       
-      seedNames <- .fixNames( seedNames, all = TRUE, MODE = 'character', NODASH = F )$fixed
-    }
-    
-    wcc <- c( 1:ncol( sdata ) )
-    if( length( mcols ) > 0 )wcc <- wcc[ -mcols]
-    colnames( sdata )[ wcc] <- .fixNames( colnames( sdata )[ wcc], all = TRUE, 
-                                      MODE = 'character', NODASH = F )$fixed
-    
-    tmp <- cleanSeedData( sdata, xytrap, seedNames, verbose )
-    sdata  <- tmp$sdata
-    xytrap <- tmp$xytrap
-    words  <- paste( words, tmp$words )
-    
-    scols <- c( "plot", "trap", "trapID", "year", "plotYr", "area", "active" )
-    countCols <- colnames( sdata )[ !colnames( sdata ) %in% scols]
-    
-    sdata <- sdata[, c( scols, countCols )]
-    
-    if( length( wcens ) > 0 ){  # only if censMin/censMax not built yet
+      #tdata cannot start more than p yr before or after sdata
       
-      # move _min, _max columns out of sdata to censMin, censMax, 
-      # only for rows
+      pb <- p + beforeFirst
+      pl <- p + afterLast
       
-      SEEDCENSOR <- TRUE
+      womit <- numeric( 0 )
+      for( k in 1:length( seedPlots ) ){
+        
+        kp <- range( sdata$year[ sdata$plot == seedPlots[ k]] )
+        wt <- which( tdata$plot == seedPlots[ k] )
+        wk <- which( tdata$year[ wt ] < ( kp[ 1] - pb ) )
+        if( length( wk ) > 0 )womit <- c( womit, wt[ wk] )
+        wk <- which( tdata$year[ wt ] > ( kp[ 2] + pl ) )
+        if( length( wk ) > 0 )womit <- c( womit, wt[ wk] )
+      }
       
-      scens <- paste( seedNames, '_min', sep = '' )
-      tcens <- paste( seedNames, '_max', sep = '' )
+      # trees with cropCounts
+      if( TREESONLY ){
+        wf <- which( is.finite( tdata$cropCount ) )
+        womit <- womit[ !womit %in% wf]
+      }
+      
+      if( length( womit ) > 0 )tdata <- tdata[ -womit, ]
+      
+      # censor inactive traps
+      seedNames <- .fixNames( inputs$seedNames, all = TRUE, MODE = 'character', 
+                              NODASH = F )$fixed
+      
+      ww <- which( !seedNames %in% colnames( sdata ) )
+      if( length( ww ) > 0 )seedNames <- seedNames[ -ww]
+      
+      #fix seed names in censored columns
+      ntype <- length( seedNames )
+      scens <- .multivarChainNames( c( 'min', 'max' ), seedNames )
       wcens <- which( scens %in% colnames( sdata ) )   # data input as censored
-      scens <- scens[ wcens]
-      wcens <- which( tcens %in% colnames( sdata ) )   # data input as censored
-      tcens <- tcens[ wcens]
+      mcols <- integer( 0 )
       
-      stypes <- columnSplit( scens, '_min' )
-      ttypes <- columnSplit( tcens, '_max' )
-      stypes <- sort( unique( c( stypes, ttypes, seedNames ) ) ) #seedNames from censored columns
-      
-      slo <- matrix( 0, nrow( sdata ), length( stypes ) )  
-      colnames( slo ) <- stypes
-      snew <- shi <- slo 
-      
-      # censored rows:
-      ms <- match( stypes, seedNames )
-      wf <- which( is.finite( ms ) )
-      
-      snew[, stypes[ ms[ wf]]] <- as.matrix( sdata[, stypes[ ms[ wf]]] )
-      rownames( snew ) <- rownames( sdata )
-      
-      # uncensored rows
-      scensName <- .replaceString( scens, '_min', '' )
-      slo[, scensName] <- as.matrix( sdata[, scens] )
-      shi[, scensName] <- as.matrix( sdata[, tcens] )
-      rownames( slo ) <- rownames( shi ) <- rownames( sdata )
-      
-      wnot  <- sort( unique( which( is.na( slo ), arr.ind = TRUE )[, 1] ) )
-      wcens <- sort( unique( which( is.na( snew ), arr.ind = TRUE )[, 1] ) )
-      
-      sinit <- round( ( slo[ wcens, ] + shi[ wcens, ] )/2 )
-      sinit[ !is.finite( sinit )] <- slo[ wcens][ !is.finite( sinit )]
-      sinit[ !is.finite( sinit )] <- 0
-      
-      snew[ wcens, ] <- sinit
-      
-      snew[ is.na( snew )] <- 0
-      
-      censMin <- cbind( wcens, slo[ wcens, ] )
-      censMax <- cbind( wcens, shi[ wcens, ] )
-      colnames( censMin )[ 1] <- colnames( censMax )[ 1] <- 'srow'
-      censMin[ is.na( censMin )] <- 0
-      censMax[ is.na( censMax )] <- censMin[ is.na( censMax )]
-      
-      colnames( censMin ) <- colnames( censMax ) <- 
-        .fixNames( colnames( censMin ), all = TRUE, MODE = 'character', NODASH = F )$fixed
-      
-      sdata <- cbind( sdata[, scols], snew )
-      
-      sdata$plot <- .fixNames( sdata$plot, all = TRUE, MODE = 'character' )$fixed
-      srr <- columnPaste( sdata$plot, sdata$trap )
-      srr <- columnPaste( srr, sdata$year )
-      rownames( sdata ) <- srr
-      rownames( censMin ) <- rownames( censMax ) <- rownames( sdata )[ wcens]
-    }
-    
-    srow <- which( sdata$active < 1 )
-    rrow <- which( is.na( sdata[, seedNames] ), arr.ind = TRUE )
-    if( is.matrix( rrow ) )rrow <- rrow[, 1]
-    
-    srow <- sort( unique( c( srow, rrow ) ) )
-    
-    if( length( censMin ) > 0 ){
-      mm   <- match( rownames( censMin ), rownames( sdata ) )
-      srow <- srow[ !srow %in% mm]
-    }
-    
-    nseed <- length( seedNames )
-    
-    if( length( srow ) > 0 ) { # only if not already in censMin/censMax
-      
-      # seedNames identified in plotYr
-      
-      cmin <- sdata[ srow, seedNames, drop = FALSE]
-      cmin[ is.na( cmin )] <- 0
-      
-      sdata[ srow, seedNames] <- cmin
-      
-      if( length( censMin ) == 0 ){
-        censMin <- cmin
-        censMax <- cmin*0 + Inf
-      }else{
-        wnew <- which( !colnames( cmin ) %in% colnames( censMin ) )
-        if( length( wnew ) > 0 ){
-          newmat <- matrix( 0, nrow( censMin ), length( wnew ) )
-          colnames( newmat ) <- colnames( cmin )[ wnew]
-          censMin <- cbind( censMin, newmat )
-          newmat <- newmat + Inf
-          censMax <- cbind( censMax, newmat )
-        }
-        wnew <- which( !colnames( censMin ) %in% colnames( cmin ) )  
-        snn <- seedNames[ seedNames %in% colnames( censMin )]
-        cmax <- cmin
-        cmax <- cmax + Inf
+      if( length( wcens ) > 0 ){  # repair names, but leave '_min', '_max'
+        m1cols <- grep( '_min', colnames( sdata ) )
+        ncc <- .replaceString( colnames( sdata )[ m1cols], '_min', '' )
+        mc <- .fixNames( ncc, all = TRUE, MODE = 'character', NODASH = F )$fixed
+        colnames( sdata )[ m1cols] <- paste( mc, '_min', sep = '' )
         
-        censMin <- rbind( censMin[, snn, drop = FALSE], cmin[, snn, drop = FALSE] )
-        censMax <- rbind( censMax[, snn], drop = FALSE, cmax[, snn, drop = FALSE] )
+        m2cols <- grep( '_max', colnames( sdata ) )
+        ncc <- .replaceString( colnames( sdata )[ m2cols], '_max', '' )
+        mc <- .fixNames( ncc, all = TRUE, MODE = 'character', NODASH = F )$fixed
+        colnames( sdata )[ m2cols] <- paste( mc, '_max', sep = '' )
+        mcols <- c( m1cols, m2cols )
+        
+        seedNames <- .fixNames( seedNames, all = TRUE, MODE = 'character', NODASH = F )$fixed
       }
+      
+      wcc <- c( 1:ncol( sdata ) )
+      if( length( mcols ) > 0 )wcc <- wcc[ -mcols]
+      colnames( sdata )[ wcc] <- .fixNames( colnames( sdata )[ wcc], all = TRUE, 
+                                            MODE = 'character', NODASH = F )$fixed
+      
+      tmp <- cleanSeedData( sdata, xytrap, seedNames, verbose )
+      sdata  <- tmp$sdata
+      xytrap <- tmp$xytrap
+      words  <- paste( words, tmp$words )
+      
+      scols <- c( "plot", "trap", "trapID", "year", "plotYr", "area", "active" )
+      countCols <- colnames( sdata )[ !colnames( sdata ) %in% scols]
+      
+      sdata <- sdata[, c( scols, countCols )]
+      
+      if( length( wcens ) > 0 ){  # only if censMin/censMax not built yet
+        
+        # move _min, _max columns out of sdata to censMin, censMax, 
+        # only for rows
+        
+        SEEDCENSOR <- TRUE
+        
+        scens <- paste( seedNames, '_min', sep = '' )
+        tcens <- paste( seedNames, '_max', sep = '' )
+        wcens <- which( scens %in% colnames( sdata ) )   # data input as censored
+        scens <- scens[ wcens]
+        wcens <- which( tcens %in% colnames( sdata ) )   # data input as censored
+        tcens <- tcens[ wcens]
+        
+        stypes <- columnSplit( scens, '_min' )
+        ttypes <- columnSplit( tcens, '_max' )
+        stypes <- sort( unique( c( stypes, ttypes, seedNames ) ) ) #seedNames from censored columns
+        
+        slo <- matrix( 0, nrow( sdata ), length( stypes ) )  
+        colnames( slo ) <- stypes
+        snew <- shi <- slo 
+        
+        # censored rows:
+        ms <- match( stypes, seedNames )
+        wf <- which( is.finite( ms ) )
+        
+        snew[, stypes[ ms[ wf]]] <- as.matrix( sdata[, stypes[ ms[ wf]]] )
+        rownames( snew ) <- rownames( sdata )
+        
+        # uncensored rows
+        scensName <- .replaceString( scens, '_min', '' )
+        slo[, scensName] <- as.matrix( sdata[, scens] )
+        shi[, scensName] <- as.matrix( sdata[, tcens] )
+        rownames( slo ) <- rownames( shi ) <- rownames( sdata )
+        
+        wnot  <- sort( unique( which( is.na( slo ), arr.ind = TRUE )[, 1] ) )
+        wcens <- sort( unique( which( is.na( snew ), arr.ind = TRUE )[, 1] ) )
+        
+        sinit <- round( ( slo[ wcens, ] + shi[ wcens, ] )/2 )
+        sinit[ !is.finite( sinit )] <- slo[ wcens][ !is.finite( sinit )]
+        sinit[ !is.finite( sinit )] <- 0
+        
+        snew[ wcens, ] <- sinit
+        
+        snew[ is.na( snew )] <- 0
+        
+        censMin <- cbind( wcens, slo[ wcens, ] )
+        censMax <- cbind( wcens, shi[ wcens, ] )
+        colnames( censMin )[ 1] <- colnames( censMax )[ 1] <- 'srow'
+        censMin[ is.na( censMin )] <- 0
+        censMax[ is.na( censMax )] <- censMin[ is.na( censMax )]
+        
+        colnames( censMin ) <- colnames( censMax ) <- 
+          .fixNames( colnames( censMin ), all = TRUE, MODE = 'character', NODASH = F )$fixed
+        
+        sdata <- cbind( sdata[, scols], snew )
+        
+        sdata$plot <- .fixNames( sdata$plot, all = TRUE, MODE = 'character' )$fixed
+        srr <- columnPaste( sdata$plot, sdata$trap )
+        srr <- columnPaste( srr, sdata$year )
+        rownames( sdata ) <- srr
+        rownames( censMin ) <- rownames( censMax ) <- rownames( sdata )[ wcens]
+      }
+      
+      srow <- which( sdata$active < 1 )
+      rrow <- which( is.na( sdata[, seedNames] ), arr.ind = TRUE )
+      if( is.matrix( rrow ) )rrow <- rrow[, 1]
+      
+      srow <- sort( unique( c( srow, rrow ) ) )
+      
+      if( length( censMin ) > 0 ){
+        mm   <- match( rownames( censMin ), rownames( sdata ) )
+        srow <- srow[ !srow %in% mm]
+      }
+      
+      nseed <- length( seedNames )
+      
+      if( length( srow ) > 0 ) { # only if not already in censMin/censMax
+        
+        # seedNames identified in plotYr
+        
+        cmin <- sdata[ srow, seedNames, drop = FALSE]
+        cmin[ is.na( cmin )] <- 0
+        
+        sdata[ srow, seedNames] <- cmin
+        
+        if( length( censMin ) == 0 ){
+          censMin <- cmin
+          censMax <- cmin*0 + Inf
+        }else{
+          wnew <- which( !colnames( cmin ) %in% colnames( censMin ) )
+          if( length( wnew ) > 0 ){
+            newmat <- matrix( 0, nrow( censMin ), length( wnew ) )
+            colnames( newmat ) <- colnames( cmin )[ wnew]
+            censMin <- cbind( censMin, newmat )
+            newmat <- newmat + Inf
+            censMax <- cbind( censMax, newmat )
+          }
+          wnew <- which( !colnames( censMin ) %in% colnames( cmin ) )  
+          snn <- seedNames[ seedNames %in% colnames( censMin )]
+          cmax <- cmin
+          cmax <- cmax + Inf
+          
+          censMin <- rbind( censMin[, snn, drop = FALSE], cmin[, snn, drop = FALSE] )
+          censMax <- rbind( censMax[, snn], drop = FALSE, cmax[, snn, drop = FALSE] )
+        }
+      }
+      sdata$trapID <- columnPaste( sdata$plot, sdata$trap )
     }
-    sdata$trapID <- columnPaste( sdata$plot, sdata$trap )
   }
   
   plots     <- sort( unique( tdata$plot ) )
@@ -2783,6 +2517,7 @@ cleanInputs <- function( inputs, beforeFirst = 20,
     ntt    <- table( xytree$plot )
     utt    <- tapply( xytree$x, xytree$plot, range )
     tplots <- .fixNames( names( utt ) )$fixed
+    
     metersX <- matrix( round( unlist( utt ) ), ncol = 2, byrow = TRUE )
     colnames( metersX ) <- c( 'minX', 'maxX' )
     dx <- apply( metersX, 1, diff )
@@ -3335,6 +3070,9 @@ mastFillCensus <- function( inputs, beforeFirst = 15,
   if( SEEDDATA ){
     inputs$seedData$year <- factor2integer( inputs$seedData$year )
     inputs$seedData$plot <- .fixNames( inputs$seedData$plot, all = TRUE, 'character' )$fixed
+    inputs$xytree$plot <- .fixNames( inputs$xytree$plot, all = TRUE, 'character' )$fixed
+    inputs$xytrap$plot <- .fixNames( inputs$xytrap$plot, all = TRUE, 'character' )$fixed
+    
     ss <- tapply( inputs$seedData$year, 
                  list( plot = inputs$seedData$plot ), range )
     sn <- names( ss )
@@ -3500,11 +3238,6 @@ mastFillCensus <- function( inputs, beforeFirst = 15,
   yminP <- tapply( tdata$year, tdata$plot, min )[ yplot]
   ymaxP <- tapply( tdata$year, tdata$plot, max )[ yplot]
   
-  # death during inventory: 
-#  deathYr <- ymaxD[ ymaxD < ymaxP]
-
-  
-  
   # years extended to crop counts
   yminC <- yminD + Inf
   ymaxC <- ymaxD - Inf
@@ -3585,7 +3318,7 @@ mastFillCensus <- function( inputs, beforeFirst = 15,
   vtypes$repr  <- 'ij'
   vtypes$obs   <- 'ij'
   vtypes$year  <- 'time'
-  vtypes$species <- 'i'
+  vtypes$species <- vtypes$tree <- 'i'
   if( 'cropCount' %in% colnames( data ) )vtypes$cropCount <- 'none'
   if( 'cropFraction' %in% colnames( data ) )vtypes$cropFraction <- 'none'
   if( 'cropFractionSd' %in% colnames( data ) )vtypes$cropFractionSd <- 'none'
@@ -3651,8 +3384,6 @@ mastFillCensus <- function( inputs, beforeFirst = 15,
   data$repMu[ is.na( data$repr )] <- .5
   data$repSd <- .5
   data$repSd[ data$repr %in% c( 0, 1 )] <- .01
-  
-  
   
   if( 'cropCount' %in% colnames( data ) ){
     
@@ -4542,110 +4273,460 @@ plotCoeffs <- function( beta, bchain, burnin, ng, specNames, specCol, cex = .8,
   close( rmdOut )
 }
 
-plotAspectEffect <- function( betaSlope, slopeRange = c( .1, .3 ), specCol, 
-                              aspect = seq( -pi, pi, length = 100 ), minEffect = 0, maxNumber = 20, 
-                              ylim = NULL, textSize = 1, xlab = 'Aspect', ylab = 'Effect' ){
+
+aspect2theta <- function( aspect ){ 
+  
+  # aspect clockwise from North, theta counterclockwise from East
+ theta <- pi/2*( 1 - aspect/90 ) 
+ theta[ theta < 0 ] <- theta[ theta < 0 ] + 2*pi
+ theta
+}
+
+theta2aspect <- function( theta ){
+  
+  # theta counterclockwise from East, aspect clockwise from North
+  aspect <- 90*(1 - 2*theta/pi) 
+  aspect[ aspect < 0 ] <- aspect[ aspect < 0 ] + 360
+  aspect
+}
+
+circularMean <- function( wt, degrees ){
+  
+  # degrees is aspect: assumes N is 0, then clockwise
+  
+  xa <- aspect2theta( degrees )
+  x  <- wt*cos( xa ) 
+  y  <- wt*sin( xa ) 
+  
+  sx <- sum(x)
+  sy <- sum(y)
+  
+ # muRad <- atan2( sy, sx )
+  muRad <- xy2theta( cbind(sx, sy) )$theta
+  muDeg <-theta2aspect( muRad )  # counterclockwise from N
+  
+ # muDeg[ muDeg < 0 ] <- muDeg[ muDeg < 0 ] + 360
+  
+  list( muRad = muRad, muDeg = muDeg )
+}
+
+optimumAspect <- function( beta ){  # CORRECT THIS
+  
+  # find the optimum
+  
+ # theta  <- atan( beta[,1]/beta[,2] )
+  theta  <- xy2theta( beta[,1:2] )
+  aspect <- theta2aspect( theta )
+  cbind( theta, aspect )
+  
+}
+
+plotAspectEffect <- function( beta, slopeRange = c( .1, .4 ), specCol, 
+                              aspect = seq( 0, 360, length = 100 ), minEffect = 0, 
+                              maxNumber = Inf, 
+                              yaxt = 's', ylim = NULL, textSize = 1, 
+                              xlab = 'Aspect', ylab = 'Effect',
+                              rectDegrees = NULL, rectColors = NULL,
+                              SPECLABS = T, LEGEND = T, PLOT = T ){
   
   # slopeRange - two values giving envelop to plot
   # betaSlope  - species by 3 u coefficients
   # min2Plot   - plot only those having at least this aspect effect
+  # maxNumber  - maximum number of species to plot
   
-  tmp    <- predictSlopeAspect( betaSlope, slopeValue = slopeRange[ 2], aspect = aspect )
-  ub     <- tmp$ubeta
-  aspect <- tmp$aspect
-  tmp    <- predictSlopeAspect( betaSlope, slopeValue = slopeRange[ 1], aspect = aspect )
-  uc     <- tmp$ubeta
+  minE <- minEffect
   
-  mm  <- apply( ub, 2, max )
+  nlev <- 10
+  levs <- seq( slopeRange[1], slopeRange[2], length = nlev )
+  levList <- vector( 'list', nlev )
+  names( levList ) <- levs
+  specs <- rownames(beta)
+  nspec <- length(specs)
   
-  if( minEffect > 0 ){
-    wm  <- which( mm > minEffect )
-    mm  <- mm[ wm]
-    ub  <- ub[, wm]
-    uc  <- uc[, wm]
+  for( j in 1:nlev ){
+   levList[[j]] <-  predictSlopeAspect( beta, slopeValue = levs[j], aspect = aspect )$ubeta
   }
-  if( ncol( ub ) > maxNumber ){
-    o <- order( mm, decreasing = T )
-    wm <- o[ 1:maxNumber]
-    ub <- ub[, wm]
-    uc <- uc[, wm]
+  if( nspec == 1 ){
+    ymin <- min( sapply( levList, min ) )
+    ymax <- max( sapply( levList, max ) )
+    names( ymin ) <- names( ymax ) <- specs
+  }else{
+    ymin   <- apply( sapply( levList, apply, 2, min ), 1, min )
+    ymax   <- apply( sapply( levList, apply, 2, max ), 1, max )
   }
   
-  bname <- colnames( ub )
-  if( is.null( bname ) )bname <- paste( 'S', wm, sep = '_' )
+  # critical points
   
-  if( is.null( ylim ) )ylim <- c( 0, max( ub )*2 )
+  aa  <- atan( beta[,'aspect1']/beta[,'aspect2'] )            # critical points, radians
+  a2  <- -beta[,'aspect1']*sin(aa) - beta[,'aspect2']*cos(aa) # 2nd derivative
+  maxAspect <- theta2aspect( aa )
+  maxAspect[ a2 > 0 ] <- theta2aspect( aa[ a2 > 0 ] + pi )    # optimum or pessimum?
+  minAspect <- maxAspect - 180
+  minAspect[ minAspect < 0 ] <- 360 + minAspect[ minAspect < 0 ]
+  slope <- beta[,'slope']
   
-  nr <- ncol( ub )
+  minEffect <- levs[nlev]*(slope + beta[,'aspect1']*sin( aspect2theta(minAspect) ) +
+                             beta[,'aspect2']*cos( aspect2theta(minAspect) ) )
+  maxEffect <- levs[nlev]*(slope + beta[,'aspect1']*sin( aspect2theta(maxAspect) ) +
+                             beta[,'aspect2']*cos( aspect2theta(maxAspect) ) )
+  
+  optim <- cbind( slope, minAspect, maxAspect, minEffect, maxEffect )
+  rownames( optim ) <- specs
+  
+  
+  if( !PLOT ) return( invisible( optim ) )
+  
+  wm <- which( ymin < -minE | ymax > minE )
+  
+  if( length(wm) == 0 ){
+    cat('\nno species with aspect effect')
+    return()
+  }
+  
+  
+  specs <- specs[ specs %in% names( wm ) ]
+  nspec <- length(specs)
+  
+  if( nspec > maxNumber ){
+    my <- order( apply( rbind( abs(ymin[specs]), ymax[specs]), 2, max ), decreasing = T )
+    specs <- specs[my[1:maxNumber]]
+  }
+  nspec <- length(specs)
+  
+  if( is.null( ylim ) ){
+    ylim <- c( min(ymin[specs]), max(ymax[specs]) )
+    ylim[1] <- ylim[1]*2.5
+    ylim[2] <- ylim[2]*2.5
+    if( SPECLABS ){
+      ylim[1] <- ylim[1] - 1
+      ylim[2] <- ylim[2] + 1
+    }
+  }
   
   par( bty = 'n' )
-  
-  for( s in 1:nr ){
+  for( s in 1:nspec ){
+    
     if( s == 1 ){
-      plot( aspect, ub[, s], type = 'l', ylim = ylim, xaxt = 'n', xlab = xlab, ylab = ylab )
-      axis( 1, at = c( -pi, -pi/2, 0, pi/2, pi ), labels = c( 'S', 'W', 'N', 'E', 'S' ) )
+      
+      xlimits <- c(-50, 410)
+      plot( NA, type = 'l', xlim = xlimits, ylim = ylim, 
+            xaxt = 'n', yaxt = yaxt, xlab = xlab, ylab = ylab, las = 2, 
+            cex.lab = textSize, cex.axis = textSize)
+      
+      if( !is.null(rectDegrees) ){
+        
+        for( m in 1:nrow(rectDegrees) ){
+          
+          sm <- rectDegrees[m,]
+
+          if( sm[2] < sm[1] ){
+            s1 <- sm
+            s1[2] <- 360
+            rect( s1[1], ylim[1], s1[2], ylim[2], 
+                  border = NA, col = .getColor( rectColors[m], .3) )
+            sm[1] <- 0
+          }
+  #        if( m == 1 ) sm[1] <- xlimits[1]
+  #        if( m == nrow( rectDegrees ) )sm[2] = xlimits[2]
+            
+          rect( sm[1], ylim[1], sm[2], ylim[2], 
+                border = NA, col = .getColor( rectColors[m], .3) )
+        }
+      }
+      
+      aspectAxis()
+  #    axis( 1, at = c( 0, 90, 180, 270, 360 ), labels = c( 'N', 'E', 'S', 'W', 'N' ),
+  #          lwd = 1, cex.lab = textSize, cex.axis = textSize )
+      abline( h = 0, col = .getColor('black', .3), lwd = 2, lty = 2 )
     }
-    polygon( c( aspect, rev( aspect ) ), c( ub[, s], rev( uc[, s] ) ), col = specCol[ s], border = specCol[ s] )
+    
+    xa <- c( aspect, rev( aspect ) )
+    for( k in 2:nlev){
+      ya <- c( levList[[k-1]][,specs[s] ], rev( levList[[k]][,specs[s] ] ) )
+      polygon( xa, ya, col = .getColor( specCol[ s ], k/nlev ), border = NA )
+    }
   }
-  for( s in 1:nr ){
-    lines( aspect, ub[, s], lwd = 2, col = specCol[ s] )
-    lines( aspect, uc[, s], lwd = 2, col = specCol[ s] )
+  
+  
+  if( SPECLABS ){
+    
+    maxy <- max( optim[,'maxEffect'] )
+    miny <- min( optim[,'minEffect'] )
+    
+    par(xpd= T )
+    for( s in 1:nspec ){
+      ts <- specs[s]
+      tx <- optim[specs[s], 'maxAspect']
+      ty <- optim[specs[s], 'maxEffect']
+      yo <- .2 + maxy
+      srt <- 0
+      pos <- 3
+      if( optim[specs[s], 'slope'] < 0 ){
+        tx <- optim[specs[s], 'minAspect']
+        ty <- optim[specs[s], 'minEffect']
+        yo <- -.2 + miny
+        srt <- 0
+        pos <- 1
+      }
+      lines( c(tx,tx), c(ty, ty + yo), lwd = 4, col = 'white' )
+      lines( c(tx,tx), c(ty, ty + yo), lwd = 1.5, col = specCol[ s ]  )
+      text( tx, ty + yo, ts, srt = srt, pos = pos, cex = textSize, 
+            col = specCol[ s ] )
+    }
+    par(xpd= F )
+    
+    print( LEGEND )
+    if( LEGEND ){
+      slopeLegend( slopeRange, col = specCol[1], levs, fig = c(.4, 1, .4, .99) )
+      par( xpd = F, new = T, fig = c(0, 1, 0, 1) )
+    }
   }
-  for( s in 1:nr ){
-    wx <- which.max( ub[, s] )
-    text( aspect[ wx], ub[ wx, s], bname[ s], srt = 70, pos = 4, cex = textSize, 
-         col = 'black' )
+  
+  invisible( optim )
+}
+
+
+
+slopeLegend <- function( slopeRange, col, levs, fig = c(.3, .99, .3, .99) ){
+  
+  nlev <- length( levs )
+  par( fig = fig, new = T )
+  
+  xt <- c(0, 1, 1 )
+  yt <- c(0, 0, max(slopeRange ) )
+  
+  # par( bty = 'n' )
+  
+  plot( NA, xlim = c(0,1), ylim = c(0,1), asp = 1, xaxt = 'n', yaxt = 'n',
+        xlab = '', ylab = '' )
+  axis( 4, at = c( 0, yt[3]), labels = c(0, yt[3]), pos = 1, las = 1, tick = F )
+  
+  polygon( xt, yt, col = 'white', border = 'grey' )
+  
+  for( k in 2:nlev){
+    yt[ 2:3 ] <- levs[c(k-1, k)]
+    polygon( xt, yt, col = .getColor( col, k/nlev ), border = NA )
   }
+  par( new = F )
 }
 
 u2slopeAspect <- function( umat ){
   
-  # umat - slope, sin( slope )sin( aspect ), sin( slope )cos( aspect )
+  # umat - slope, slope*sin( aspect ), slope*cos( aspect )
   
-  ww <- sort( unique( which( is.na( umat ), arr.ind = T )[, 1] ) )
-  aspect <- slope <- rep( NA, nrow( umat ) )
-  ww <- c( 1:nrow( umat ) )[ -ww]
-
-  umat <- umat[ ww, ]
-  umat[ umat[, 1] > .999, 1] <- .999
+  u <- as.matrix( umat[,2:3]/umat[,1] )
   
-  aspect[ ww] <- atan2( umat[, 2], umat[, 3] )*180/pi
-  slope[ ww]  <- asin( umat[, 1] )*180/pi
+  w0 <- which( umat[,1] == 0 )
+  if( length( w0 ) > 0 ){
+    umat[w0, ] <- 0
+    u[ w0, ]   <- .1
+  }
+  
+  theta  <- xy2theta( u[, 1:2] )$theta
+  aspect <- theta2aspect( theta )
+  slope  <- umat[,1]
+  
+  if( length( w0 ) > 0 )aspect[ w0 ] <- 0
   
   cbind( slope, aspect )
 }
 
-predictSlopeAspect <- function( betaSlope, slopeValue, aspect = seq( -pi, pi, length = 100 ) ){
+predictSlopeAspect <- function( beta, slopeValue, aspect = seq(0, 360, length = 100 ) ){
   
-  # betaSlope - matrix of coefficients for u1, u2, u3
+  # beta - matrix of coefficients for u1, u2, u3
   
-  nas     <- length( aspect )
+  ub <- aspect2umat( slopeValue, aspect )
   
-  ub <- getSlopeAspect( slopeValue, aspect )
+  if( ncol( beta ) == 3 ) beta <- t( beta )
+  S       <- ncol( beta )
   
-  if( ncol( betaSlope ) == 3 ) betaSlope <- t( betaSlope )
-  S       <- ncol( betaSlope )
-  
-  ub <- ub%*%betaSlope
-  rb <- apply( ub, 2, range )
-  ub <- ub - matrix( rb[ 1, ], nas, S, byrow = T )
+  ub <- ub%*%beta
   
   list( ubeta = ub, aspect = aspect )
 }
 
-getSlopeAspect <- function( slope, aspect, CLOCKWISE = F ){
-  #slope   - one value in radians
-  #aspect  - vector of values
-  #assumes aspect is counterclockwise from North
+aspect2umat <- function( slope, aspectDegrees ){
   
-  if( CLOCKWISE )aspect <- 2*pi - aspect
+  # slope   - fraction, 45 degrees = slope of 1
+  # aspect  - cloockwise degrees from N
   
-  u1 <- sin( slope )
-  u2 <- sin( slope )*sin( aspect )
-  u3 <- sin( slope )*cos( aspect )
+  theta <- aspect2theta( aspectDegrees )
+  
+  u1 <- slope 
+  u2 <- slope*sin( theta )
+  u3 <- slope*cos( theta )
   
   cbind( u1, u2, u3 )
 }
+
+radians2XY <- function( weight, theta ){
+  
+  # theta is aspect in radians (counterclockwise from E)
+  # weight is vector length
+  # returns x, y in Cartesian coords (counterclockwise from right)
+  
+ # x <- weight*cos( -pi/2 + theta )
+ # y <- weight*sin( -pi/2 + theta )
+  
+  x <- weight*cos( theta )
+  y <- weight*sin( theta )
+  
+  cbind( x, y )
+}
+
+circularStats <- function( weight, degrees, nboot = 2000 ){
+  
+  muRad <- circularMean( weight, degrees )$muRad
+  muDeg <- circularMean( weight, degrees )$muDeg
+  
+  b <- rep(NA, nboot )
+  for( j in 1:nboot){
+    js <- sample( 1:length(weight), replace = T )
+    
+    b[j] <- circularMean( wt = weight[js], degrees = degrees[js] )$muRad
+  }
+  bsdRad <- sd( b )
+  bsdDeg <- bsdRad/2/pi*360
+  
+  st <- rbind( c(muRad, bsdRad ), c(muDeg, bsdDeg) ) 
+  rownames(st) <- c('radians','degrees')
+  colnames(st) <- c('estimate','SE') 
+                                                                      
+  st
+}
+
+
+loadBestFit <- function( genus, region, group = 'output', 
+                         output = NULL, verbose = T ){
+  
+  # output can be 'pathOnly', in which case nothing is loaded, if NULL, then group is loaded
+  # group can be: 'output','chains','data','fit','inputs','parameters', or 'prediction'
+  
+  fitLog <- read.csv ( "fitLog.csv", row.names = 1 )
+  fit    <- fitLog[ startsWith( rownames( fitLog ),
+                                paste( genus, region, sep = '_' ) ),  ]
+  
+  specs <- read.csv( "fitSpecies.csv", row.names = 1 )
+  rs    <- columnSplit( rownames(specs), '_' )
+  specs <- specs[ rs[,1] == genus & rs[,2] == region, ]
+  rs    <- columnSplit( rownames(specs), '_' )
+  spp   <- sort( unique( substr( rs[,4], 12, 100 ) ) )
+  
+  
+  tmp <- columnSplit( rownames( fit ), '_' )
+  t1  <- which.min( fit$DICweighted ) 
+  tmp <- tmp[ t1, ]
+  
+  ofile <- paste( tmp[3], '/', tmp[2], '/', genus, '_Output.rdata', sep = '' )
+  dir   <- paste0( tmp[ 3:1 ], collapse = '/' )
+  file  <- paste( dir, '/', group, '.rdata', sep = '' )
+  
+  if( !is.null(output) ){
+    obs   <- group
+    if( obs == 'output' )obs <- c('chains','data','fit','inputs','parameters', 'prediction')
+    file  <- paste( dir, '/', obs, '.rdata', sep = '' )
+    return( list( outFile = ofile, dir = dir, groupFile = file, species = spp ) )
+  }
+  
+  if( group == 'output' ){
+    
+    if( !file.exists( ofile) )stop( paste('no file:', ofile ) )
+    if( verbose )print( ofile )
+    load( ofile, verbose = verbose )
+    return(  )
+    
+  }
+  
+  if( !file.exists( file) )stop( paste('no file:', file ) )
+  if( verbose )print( file )
+  load( file, verbose = verbose )
+}
+
+xy2theta <- function( xy ){
+  
+  r     <- sqrt( xy[,1]^2 + xy[,2]^2 )
+  theta <- as.vector( atan( xy[,2]/xy[,1] ) )
+  theta[ xy[,1] < 0 ] <- theta[ xy[,1] < 0 ] + pi  # q2, q3
+  theta[ xy[,1] > 0 & xy[,2] < 0 ] <- 
+    theta[ xy[,1] > 0 & xy[,2] < 0 ] + 2*pi        # q4
+  
+  theta[ theta < 0 ] <- theta[ theta < 0 ] + 2*pi
+  
+  list( r = r, theta = theta )
+}
+
+
+circPlot <- function( umat = NULL, scale = 1, maxScale = 5, #diam = maxScale, 
+                      col = 'black', shadeDegrees = NULL, shadeColors = NULL, add = F ){
+  
+  # umat has columns 'slope', 'aspect1', 'aspect2'
+  # shadeDegrees are angles bounding shaded circle
+  
+  by <- 1
+  
+  if( !is.null( umat ) ){
+    sa <- u2slopeAspect( umat )
+    xa <- aspect2theta( sa[, 'aspect'] ) 
+    xy <- radians2XY( sa[,1], xa )
+    by <- 1
+    xseq <- seq(0, max(sa[,'slope']), by = by )[-1]
+    
+    while( length(xseq) == 0 ){
+      by <- .1*by
+      xseq <- seq(0, max(sa[,1]), by = by )[-1]
+    }
+    diam <- max( xseq )
+    xlim <- ylim <- c(-diam, diam)
+    n    <- nrow( xy )
+  }else{
+    xlim <- ylim <- c(-scale, scale )
+  }
+  
+  if( !add)plot( NA, asp = 1, cex = 1, col = col, 
+                 xlim = xlim, ylim = ylim, pch = 16, xaxt = 'n',
+                 yaxt = 'n', xlab = '', ylab = '')
+  
+  if( !is.null( shadeDegrees ) ){
+    
+    if( !is.matrix(shadeDegrees) )shadeDegrees <- matrix( shadeDegrees, 1 )
+    if( length( shadeColors ) == 1 & nrow( shadeDegrees ) > 1 )
+      shadeColors <- rep( shadeColors, nrow, shadeDegrees )
+    
+    shadeDegrees[shadeDegrees[,1] == 360,1] <- 0
+    shadeDegrees[shadeDegrees[,2] == 0,1] <- 360
+    
+    for( i in 1:nrow(shadeDegrees) ){
+      
+      amax <- shadeDegrees[i,2]
+      if( shadeDegrees[i,1] > amax )amax <- amax + 360
+      aseq <- seq( shadeDegrees[i,1], amax, by = 1 )
+      aseq[ aseq > 360 ] <- aseq[ aseq > 360 ] - 360
+      theta <- aspect2theta( aseq )
+      xsy <- radians2XY( xlim[2], as.vector( theta ) )
+      xsy <- rbind( c(0,0), xsy, c(0,0) )
+      polygon( xsy[,1], xsy[,2], border = NA, col = shadeColors[i] )
+    }
+  }
+  
+  if( !is.null( umat ) ){
+    
+    for( m in 1:length(xseq)){
+      ry <- seq( -xseq[m], xseq[m], length = 50 )
+      rx <- sqrt(xseq[m]^2 - ry^2)
+      lines( rx, ry, lty = 2, col = 'grey', lwd = 2 )
+      lines( -rx, ry, lty = 2, col = 'grey', lwd = 2 )
+    }
+    #   points(xy[,1], xy[,2], col = 'white', pch = 16, cex = 1.5 )
+    #   points(xy[,1], xy[,2], col = col, pch = 16 )
+    segments( rep(0, n), rep(0,n), xy[,1], xy[,2], col = 'white',
+              lwd = 4 )
+    segments( rep(0, n), rep(0,n), xy[,1], xy[,2], col = .getColor(col, .3),
+              lwd = 2 )
+  }
+  
+}
+
+
 
 mastPlot <- function( output, plotPars = NULL ){
   
@@ -4661,10 +4742,11 @@ mastPlot <- function( output, plotPars = NULL ){
   }
   .mastPlot( output, plotPars, verbose )
 }
-  
+
+
 .mastPlot <- function( output, plotPars, verbose ){
     
-  CONES <- POINTS <- SAVEPLOTS <- SEEDCENSOR <- RMAT  <- FALSE
+  CONES <- POINTS <- SAVEPLOTS <- SEEDCENSOR <- RMAT  <- MAPS <- FALSE
   YR <- AR <- RANDOM <- TV <- SAMPR <- PREDICT <- SPACETIME <- FALSE
   CONSOLE <- SEEDDATA <- TRUE
   
@@ -4682,7 +4764,8 @@ mastPlot <- function( output, plotPars = NULL ){
     upars <- dpars <- trueValues <- betaYrMu <- betaYrSe <-  
     sgibbs <- ugibbs <- omegaE <- predPlots <- betaYrRand <- priorTable <-
     betaYrRandSE <- prediction <- eigenMu <- facLevels <- specPlots <- NULL
-  randGroups <- formulaRan <- rnGroups <- reIndex <- xrandCols <- NULL  
+  randGroups <- formulaRan <- rnGroups <- reIndex <- xrandCols <- seedCols <- 
+    aspectAxis <- specCol <- NULL  
   specGroups <- plotGroups <- yrIndex <- randomEffect <- yearEffect <- NULL
   pacfMat <- pacfSe <- acsMat <- acsSe <- obsRows <- NULL
   modelYears <- seedPredGrid <- treePredGrid <- acfMat <- NULL
@@ -4694,7 +4777,6 @@ mastPlot <- function( output, plotPars = NULL ){
   outFolder <- 'mastPlots'
   yeGr <- NULL
   plotsPerPage <- 4
-  MAPS <- FALSE
   
   for( k in 1:length( output ) )assign( names( output )[ k], output[[ k]] )
   for( k in 1:length( inputs ) )assign( names( inputs )[ k], inputs[[ k]] )
@@ -4713,6 +4795,7 @@ mastPlot <- function( output, plotPars = NULL ){
   }else{
     if( length( seedData ) == 0 )SEEDDATA <- FALSE
   }
+#  if( 'seedPredGrid' %in% names(prediction) )MAPS <- TRUE
   
   if( !is.null( plotPars ) ){
     for( k in 1:length( plotPars ) )assign( names( plotPars )[ k], plotPars[[ k]] )
@@ -4763,6 +4846,7 @@ mastPlot <- function( output, plotPars = NULL ){
     ng <- keepIter
   }
   nspec <- length( specNames )
+  chainRows <- burnin:ng
   
   if( !is.null( RMD ) )SAVEPLOTS <- CONSOLE <- FALSE
   if( SAVEPLOTS )CONSOLE <- FALSE
@@ -4794,6 +4878,8 @@ mastPlot <- function( output, plotPars = NULL ){
   xrep <- output$data$setupData$xrepUn
   Qf   <- ncol( xfec )/nspec
   Qr   <- ncol( xrep )/nspec
+  
+  bfecStnd <- chains$bfecStn[chainRows,]
   
   if( !is.matrix( pacfMat ) )pacfMat <- t( as.matrix( pacfMat ) )
   if( !is.matrix( pacfSe ) )pacfSe <- t( as.matrix( pacfSe ) )
@@ -4864,10 +4950,9 @@ mastPlot <- function( output, plotPars = NULL ){
   rm( tmp1 )
   rm( tmp2 )
   
-  cfun <- colorRampPalette( c( '#66c2a5', '#fc8d62', '#8da0cb' ) )
-  specCol <- cfun( nspec )
-  names( specCol ) <- specNames
-  cols <- specCol
+  cfun <- colorRampPalette( c( '#66c2a5', '#fc8d62', '#8da0cb', 'brown' ) )
+  specColors <- cfun( nspec )
+  names( specColors ) <- specNames
   
   gfun <- colorRampPalette( c( "#8DD3C7", "#BEBADA", "#FB8072", 
                               "#80B1D3", "#FDB462" ) )
@@ -4876,8 +4961,8 @@ mastPlot <- function( output, plotPars = NULL ){
   
   gfun <- colorRampPalette( c( "forestgreen", "#8DD3C7", "#BEBADA", "#FB8072", 
                               "#80B1D3", "#FDB462", "brown" ) )
-  plotCol <- gfun( nplot )
-  names( plotCol ) <- plots
+  plotColors <- gfun( nplot )
+  names( plotColors ) <- plots
   
   if( SAVEPLOTS ){
     ff <- file.exists( outFolder )
@@ -4891,10 +4976,11 @@ mastPlot <- function( output, plotPars = NULL ){
   
   refVals <- NULL
   
-  words <- .chainPlot( chains$brep, burnin, 'maturation', ngLab, burnLab, 
+  words <- .chainPlot( chains$brep, burnin, 'maturation', title = NULL, ngLab, burnLab, 
                       refVals = refVals, CONSOLE, RMD, SAVEPLOTS, outFolder )
+  
   bfecFit <- chains$bfec[, !colnames( chains$bfec ) %in% notFit, drop = FALSE]
-  words   <- .chainPlot( bfecFit, burnin, 'fecundity', ngLab, burnLab, 
+  words   <- .chainPlot( bfecFit, burnin, 'fecundity', title = NULL, ngLab, burnLab, 
                       refVals = refVals, CONSOLE, RMD, SAVEPLOTS, outFolder )
   
   # species with estimated seed dispersal
@@ -4920,7 +5006,8 @@ mastPlot <- function( output, plotPars = NULL ){
       if( is.na( refVals ) )refVals <- inputs$trueValues$upar
     }
     
-    intval <- priorTable[ drop = FALSE, sord, c( 'priorU', 'priorVU', 'minU', 'maxU' )]
+    intval <- priorTable[ drop = FALSE, sord, 
+                          c( 'priorU', 'priorVU', 'minU', 'maxU' )]
     colnames( intval ) <- c( 'mean', 'var', 'min', 'max' )
     ylim <- range( ugibbs )
     
@@ -4932,23 +5019,23 @@ mastPlot <- function( output, plotPars = NULL ){
     if( ylim[ 2] < qh )ylim[ 2] <- qh
     
     words <- .chainPlot( ugibbs, burnin, 
-                        label = 'dispersal parameter u ( with prior )', 
+                        label = 'dispersal parameter u ( with prior )', title = NULL, 
                         ngLab = ngLab, burnLab = burnLab, refVals = refVals, CONSOLE, 
-                        RMD, SAVEPLOTS, outFolder, ALLONE = TRUE, cols = specCol, 
+                        RMD, SAVEPLOTS, outFolder, ALLONE = TRUE, cols = specColors, 
                         ylim = ylim, intval = intval )
     if( USPEC ){
       words <- .chainPlot( chains$priorUgibbs, burnin, 'dispersal mean and variance', 
-                          ngLab, burnLab, 
+                           title = NULL, ngLab, burnLab, 
                           refVals = NULL, CONSOLE, RMD, SAVEPLOTS, outFolder )
     }
     
     words <- .chainPlot( chains$sgibbs, 
-                        burnin, 'variance sigma', ngLab, burnLab, 
+                        burnin, 'variance sigma', title = NULL, ngLab, burnLab, 
                         refVals = NULL, CONSOLE, RMD, 
                         SAVEPLOTS, outFolder )
   }else{
     words <- .chainPlot( chains$sgibbs[, 1, drop = FALSE], 
-                        burnin, 'variance sigma', ngLab, burnLab, 
+                        burnin, 'variance sigma', title = NULL, ngLab, burnLab, 
                         refVals = NULL, CONSOLE, RMD, 
                         SAVEPLOTS, outFolder )
   }
@@ -4966,29 +5053,21 @@ mastPlot <- function( output, plotPars = NULL ){
     posR <- attr( rMu, 'posR' )
     rff  <- NULL
     
-    tmp <- columnSplit( colnames( mg ), '_' )
-    seedCols <- tmp[, 1]
-    plotCols <- tmp[, 2]
+    tmp <- columnSplit( colnames( mg ), '__' )
+    
+    plotCols <- tmp[,2]
+    
+    tmp <- columnSplit( tmp[,1], '_' )
+    
+    seedCols1 <- tmp[, 1]
+    seedCols2 <- tmp[, 2]
+    
+    plots <- sort( unique(plotCols) )
     np <- length( plots )
     
-    if( ncol( tmp ) == 3 ){
-      plotCols <- tmp[, 3]
-      specCols <- tmp[, 1]
-    }else{
-      wdash <- grep( '-', tmp[ 1, 2] )
-      if( length( wdash ) > 0 ){
-        tmp  <- columnSplit( tmp[, 2], '-' )
-        specCols <- tmp[, 1]
-        plotCols <- tmp[, 2]
-        
-      }else{
-        specCols <- tmp[, 2]
-        plotCols <- NULL
-        np <- 1
-      }
-    }
     
     for( j in 1:np ){
+      
       if( !is.null( plotCols ) ){
         wj <- which( plotCols == plots[ j] )
         if( length( wj ) == 0 )next
@@ -5001,91 +5080,108 @@ mastPlot <- function( output, plotPars = NULL ){
       label <- paste( 'M matrix', plots[ j] )
       
       if( TV ){
-        tt <- columnSplit( colnames( mg )[ wj] )
-        rff <- inputs$trueValues$R[ cbind( tt[, 2], tt[, 1] )]
+        tt <- .replaceString( colnames( mg )[ wj], '__', '-' )
+        tt <- columnSplit( tt, '_' )
+        rff <- inputs$trueValues$R[ cbind( tt[, 2], tt[, 1] ) ]
       }
       
-      words <- .chainPlot( mg[, wj, drop = FALSE], burnin, label, 
+      mgj <- mg[, wj, drop = FALSE]
+      colnames(mgj) <- paste( seedCols1[wj], seedCols2[wj], sep='<-' )
+      
+      words <- .chainPlot( mgj, burnin, label, title = plotCols[wj[1]],
                           ngLab, burnLab, ylim = c( 0, 1 ), 
                  refVals = rff, CONSOLE, RMD, SAVEPLOTS, outFolder )
+      
     }
     
     if( is.null( RMD ) ) graphics.off( )
     
     if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'Mpars.pdf' ) )
     
-    espec <- sort( unique( specCols ) )
+    espec <- sort( unique( specColors ) )
     
     if( RMAT ){
       
-      par( mfrow = c( length( espec ), 1 ), bty = 'n', mar = c( .5, 4, .5, 3 ), oma = c( 4, 3, 2, 4 ) )
+      seedColors <- c( specColors, 'black' )
+      names( seedColors )[length(seedColors) ] <- seedNames[ !seedNames %in% specNames ]
+      
+      nss <- nspec
+      
       tlab <- ''
       
-      plotColors <- plotCol[ plotCols]
+      pcols <- plotColors[ plotCols ]
       plpt <- character( 0 )
+      colnames( mg ) <- .replaceString( colnames( mg ), '__', '-' )
+      tt <- columnSplit( colnames(mg), '_' )
+      from <- columnSplit( tt[,2], '-' )[,1]
+      to   <- tt[,1]
+      plt  <- columnSplit( tt[,2], '-' )[,2]
       
-      for( j in 1:nspec ){
+      npage <- nspec
+      
+      for( j in 1:npage ){
         
-        cj <- which( specCols == specNames[ j] )
-        if( length( cj ) == 0 )next
+        par( bty = 'n', mar = c( 1, 3, .5, 3 ), oma = c( 3, 2, 1.2, 2 ) )
         
-        unkn <- grep( 'UNKN', colnames( mg )[ cj] )
-        if( length( unkn ) > 0 ){
-          cj <- c( cj[ -unkn], cj[ unkn] )
+        cj <- which( from == specNames[j] )
+        
+        pltj <- sort( unique( plt[cj] ) )
+        
+        plot( NA, xlim = c(0, length(pltj)), ylim = c(0, 1 ), 
+              ylab = '', xlab = '', xaxt = 'n' )
+        add <- TRUE
+        mtext( paste( 'from', specNames[j], 'to each seedtype' ), 3, outer = T )
+        
+        for( k in 1:length(pltj)){
+          
+          cjk <- which( from == specNames[j]  & plt == pltj[k] )
+          
+          chain <- mg[ burnin:ng, cjk, drop = FALSE]
+          toj   <- paste( to[cjk], plt[cjk], sep = '-' )
+          colj  <- seedColors[ to[cjk] ]
+          
+          atvals <- c( 1:length(colj) )/( length(colj) + 1 )
+          atvals <- atvals - mean( atvals ) + k
+          
+          rect( atvals[1] - .15, 0, atvals[length(colj)] + .15, 1,
+                col = .getColor( plotColors[pltj[k]], .2 ), border = NA )
+          
+          boxPars <- .boxplotQuant( chain, xaxt = 'n', add = add, 
+                                    at = atvals, #xlim = c(0, 20 ), 
+                                    outline = FALSE, #ylim = c(0,1), 
+                                    col = .getColor( colj, .5 ), 
+                                    border = colj, lty = 1, 
+                                    ylab = '' )#, yaxt = yaxt )
+          par(xpd=T)
+          text(  mean(atvals), -.05, pltj[k] )
+          par(xpd=F)
         }
         
-        cols <- plotColors[ cj]
-        plpt <- c( plpt, unique( names( cols ) ) )
+        par(xpd=T)
+        legend( par('usr')[2] - .2*diff( par('usr')[1:2] ), par('usr')[4]+0.015,
+                seedNames, seedColors[ seedNames ], bty = 'n' )
+        par(xpd=F)
         
-        boxPars <- .boxCoeffs( mg[ burnin:ng, cj, drop = FALSE], specNames[ j], xlab = tlab, 
-                              ylab = '', 
-      #                        ylab = specNames[ j], 
-                              addSpec = '', ylim = c( 0, 1 ), 
-                              cols = cols, yaxt = 'n' )
-        st <- boxPars$stats
-        s2 <- columnSplit( colnames( st ), '_' )[, 2]
-        wc <- which( !s2 == specNames[ j] )           # seed types != this one
         
-        par( xpd = NA )
-        if( length( wc ) > 0 )text( wc, 1.1, s2[ wc], cex = .8, col = cols[ wc] )
+        mtext( 'Plot', side = 1, line = 1, outer = TRUE )
+        mtext( 'Probability', side = 2, line = 0, outer = TRUE )
         
-        wt <- c( match( seedCols[ cj], seedNames ), 1000 )
-        wt[ length( wt )] <- wt[ length( wt )] + 1
-        wt <- which( diff( wt ) != 0 )
+        if( CONSOLE )
+          readline( 'seeds assigned to each type by plot -- return to continue ' )
+        if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
         
-     #   text( .1, 1.3, seedCols[ cj[ wt]], cex = .8, pos = 4 )
-        legend( 'topleft', seedCols[ cj[ wt]], bty = 'n' )
-        
-   #     text( wt-.1, .2, seedCols[ cj[ wt]], cex = .8, pos = 2 )
-        par( xpd = FALSE )
-        
-        abline( h = 1, col = 'grey', lwd = 1 )
-        axis( 2, at = c( 0, 1 ), las = 2 )
-        tlab <- ''
+        if( is.null( RMD ) ){
+          graphics.off( )
+        }else{
+          words <- paste( 'Seeds assigned to each type by plot ' )
+          message( words )
+          caption <- c( caption, words )
+        }
       }
       
-      mtext( 'Fraction from these species...', side = 2, line = .4, outer = TRUE, cex = 1.2 )
-      mtext( '...counted as these seed types', side = 3, line = .4, outer = TRUE, cex = 1.2 )
-      
-      ncol <- round( length( plpt )/4 ) + 1
-      
-      plpt <- unique( plpt )
-      
-      cornerLegend( 'bottomright', plpt, text.col = plotCol[ plpt], 
-                   cex = .9, bty = 'n', ncol = ncol )
-      
-      if( CONSOLE )
-        readline( 'species -> seed type -- return to continue ' )
-      if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
       
       
-      if( is.null( RMD ) ){
-        graphics.off( )
-      }else{
-        words <- paste( 'Contribution of each species to seedNames' )
-        message( words )
-        caption <- c( caption, words )
-      }
+      
     }
     
   ########################
@@ -5177,7 +5273,7 @@ mastPlot <- function( output, plotPars = NULL ){
         
         cspec <- columnSplit( rownames( wk ), '-' )[, 1]
         aspec <- c( aspec, cspec )
-        colm <- specCol[ cspec]
+        colm <- specColors[ cspec]
         tmp  <- barplot( smm[ wk], beside = TRUE, col = .getColor( colm, .5 ), 
                         border = colm, ylim = c( 0, 1 ), yaxt = 'n', lwd = 2 )
         labels <- FALSE
@@ -5195,7 +5291,7 @@ mastPlot <- function( output, plotPars = NULL ){
         
         aspec <- sort( unique( aspec ) )
         
-        cornerLegend( 'bottomright', aspec, text.col = specCol[ aspec], 
+        cornerLegend( 'bottomright', aspec, text.col = specColors[ aspec], 
                      cex = 1.1, bty = 'n', ncol = 1 )
         
         if( CONSOLE )
@@ -5228,13 +5324,13 @@ mastPlot <- function( output, plotPars = NULL ){
       wc <- which( att == 1 )
     }
     
-    vaa <- agibbs[, wc, drop = FALSE]
+    vaa <- agibbs[chainRows, wc, drop = FALSE]
     vrr <- apply( vaa, 2, sd )
     
     if( max( vrr ) > 1e-5 ){
       
       words <- .chainPlot( aUgibbs[, wc, drop = FALSE], burnin, 
-                          'random effects covariance', 
+                          'random effects covariance', title = NULL, 
                           ngLab, burnLab, 
                  refVals = NULL, CONSOLE, RMD, SAVEPLOTS, outFolder )
       caption <- c( caption, words )
@@ -5245,76 +5341,197 @@ mastPlot <- function( output, plotPars = NULL ){
   
   ########### coefficients
   
-  if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'fecundityCoeffs.pdf' ) )
-
   fitCols <- colnames( xfecu2s )
-  
-  # standardized betas
-  bfecStnd <- bfec*0
- # bfecStnd[, fitCols] <- bfec[, fitCols]%*%t( xfecu2s )
-  
-  bfecStnd <- bfec[, fitCols]%*%t( xfecu2s )
-  
- # brepStnd <- brep%*%t( xrepu2s )
- # colnames( brepStnd ) <- colnames( brep )
-  
-  wss <- grep( 'species', colnames( bfecStnd ) )
-  wff <- grep( 'species', rownames( betaFec ) )
-  
-  if( length( wss ) > 0 & length( wff ) == 0 )
-    rownames( betaFec ) <- colnames( bfecStnd )
-  
-  if( nspec == 1 ){
-              
-    par( mfrow = c( 1, 2 ), mar = c( 5, 4, 2, 1 ), bty = 'n' )
-    tmp <- .boxplotQuant( brep[ drop = FALSE, burnin:ng, ], add = F, xaxt = 'n', 
-                          xlim = NULL, ylab = 'Standard deviations', 
-                          outline = FALSE, col = .getColor( 'black', .2 ), 
-                          border = 'black', lty = 1, boxfill = NULL )
+  fitCols <- fitCols[ !fitCols %in% notFit ]
+  xnames  <- unique( columnSplit( fitCols, '_' )[,2] ) 
+  xnames  <- xnames[ !xnames %in% c( "intercept", "diam", "I(diam^2)", "tempSite", 
+                                     "I(tempSite^2)", "diam:defAnom" ) ]
+  if( length(xnames) > 0 ){
+    if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'fecundityCoeffs.pdf' ) )
+    chains2boxplot( cmat = bfec[chainRows, ], xnames, specColors, xlab = 'Parameter value' )
     
-    axis( 1, at = c( 1:nrow( betaRep ) ), labels = rnames, las = 2 )
-    abline( h = 0, col = 'grey', lwd = 2, cex.axis = .6 )
-    title( 'a ) Maturation' )
-    if( TV )abline( h = inputs$trueValues$betaRep, lwd = 2, lty = 2, col = 'grey' )
+    if( CONSOLE )readline( 'fecundity ( unstandardized ) -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
     
-    tmp <- .boxplotQuant( bfecStnd[ drop = FALSE, burnin:ng, !colnames( bfecStnd ) %in% notFit], 
-                          add = F, xaxt = 'n', 
-                          xlim = NULL, ylab = '', 
-                          outline = FALSE, col = .getColor( 'black', .2 ), 
-                          border = 'black', lty = 1, boxfill = NULL )
-    axis( 1, at = c( 1:nrow( betaFec ) ), labels = fnames, las = 2 )
-    abline( h = 0, col = 'grey', lty = 2 )
-    title( 'b ) Fecundity' )
-    if( TV ){
-      abline( h = inputs$trueValues$betaFec, lwd = 2, lty = 2, col = 'grey' )
-      text( 2, inputs$trueValues$betaFec[ 1] + 2, 'true values' )
+    if( is.null( RMD ) ){
+      graphics.off( )
+    }else{
+      words <- paste( 'Posterior estimates for fecundity parameters' )
+      message( words )
+      caption <- c( caption, words )
     }
-    
-  }else{
-    
-    par( mfrow = c( 2, 2 ), mar = c( 1, 3, 1, .2 ), bty = 'n', oma = c( 2, 2, 1, 1 ) )
-    
-    rr <- rownames( betaFec )
-    if( length( notFit ) > 0 )rr <- rr[ !rr %in% notFit]
-
-    plotCoeffs( beta = brep, bchain = brep, burnin, ng, 
-               specNames, specCol, cex = .85, 
-               xlab = 'Maturation' )
-    
-    plotCoeffs( betaFec[ rr, ], bfecStnd[, rr], burnin, ng, specNames, specCol, cex = .85, 
-               xlab = 'Fecundity' )
-    mtext( 'Standardardized estimates', side = 2, outer = TRUE )
   }
   
-  if( CONSOLE )readline( 'fecundity ( standardized ), maturation ( unstandardized ) -- return to continue ' )
-  if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+  # tOpt
   
-  if( is.null( RMD ) ){
-    graphics.off( )
-  }else{
-    words <- paste( 'Posterior estimates for maturation and fecundity parameters' )
-    message( words )
-    caption <- c( caption, words )
+  tcol2 <- grep( 'tempSite^2', colnames(bfec), fixed = T )
+  
+  if( length(tcol2) > 0 ){
+    
+    colnames( bfec ) <- .replaceString( colnames( bfec ), 'SiteSite','Site' )
+    
+    plim <- inputs$betaPrior$tOpt
+    plim[1] <- plim[1] - 2
+    plim[2] <- plim[2] + 2
+    
+    tcols <- grep( 'tempSite', colnames(bfec) )
+    tcol1 <- tcols[ !tcols %in% tcol2 ]
+    tspec <- columnSplit( colnames(bfec)[tcol1], '_' )
+    tchain <- bfec[drop = F, chainRows, tcol1]
+    
+    tlevs <- 20
+    ngg   <- 1000
+    brows <- sample( chainRows, ngg, replace = T )
+    tseq <- matrix( seq(  plim[1], plim[2], length = tlevs ), 1 )
+    tmat <- matrix( NA, tlevs, nrow(tspec) )
+    colnames(tmat) <- tspec[,1]
+    
+    tempResponse <- vector( 'list', nrow(tspec) )
+    names( tempResponse ) <- tspec[,1]
+    tempRange <- numeric(0)
+    
+    for( k in 1:nrow(tspec)){
+      
+      gk <- grep( tspec[k,1], colnames(bfec)[tcol2] )
+      if( length(gk) == 0 )next
+      bi <- bfec[ chainRows, tcol1[k]]
+      bs <- bfec[ chainRows, tcol2[gk] ]
+      tchain[,k] <- -bi/bs/2
+      colnames(tchain)[k] <- .replaceString( colnames(tchain)[k], 'tempSite','tOpt')
+      
+      if( length(gk) == 0 )next
+      
+      bi <- bfec[ drop=F, brows, tcol1[k]]
+      bs <- bfec[ drop=F, brows, tcol2[gk] ]
+      
+      bmm <- bi%*%tseq + bs%*%tseq^2
+      tempResponse[[k]] <- apply( bmm, 2, quantile, c(.5, .05, 0.159, 0.841, .95 ) )
+      if( k == 1 ){
+        tempRange <- range( tempResponse[[k]] )
+      }else{
+        tempRange <- range( c( tempRange, tempResponse[[k]] ) )
+      }
+    }
+    tchain <- tchain[ drop = F, , grep( 'tOpt', colnames(tchain)) ]
+    
+    tmu <- apply( tchain[drop=F, ,], 2, mean, na.rm = T )
+    
+    if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'fecundityTempResponse.pdf' ) )
+    
+    par( mfrow = c(1,1), bty = 'n', mar = c(4,5,2,5), omi = c(.5,.5, .1, .5 ), 
+         fig = c(0, 1, 0, 1), new=F )
+    
+    xlim  <- plim
+    xbins <- seq(xlim[1], xlim[2], length=25)
+    xy    <- baselineHist( inputs$treeData[,'tempSite'], bins = xbins,
+                           ylim = NULL, htFraction = 1 )
+    ylim <- c( min( xy[2, xy[2,] > 0] ), max(xy[2,]) )
+    ylim[1] <- ylim[1]/1000
+    ylim[2] <- ylim[2]*100000
+    xy[2, xy[2,] < ylim[1] ] <- ylim[1]
+    
+    llo <- round( log10(ylim[1]) )
+    lhi <- round( log10(ylim[2]/100000) )
+    lby <- 1
+    if( (lhi - llo) > 4 )lby <- 2
+    labels <- seq( llo, lhi, by = lby )
+    at <- 10^labels
+
+    plot( NA, xaxt = 'n', yaxt = 'n', xlim = xlim, log = 'y',
+          ylim = ylim, xlab = 'Degrees C', ylab = '', cex.lab = 1.3, cex.axis = 1.3 )
+    axis(4, col = 'brown', at = at, labels = as.character(labels),
+         las = 2, cex.lab = 1.3, cex.axis = 1.3)
+    polygon( xy[1,],xy[2,], border=.getColor( '#fc4e2a', .5 ), 
+             col = .getColor( '#ffeda0', .5 ) )
+    
+    par(new = T)
+    
+    plot( NA, xlim = xlim, ylim = tempRange, xlab = 'Degrees C',
+          ylab = 'Proportionate effect', cex.lab = 1.3, cex.axis = 1.3 )
+    
+    trange <- tapply( inputs$treeData[,'tempSite'], inputs$treeData$species,
+                      range, na.rm = T )
+    
+    sl <- which( sapply( tempResponse, length )  > 0  )
+    tempResponse <- tempResponse[ sl ]
+    
+    for( k in 1:length(tempResponse) ){
+      tlim <- trange[[ tspec[k,1] ]]
+      wk <- which( tseq >= .9*tlim[1] & tseq <= 1.5*tlim[2] )
+      .shadeInterval( tseq[1,wk], t(tempResponse[[k]][ c(2, 5),wk]), 
+                      col = .getColor( specColors[tspec[k,1]], .1) )
+      .shadeInterval( tseq[1,wk], t(tempResponse[[k]][ c(3,4),wk]), 
+                      col = .getColor( specColors[tspec[k,1]], .1) )
+      lines( tseq[1,wk], tempResponse[[k]][1,wk], lwd = 3, col = specColors[tspec[k,1]] )
+    }
+    mtext( 'Observation density (log)', 4, line = 0, outer = T, col = '#fc4e2a', 
+           cex = 1.3)
+    legend( 'topright', tspec[sl,1], text.col = specColors[tspec[sl,1]], bty = 'n' )
+
+    
+    if( CONSOLE )readline( 'fecundity temp Response -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+    
+    if( is.null( RMD ) ){
+      graphics.off( )
+    }else{
+      words <- paste( 'Posterior estimates for fecundity temp optimum' )
+      message( words )
+      caption <- c( caption, words )
+    }
+    
+    if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'fecundityTopt.pdf' ) )
+
+    xlim <- c(2, 50)
+    
+    chains2boxplot( cmat = tchain[drop=F, , ], xnames = 'tOpt', 
+                    xlim = xlim, specColors[tspec[,1]], 
+                    xlab = 'Degrees C' )
+    ylim <- par('usr')[3:4]
+    segments( plim, ylim[1:1]*1.1, plim, ylim[2:2]*.8, lty = 2, lwd = 2, col = .getColor('black',.3) )
+    
+    
+    if( CONSOLE )readline( 'fecundity tOpt -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+    
+    if( is.null( RMD ) ){
+      graphics.off( )
+    }else{
+      words <- paste( 'Posterior estimates for fecundity temp optimum' )
+      message( words )
+      caption <- c( caption, words )
+    }
+
+  }
+  
+  
+  
+  ########### dispersal
+  
+  if( 'ugibbs' %in% names( chains ) ){
+    
+    if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'dispersalCoeffs.pdf' ) )
+    
+    ylab1 <- expression( paste( hat( u ), ' ( ', plain( m )^2, ' )' ) )
+    ylab2 <- expression( paste( 'Kernel mean ', bar( d ), ' ( m )' ) )
+    
+    par( mar = c( 4, 5, 5, 4 ), bty = 'n', oma = c( 1, 1, 2, 1 ) )
+    
+    ugg <- upar2dist( ugibbs[drop = F, chainRows, ] )
+    colnames( ugg ) <- paste( colnames(ugg), 'dispersal', sep = '_' )
+    chains2boxplot( cmat = ugg, xnames = 'dispersal', specColors, xlab = ylab2 )
+    
+    
+    if( CONSOLE )readline( 'kernal mean -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+    
+    if( is.null( RMD ) ){
+      graphics.off( )
+    }else{
+      words <- paste( 'Posterior estimates for dispersal distance' )
+      message( words )
+      caption <- c( caption, words )
+    }
   }
   
   
@@ -5324,34 +5541,324 @@ mastPlot <- function( output, plotPars = NULL ){
   
   if( length( asp ) > 0 ){
     
-    ssp   <- grep( 'slope', colnames( bfec ) )
-    abeta <- colMeans( bfec[, unique( c( ssp, asp ) )] )
-    betaSlope <- matrix( abeta, nspec, 3 )
-    rownames( betaSlope ) <- specNames
-    betaSlope <- betaSlope[ drop = F, betaSlope[, 1] != 0, ]
+    ispecs <- character(0)
     
-    if( nrow( betaSlope ) > 0 ){
-      if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'slopeAspect.pdf' ) )
+    ssp   <- grep( 'slope', colnames( bfec ) )
+    
+    achain <- bfec[chainRows, unique( c( ssp, asp ) )]
+    achain <- achain[, sort( colnames(achain) ) ]
+    abeta <- colMeans( achain )
+    
+    ka <- columnSplit( names( abeta ), '_' )
+    aspec <- sort( unique( ka[,1] ) )
+    na <- length( aspec )
+    
+    avars <- c('slope','aspect1','aspect2') 
+    
+    ai <- grep( ':', ka[,2] )   # interactions with aspect
+    
+    if( length(ai) > 0 ){
       
-      plotAspectEffect( betaSlope, slopeRange = c( .1, .3 ), specCol = .getColor( specCol, .4 ), 
-                        aspect = seq( -pi, pi, length = 100 ), minEffect = 0, maxNumber = 20, 
-                        ylim = NULL, textSize = .8, xlab = 'Aspect', ylab = 'Effect' )
-
-      sa <- u2slopeAspect( inputs$treeData[, c( 'slope', 'aspect1', 'aspect2' )] )
+      # interactions
+      ivar   <- columnSplit( ka[ai,2], ':' )
       
-      ww <- which( !is.na( sa[, 1] ) )
-      xa <- sa[ ww, 'aspect']/180*pi 
-      cx <- sa[ ww, 'slope']/45  # percent slope
-      cl <- specCol[ inputs$treeData$species[ ww]]
+      ww     <- which( startsWith( ivar[,2], 'aspect' ) )
+      if( length( ww ) > 0 ){
+        kvar <- ivar
+        kvar[ww,1] <- ivar[ww,2]
+        kvar[ww,2] <- ivar[ww,1]
+        ivar <- kvar
+        newname    <- paste( ka[ai,1], '_', ivar[,1], ':', ivar[,2], sep = '' )
+        mm <- match( names( abeta )[ai], colnames(achain ) )
+        colnames( achain )[mm] <- names( abeta )[mm] <- newname
+        ka <- columnSplit( names( abeta ), '_' )
+      }
       
-      points( jitter( xa, 100 ), runif( length( xa ), 0, .5 ), cex = cx, 
-              pch = 15, col = .getColor( cl, cx/2 ) )
+      ivar   <- unique( ivar[ !ivar %in% c('aspect1','aspect2') ] )
+      
+      alpha <- .01    # quantile for x
+      iq    <- c( alpha, 1 - alpha )
+      qname <- paste( iq*100, '%', sep = '' )
+      avars  <- unique( c(avars, ka[,2] ) ) 
+      
+      xf     <- output$data$setupData$xfecU
+      cf     <- columnSplit( colnames(xf), '_' )
+      wf     <- which( cf[,2] == ivar )
+      
+      betaSlope <- matrix( 0, na, length(avars), 
+                           dimnames = list( aspec, avars ) )
+      betaSlope[ ka ] <- abeta
+      betaSlope <- betaSlope[ drop = F, betaSlope[, 1] != 0 & 
+                                !( betaSlope[,2] == 0 & betaSlope[,3] == 0), ]
+      
+      if( length( wf ) == 1 ){
+        
+        irange <- quantile( xf[, wf], iq, na.rm = T )
+        aname <- matrix( paste( round( irange ), 'cm' ), 2 )
+        colnames(aname) <- aspec
+        irange <- matrix( irange, 2, 1, 
+                          dimnames = list( qname, colnames(xf)[wf] ) )
+        ispecs <- rownames(betaSlope)
+        
+      }else{
+        irange <- apply( xf[, wf, drop = F], 2, quantile, iq, na.rm = T ) 
+      }
       
       
-      if( CONSOLE )readline( 'slope, aspect -- return to continue ' )
+      ii <- round( irange )
+      aname <- matrix( paste( ii, 'cm' ), 2 )
+      w0 <- which( irange[2,] > irange[1,] )
+      irange <- irange[,w0, drop = F]
+      aname  <- aname[,w0, drop = F]
+      
+      ispecs <- rownames(betaSlope)[betaSlope[,4] != 0 | betaSlope[,5] != 0 ]
+      
+      colnames(aname) <- colnames(irange) <- columnSplit( colnames(irange), '_' )[,1]
+      ispecs <- ispecs[ ispecs %in% colnames(irange) ]
+      
+      
+      rr <- c( 310, 70, 130, 250 )
+      aspectMoist <- rr[1:2]
+      aspectDry   <- rr[3:4]
+      aspectRad   <- rr[2:3]
+      aspectWest   <- rr[ c(4, 1) ]
+      shadeDegrees <- rbind( aspectMoist, aspectDry, aspectRad, aspectWest )
+      shadeColors = c('#3288bd', '#d53e4f', '#e6f598', '#e6f598')
+      
+      if( nrow( betaSlope ) > 0 ){
+        
+        aspect <- seq( 0, 360, length = 100 )
+        
+        if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'slopeAspect.pdf' ) )
+        
+        par( mfrow = c(1,1), bty = 'n', mar = c(2,4,2,2), omi = c(.5,.5, .1, .5 ), new=F )
+        
+        optim <- plotAspectEffect( betaSlope[drop=F,,1:3], slopeRange = c( .1, .2 ), specCol = specColors, 
+                                   aspect = aspect, minEffect = 0, maxNumber = 20, 
+                                   #          ylim = c(-.1, .04),
+                                   textSize = 1.3, xlab = 'Aspect', ylab = 'Effect', SPECLABS = T )
+        
+        sa <- u2slopeAspect( umat = inputs$treeData[, c( 'slope', 'aspect1', 'aspect2' )] )
+        xa <- aspect2theta( sa[, 'aspect'] ) 
+        cx <- sa[,'slope']
+        cl <- specColors[ inputs$treeData$species ] 
+        
+        ymin <- min( optim[,'minEffect'] )
+        ymax <- max( optim[,'maxEffect'] )
+        
+        if( ymin > -1 )ymin <- -1
+        if( ymax < 1 ) ymax <- 1
+        
+        if( CONSOLE )readline( 'slope, aspect -- return to continue ' )
+        if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+        if( is.null( RMD ) )graphics.off( )
+        
+        for( k in 1:nrow(betaSlope) ){
+          
+          graphics.off()
+          
+          speck <- rownames(betaSlope)[k]
+          
+          sfile <- paste( 'slopeAspectSD_', speck, '.pdf', sep = '' )
+          if( SAVEPLOTS )pdf( file = .outFile( outFolder, sfile ) )
+          
+          par( mfrow = c(1,1), bty = 'n', mar = c(2,5,2,5), omi = c(.5,.5, .1, .5 ) )
+          
+          wt <- which( inputs$treeData$species == rownames(betaSlope)[k] )
+          
+          xbins <- seq(0, 360, length=15)
+          xy    <- baselineHist( sa[wt, 'aspect'], bins = xbins,
+                                 ylim = NULL, htFraction = 1, nclass=20)
+          yvals <- xy[2,]
+          xi    <- findInterval( sa[wt, 'aspect'], xbins, all.inside = T )
+          scale <- tapply( sa[wt, 'slope'], xi, sum )
+          ii <-  as.numeric( names(scale) )
+          yvals[ 2*ii ]     <-  scale
+          yvals[ 2*ii + 1 ] <- scale
+          xy[2,] <- xy[2,]*yvals
+          
+          ylim <- quantile( xy[2,], c(.1, 1) )
+          if( ylim[1] == 0 )ylim[1] <- min( xy[2, xy[2,] > 0] )/2
+          ylim[2] <- ylim[2]*1e+10
+          xy[2, xy[2,] < ylim[1] ] <- ylim[1]
+          
+          plot( NA, type = 's', xaxt = 'n', yaxt = 'n', xlim = c(0, 360),
+                ylim = ylim, xlab = '', ylab = '', log = 'y', cex.lab = 1.3, cex.axis = 1.3 )
+          
+          polygon( xy[1,],xy[2,], border=.getColor( '#fc4e2a', .5 ), col = .getColor( '#ffeda0', .5 ) )
+          
+          llo <- round( log10(ylim[1]) )
+          lhi <- round( log10(ylim[2]/1e+10) )
+          lby <- 1
+          if( (lhi - llo) > 4 )lby <- 2
+          labels <- seq( llo, lhi, by = lby )
+          at <- 10^labels
+          axis(4, col = 'brown', at = at, labels = as.character(labels),
+               las = 2, cex.lab = 1.3, cex.axis = 1.3)
+          
+          fmu <- circularMean( wt = sa[wt,'slope'], degrees = sa[wt,'aspect'] )$muDeg
+          fp  <- findInterval( fmu, xy[1,] )
+          lines( c(fmu, fmu), c(ylim[1], xy[2,fp] ), lwd = 4, col = .getColor( '#fc4e2a', .5 ) )
+          aspectAxis()
+          
+          mtext( 'Proportionate effect', 2, line = 0, outer = T, #col = specColors[ speck ], 
+                 cex = 1.5)
+          mtext( 'Slope-weighted density (log)', 4, line = 0, outer = T, 
+                 cex = 1.5, col = 'brown' )
+          
+          par(new=T)
+          
+          ############# standard error
+          
+          ccols <- paste( speck, c('slope','aspect1','aspect2'), sep = '_' )
+          ksamp <- sample( nrow(achain), 200 )
+          wc    <- which( ccols %in% colnames(achain) )
+          bk    <- achain[drop = F, ksamp, ccols[wc] ]
+          if( length( wc ) < 3 ){
+            bnew <- matrix( 0, nrow(bk), 3 - length(wc), 
+                            dimnames = list( NULL, ccols[-wc] ) )
+            bk <- cbind( bk, bnew )
+          }
+          
+          uc <- predictSlopeAspect( bk, slopeValue = .2, aspect = aspect )$ubeta
+          uMu <- rowMeans( uc )
+          uSd <- apply( uc, 1, sd )
+          
+          ylim <- range( c(uMu + uSd, uMu - uSd) )
+          ylim <- ylim*1.3
+          
+          plot( aspect, uMu, type = 'l', lwd = 2, col = specColors[speck],
+                ylim = ylim, xlab = '', ylab = '', xaxt = 'n')
+          .shadeInterval( aspect, cbind( uMu + - uSd, uMu + uSd ), trans = .3,
+                          col = specColors[speck] )
+          abline( h = 0, lwd = 2, lty = 2, col = 'grey' )
+          .plotLabel( speck, above = T )
+          
+          
+          if( CONSOLE )readline( 'aspect standard error at slope = .2 -- return to continue ' )
+          if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+          if( is.null( RMD ) )graphics.off( )
+          
+          # slope aspect range
+          
+          sfile <- paste( 'slopeAspectRange_', speck, '.pdf', sep = '' )
+          if( SAVEPLOTS )pdf( file = .outFile( outFolder, sfile ) )
+          
+          
+          ############## range of slopes
+          
+          graphics.off()
+          
+          #     par( new = F )
+          par( mfrow = c(1,1), bty = 'n', mar = c(2,5,2,5), omi = c(.5,.5, .1, .5 ) )
+          
+          if( ncol(betaSlope) == 3 | !speck %in% ispecs ){ 
+            
+            plotAspectEffect( betaSlope[ drop=F, k, 1:3], slopeRange = c( .1, .2 ), 
+                              specCol = specColors[speck], 
+                              #     minEffect = 0, 
+                              aspect = seq(-40, 400, length=100), 
+                              maxNumber = 20, 
+                              ylim = c(ymin+.1, ymax-.1), textSize = 1.5, xlab = '', ylab = '',
+                              rectDegrees = shadeDegrees, rectColors = shadeColors,
+                              SPECLABS = F, LEGEND = F )
+            
+          }else{  # there are interactions
+            
+            bi <- betaSlope[ drop=F, k, ]
+            bi <- bi[c(1,1),]
+            bi[,2:3] <- bi[, 2:3] + bi[,4:5]*matrix( irange[,speck], 2, 2 )
+            bi <- bi[ , 1:3]
+            rownames(bi) <- aname[,speck]
+            vcolors <- c( '#053061','#67001f'); names(vcolors) <- aname[,speck]
+            plotAspectEffect( bi, slopeRange = c( .1, .2 ), specCol = vcolors, 
+                              aspect = seq(-30, 390, length=100), 
+                              minEffect = 0, maxNumber = 20, 
+                              #          ylim = c(-.1, .04),
+                              textSize = 1.3, xlab = '', ylab = '', SPECLABS = T,
+                              rectDegrees = shadeDegrees, rectColors = shadeColors,
+                              LEGEND = F)
+            .plotLabel( paste( ivar, 'interaction' ), 'topleft', cex = 1. )
+          }
+          .plotLabel( speck, above = T )
+          
+          # inset plot
+          par(fig = c(.55, 1, .55, 1), new = T) 
+          
+          circPlot( umat = inputs$treeData[wt, c( 'slope', 'aspect1', 'aspect2' )],
+               #     scale = 4, 
+                    col = .getColor( specColors[speck], .7 ),
+               shadeDegrees = rbind( aspectMoist, aspectDry, aspectRad, aspectWest ), 
+               shadeColors = .getColor( shadeColors, .3 ) )
+          
+          fmu <- circularMean( wt = sa[wt,'slope'], degrees = sa[wt,'aspect'] )$muRad
+          
+          x0 <- .1*cos(fmu)
+          y0 <- .1*sin(fmu)
+          x <- .5*cos(fmu)
+          y <- .5*sin(fmu)
+          
+          segments( x0, y0, x, y, col = '#fc4e2a', lwd = 4 )
+          segments( xy[,1]*0, xy[,1]*0, xy[,1], xy[,2], lwd = 2, col = .getColor( cl[wt], .5 ) )
+          
+          mtext( 'Proportionate effect', 2, line = 0, outer = T, #col = specColors[ speck ], 
+                 cex = 1.5)
+          mtext( 'Slope-weighted density (log)', 4, line = 0, outer = T, col = '#fc4e2a', 
+                 cex = 1.3)
+          if( CONSOLE )readline( 'slope, aspect range -- return to continue ' )
+          if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+          if( is.null( RMD ) )graphics.off( )
+        }
+      }
+    }
+  }
+    
+    # if there is a tpi effect
+    
+  slp <- grep( 'slope', colnames(bfec) )
+  tpi <- grep( 'tpi', colnames( bfec ) )
+  
+  if( length( slp ) > 0 & length( tpi ) > 0 ){
+    
+    sspec <- columnSplit( colnames(bfec)[slp], '_' )
+    tspec <- columnSplit( colnames(bfec)[tpi], '_' )
+    specs <- sort( intersect( sspec[,1], tspec[,1] ) )
+    scols <- paste( specs, 'slope', sep = '_' )
+    tcols <- paste( specs, 'tpi', sep = '_' )
+    
+    ylim <- range( bfec[,scols] )
+    xlim <- range( bfec[,tcols] )
+    xmu   <- colMeans( bfec[drop = F, ,tcols] )
+    ymu   <- colMeans( bfec[drop = F, ,scols] )
+      
+      sfile <- paste( 'slopeTPI_', speck, '.pdf', sep = '' )
+      if( SAVEPLOTS )pdf( file = .outFile( outFolder, sfile ) )
+      
+      par( bty = 'n' )
+      plot( NA, xlim = xlim, ylim = ylim, xlab = 'tpi', ylab = 'slope' )
+      abline( h = 0, lty = 2, lwd = 2, col = 'grey' )
+      abline( v = 0, lty = 2, lwd = 2, col = 'grey' )
+      
+      for( j in 1:length(scols) ){
+        
+        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                            pr = .9 )$ellipse
+        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .1 ) )
+        
+        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                            pr = .68 )$ellipse
+        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .3 ) )
+        
+        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                            pr = .5 )$ellipse
+        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .4 ) )
+        text( xmu[j], ymu[j], specs[j], col = specColors[specs[j]] )
+      }
+      
+      if( CONSOLE )readline( 'slope by tpi -- return to continue ' )
       if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
       if( is.null( RMD ) )graphics.off( )
-    }
+    
   }
   
   
@@ -5368,7 +5875,7 @@ mastPlot <- function( output, plotPars = NULL ){
   fss   <- rep( specNames[ 1], length( obsRows ) )
   
   if( nspec > 1 ){
-    scols <- paste( 'species', specNames, sep = '' )
+    scols <- paste( specNames, 'intercept', sep = '_' )
     xftmp <- xfec[, scols]
     xrtmp <- xrep[, scols]
     fss   <- specNames[ apply( xftmp[ obsRows, ], 1, which.max )]
@@ -5385,7 +5892,7 @@ mastPlot <- function( output, plotPars = NULL ){
   for( j in 1:nspec ){
     
     fspec  <- fecPred[ obsRows, ]
-    wrow   <- which( fss == specNames[ j] )
+    wrow   <- which( fss == specNames[ j ] )
     fspec  <- fspec[ wrow, ]
     pspec  <- fspec$plot
     mspec  <- fspec$matrEst
@@ -5409,12 +5916,13 @@ mastPlot <- function( output, plotPars = NULL ){
     if( length( www ) > 0 )ttt <- ttt[ -www]
     
     ntt  <- length( ttt )                          # tree yr
-    ksamp <- sample( burnin:ng, nsim, replace = TRUE )   # MCMC row
+    ksamp <- sample( burnin:nrow(sgibbs), nsim, replace = TRUE ) - burnin + 1   # MCMC row
     bcols <- colnames( brep )
     fcols <- colnames( bfec )
+    fcols <- fcols[ fcols %in% colnames(xfec) ]
     if( nspec > 1 ){
-      bcols <- bcols[ grep( specNames[ j], bcols )]
-      fcols <- fcols[ grep( specNames[ j], fcols )]
+      bcols <- bcols[ grep( specNames[ j ], bcols )]
+      fcols <- fcols[ grep( specNames[ j ], fcols )]
     }
     
     ddcol <- grep( 'diam', bcols )
@@ -5430,14 +5938,10 @@ mastPlot <- function( output, plotPars = NULL ){
     fcols <- fcols[ fcol]
     bcols <- bcols[ rcol]
     
-    grf <- grep( ':diam:', fcols )
-    if( length( grf ) > 0 )fcols <- fcols[ -grf]
-    grf <- grep( 'diam:', fcols )
+    grf <- grep( ':', fcols )
     if( length( grf ) > 0 )fcols <- fcols[ -grf]
     
-    grb <- grep( ':diam:', bcols )
-    if( length( grf ) > 0 )bcols <- bcols[ -grf]
-    grf <- grep( 'diam:', bcols )
+    grb <- grep( ':', bcols )
     if( length( grf ) > 0 )bcols <- bcols[ -grf]
     
     xtmu <- matrix( colMeans( ftt ), nrow( ftt ), ncol( ftt ), byrow = TRUE )
@@ -5447,9 +5951,9 @@ mastPlot <- function( output, plotPars = NULL ){
     
     for( k in 1:nsim ){  # predict maturation, fecundity
       
-      ss <- sqrt( sgibbs[ ksamp[ k], 1] )
+      ss <- sqrt( sgibbs[ ksamp[ k ], 'sigma'] )
       kcols <- fcols[ fcols %in% colnames( bfecStnd )]
-      bf <- bfecStnd[ ksamp[ k], kcols, drop = FALSE] 
+      bf <- bfecStnd[ ksamp[ k ], kcols, drop = FALSE] 
       bint <- 0
       
       if( RANDOM ){                             # check standardized
@@ -5473,7 +5977,8 @@ mastPlot <- function( output, plotPars = NULL ){
     srList[[ j]] <- apply( sk[ wd, ], 1, quantile, c( .5, .05, .95 ) )  # for 90% credible interval on fecundity
     arList[[ j]] <- apply( ak[ wd, ], 1, quantile, c( .5, .05, .95 ) )  # for 90% predictive interval
     drList[[ j]] <- dtt[ wd]
-    ymax <- max( c( ymax, srList[[ j]][ 1, ] ) )
+    jm <- quantile( srList[[ j]][ 1, ] , .9 )
+    ymax <- max( c( ymax, jm ) )
     xmax <- max( c( xmax, dtops ) )
     
     colnames( srList[[ j]] ) <- dtt[ wd]
@@ -5481,151 +5986,178 @@ mastPlot <- function( output, plotPars = NULL ){
   }
   diamFec <- srList
   
+  
   if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'maturation.pdf' ) )
   
-  mfrow <- c( nspec, 2 )
-  par( mfrow = mfrow, bty = 'n', mar = c( 1, 3, .5, 3 ), oma = c( 3, 2, 1.2, 2 ) )
+  npage <- floor(nspec/8)
+  nss   <- nspec
+  if( npage == 0 )npage <- 1
+  if( npage > 1 ){
+    nss <- round(nspec/npage)
+  }
   
-  ym   <- max( c( 1.1*sqrt( ymax ), 20 ) )  # sets vertical scale
-  tt   <- sqrtSeq( ym )
-  at   <- tt$at
-  labs <- tt$labs
-  xlim <- c( 0, max( tdata$diam, na.rm = TRUE ) )
-  npat <- 5
-  if( nspec > 4 )npat <- 4
-  if( nspec > 7 )npat <- 3
+  jp <- 0
   
-  diamSeq <- seq( xlim[ 1], xlim[ 2], length = 500 )
-  
-  bprior <- inputs$brepPriorBoundsUnst
-  blims  <- inputs$priorTable[, c( 'minDiam', 'maxDiam' )]
-  
-  # sqrt scale
-  for( j in 1:nspec ){
+  for( p in 1:npage ){
     
-    fspec  <- fecPred[ obsRows, ]
-    wrow   <- which( fss == specNames[ j] )
-    fspec  <- fspec[ wrow, ]
-    pspec  <- fspec$plot
-    mspec  <- fspec$matrEst
-    dspec  <- fspec$diam
+    mfrow <- c( nss, 2 )
+    par( mfrow = mfrow, bty = 'n', mar = c( 1, 3, .5, 3 ), 
+         oma = c( 3, 2, 1.2, 2 ) )
     
-    mr <- mrList[[ j]]
-    sr <- sqrt( srList[[ j]] )
-    ar <- sqrt( arList[[ j]] ) # plot on sqrt scale
-    dtt <- drList[[ j]]
+    ym   <- max( c( 1.1*sqrt( ymax ), 20 ) )  # sets vertical scale
+    tt   <- sqrtSeq( ym )
+    at   <- tt$at
+    labs <- tt$labs
+    xlim <- c( 0, max( tdata$diam, na.rm = TRUE ) )
+    npat <- 5
+    if( nspec > 4 )npat <- 4
+    if( nspec > 7 )npat <- 3
     
-    xaxt <- 'n'
-    if( j == nspec )xaxt <- 's'
+    diamSeq <- seq( xlim[ 1], xlim[ 2], length = 500 )
     
-    plot( NULL, xlim = xlim, ylim = c( 0, 1 ), xlab = '', 
-         ylab = '', xaxt = xaxt )
-    if( j < nspec )axis( 1, labels = FALSE )
-    wp <- match( as.character( pspec ), plots )
+    bprior <- inputs$brepPriorBoundsUnst
+    blims  <- inputs$priorTable[, c( 'minDiam', 'maxDiam' )]
     
+    print( p )
     
-    bdiam <- unlist( blims[ specNames[ j], ] )
-    wdd <- which( diamSeq >= bdiam[ 1] & diamSeq <= bdiam[ 2] )
-    if( length( wdd ) < 3 ){
-      bdiam[ 2] <- bdiam[ 2] + 3
+    # sqrt scale
+    for( j in 1:nss ){
+      
+      jp <- jp + 1
+      if( jp > nspec )break
+      
+      fspec  <- fecPred[ obsRows, ]
+      wrow   <- which( fss == specNames[ jp ] )
+      fspec  <- fspec[ wrow, ]
+      pspec  <- fspec$plot
+      mspec  <- fspec$matrEst
+      dspec  <- fspec$diam
+      
+      mr <- mrList[[ jp ]]
+      sr <- sqrt( srList[[ jp ]] )
+      ar <- sqrt( arList[[ jp ]] ) # plot on sqrt scale
+      dtt <- drList[[ jp ]]
+      
+      xaxt <- 'n'
+      if( jp == nss )xaxt <- 's'
+      
+      plot( NULL, xlim = xlim, ylim = c( 0, 1 ), xlab = '', 
+            ylab = '', xaxt = xaxt )
+      if( j < nspec )axis( 1, labels = FALSE )
+      wp <- match( as.character( pspec ), plots )
+      
+      
+      bdiam <- unlist( blims[ specNames[ jp ], ] )
       wdd <- which( diamSeq >= bdiam[ 1] & diamSeq <= bdiam[ 2] )
+      if( length( wdd ) < 3 ){
+        bdiam[ 2] <- bdiam[ 2] + 3
+        wdd <- which( diamSeq >= bdiam[ 1] & diamSeq <= bdiam[ 2] )
+      }
+      
+      if( !is.null( bprior ) ){
+        bpr <- bprior[ c( jp , jp +nspec ), ]
+        dss <- diamSeq[ wdd]
+        plo <- pnorm( bpr[ 1, 1] + bpr[ 2, 1]*dss )
+        phi <- pnorm( bpr[ 1, 2] + bpr[ 2, 2]*dss )
+        .shadeInterval( dss, cbind( plo, phi ) , 
+                        col = .getColor( 'orange', .1 ) )
+        
+        lines( diamSeq, pnorm( bpr[ 1, 1] + bpr[ 2, 1]*diamSeq ), 
+               col = .getColor( 'black', .4 ), 
+               lty = 2, lwd = 1 )
+        lines( diamSeq, pnorm( bpr[ 1, 2] + bpr[ 2, 2]*diamSeq ), 
+               col = .getColor( 'black', .4 ), 
+               lty = 2, lwd = 1 )
+        
+        pd1 <- pnorm( bpr[ 1, 1] + bpr[ 2, 1]*bdiam )
+        
+        segments( bdiam, c( 0, 0 ), bdiam, pd1, col = .getColor( 'black', .4 ), 
+                  lty = 2, lwd = 1 )
+      }
+      
+      fj <- mspec
+      wj <- which( fj < .001 | fj > .999 )
+      fj[ wj] <- jitter( fj[ wj], .15 )
+      if( POINTS )points( dspec, fj, pch = 16, 
+                          col = .getColor( plotColors[ pspec], .3 ), cex = .3 )
+      .shadeInterval( dtt, t( mr[ 2:3, ] ) , col = .getColor( '#e34a33', .2 ) )
+      lines( dtt, mr[ 1, ], col = 'white', lwd = 5 )
+      lines( dtt, mr[ 1, ], lwd = 2 )
+      
+      if( j == 1 )title( 'Maturation' )
+      
+      fpp <- fspec$fecEstMu*fspec$matrEst
+      
+      xaxt <- 'n'
+      if( j == nspec )xaxt <- 's'
+      
+      # histogram of diameter polygon getpoly
+      
+      plot( NULL, xlim = xlim, ylim = range( at ), xlab = '', ylab = '', 
+            xaxt = xaxt, yaxt = 'n' )
+      if( j < nss )axis( 1, labels = FALSE )
+      axis( 2, at = at, labels = labs )
+      
+      
+      tov  <- hist( fspec$diam, nclass = 20, plot = FALSE )
+      ovec <- tov$count
+      
+      tmp <- .getPoly( tov$breaks[ -1], ovec )
+      cnt <- tmp[ 2, ]
+      cnt <- log10( cnt )
+      cnt[ cnt < 0] <- 0
+      
+      pmax   <- .4
+      pscale <- pmax*max( at )/( 1 + max( cnt ) )
+      polygon( tmp[ 1, ], pscale*cnt, 
+               col = .getColor( specColors[ specNames[ jp ]], .3 ), lwd = 2, 
+               border = specColors[ specNames[ jp ]] )
+      
+      pat <- max( cnt/pmax ) + 1
+      mpat <- floor( pat )
+      
+      pat <- seq( 0, mpat, length = npat )
+      lpat <- round( 10^pat, -2 )
+      if( lpat[ 2] == 0 )lpat <- round( 10^pat, -1 )
+      if( lpat[ 2] == 0 )lpat <- round( 10^pat, 0 )
+      apat <- pat*max( at )/mpat
+      axis( side = 4, at = apat, labels = lpat )
+      abline( h = apat, col = .getColor( specColors[ specNames[ jp ]], .3 ), 
+              lty = 2, lwd = 2 )
+      
+      if( POINTS )points( dspec, sqrt( fpp ), pch = 16,
+                          col = .getColor( plotColors[ pspec], .3 ), 
+                          cex = .5 )
+      
+      .shadeInterval( dtt, t( ar[ 2:3, ] ) , col = 
+                        .getColor( '#fdcc8a', .1 ) )
+      .shadeInterval( dtt, t( sr[ 2:3, ] ) , col = 
+                        .getColor( '#e34a33', .01 ) )
+      
+      lines( dtt, sr[ 1, ], col = 'white', lwd = 6 )
+      lines( dtt, sr[ 1, ], lwd = 2 )
+      
+      if( nspec > 1 ).plotLabel( specNames[ jp ] )
+      if( j == 1 )title( 'Fecundity' )
+    } 
+    
+    mtext( 'Diameter ( cm )', side = 1, line = 1, outer = TRUE )
+    mtext( 'Probability', side = 2, line = 0, outer = TRUE )
+    mtext( 'log trees', side = 4, line = 0, outer = TRUE )
+    
+    if( CONSOLE )
+      readline( 'maturation, fecundity by diameter -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+    
+    if( is.null( RMD ) ){
+      graphics.off( )
+    }else{
+      words <- paste( 'Predictive distribution for maturation, fecundity from posterior ( brown shaded ) and prior interval for maturation at left ' )
+      message( words )
+      caption <- c( caption, words )
     }
-    
-    if( !is.null( bprior ) ){
-      bpr <- bprior[ c( j, j+nspec ), ]
-      dss <- diamSeq[ wdd]
-      plo <- pnorm( bpr[ 1, 1] + bpr[ 2, 1]*dss )
-      phi <- pnorm( bpr[ 1, 2] + bpr[ 2, 2]*dss )
-      .shadeInterval( dss, cbind( plo, phi ) , col = .getColor( 'orange', .1 ) )
-      
-      lines( diamSeq, pnorm( bpr[ 1, 1] + bpr[ 2, 1]*diamSeq ), col = .getColor( 'black', .4 ), 
-            lty = 2, lwd = 1 )
-      lines( diamSeq, pnorm( bpr[ 1, 2] + bpr[ 2, 2]*diamSeq ), col = .getColor( 'black', .4 ), 
-            lty = 2, lwd = 1 )
-      
-      pd1 <- pnorm( bpr[ 1, 1] + bpr[ 2, 1]*bdiam )
-      
-      segments( bdiam, c( 0, 0 ), bdiam, pd1, col = .getColor( 'black', .4 ), 
-                lty = 2, lwd = 1 )
-    }
-    
-    fj <- mspec
-    wj <- which( fj < .001 | fj > .999 )
-    fj[ wj] <- jitter( fj[ wj], .15 )
-    if( POINTS )points( dspec, fj, pch = 16, col = .getColor( plotCol[ pspec], .3 ), cex = .3 )
-    .shadeInterval( dtt, t( mr[ 2:3, ] ) , col = .getColor( '#e34a33', .2 ) )
-    lines( dtt, mr[ 1, ], col = 'white', lwd = 5 )
-    lines( dtt, mr[ 1, ], lwd = 2 )
-    
-    if( j == 1 )title( 'Maturation' )
-    
-    fpp <- fspec$fecEstMu*fspec$matrEst
-    
-    xaxt <- 'n'
-    if( j == nspec )xaxt <- 's'
-    
-    # histogram of diameter polygon getpoly
-    
-    plot( NULL, xlim = xlim, ylim = range( at ), xlab = '', ylab = '', 
-         xaxt = xaxt, yaxt = 'n' )
-    if( j < nspec )axis( 1, labels = FALSE )
-    axis( 2, at = at, labels = labs )
-    
-    
-    tov  <- hist( fspec$diam, nclass = 20, plot = FALSE )
-    ovec <- tov$count
-    
-    tmp <- .getPoly( tov$breaks[ -1], ovec )
-    cnt <- tmp[ 2, ]
-    cnt <- log10( cnt )
-    cnt[ cnt < 0] <- 0
-    
-    pmax   <- .4
-    pscale <- pmax*max( at )/( 1 + max( cnt ) )
-    polygon( tmp[ 1, ], pscale*cnt, col = .getColor( specCol[ specNames[ j]], .3 ), lwd = 2, 
-             border = specCol[ specNames[ j]] )
-    
-    pat <- max( cnt/pmax ) + 1
-    mpat <- floor( pat )
-    
-    pat <- seq( 0, mpat, length = npat )
-    lpat <- round( 10^pat, -2 )
-    if( lpat[ 2] == 0 )lpat <- round( 10^pat, -1 )
-    if( lpat[ 2] == 0 )lpat <- round( 10^pat, 0 )
-    apat <- pat*max( at )/mpat
-    axis( side = 4, at = apat, labels = lpat )
-    abline( h = apat, col = .getColor( specCol[ specNames[ j]], .3 ), lty = 2, 
-           lwd = 2 )
-    
-    if( POINTS )points( dspec, sqrt( fpp ), pch = 16, col = .getColor( plotCol[ pspec], .3 ), 
-                     cex = .5 )
-    
-    .shadeInterval( dtt, t( ar[ 2:3, ] ) , col = 
-                      .getColor( '#fdcc8a', .1 ) )
-    .shadeInterval( dtt, t( sr[ 2:3, ] ) , col = 
-                      .getColor( '#e34a33', .01 ) )
-    
-    lines( dtt, sr[ 1, ], col = 'white', lwd = 6 )
-    lines( dtt, sr[ 1, ], lwd = 2 )
-    
-    if( nspec > 1 ).plotLabel( specNames[ j] )
-    if( j == 1 )title( 'Fecundity' )
   }
-  mtext( 'Diameter ( cm )', side = 1, line = 1, outer = TRUE )
-  mtext( 'Probability', side = 2, line = 0, outer = TRUE )
-  mtext( 'log trees', side = 4, line = 0, outer = TRUE )
   
-  if( CONSOLE )
-    readline( 'maturation, fecundity by diameter -- return to continue ' )
-  if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
-  
-  if( is.null( RMD ) ){
-    graphics.off( )
-  }else{
-    words <- paste( 'Predictive distribution for maturation, fecundity from posterior ( brown shaded ) and prior interval for maturation at left ' )
-    message( words )
-    caption <- c( caption, words )
-  }
   
   ########### random coefficients
   
@@ -5637,8 +6169,8 @@ mastPlot <- function( output, plotPars = NULL ){
     betaFec <- output$parameters$betaFec[, 1, drop = FALSE]
     names( xrandCols ) <- rownames( output$parameters$betaFec )[ xrandCols]
     alphaUMu <- parameters$alphaUMu
-    intercept <- paste( 'species', specNames, sep = '' )
-    if( nspec == 1 )intercept <- '(Intercept)'
+    
+    intercept <- paste( specNames, 'intercept', sep = '_' )
     slopes    <- names( xrandCols )[ !names( xrandCols ) %in% intercept]
     
     rlim <- range( alphaUMu )
@@ -5673,26 +6205,25 @@ mastPlot <- function( output, plotPars = NULL ){
           xvals <- cbind( xvals, tmp$mids )
         }
         ylim <- range( hvals, na.rm = TRUE )
-        xl   <- range( betaFec[ colnames( alphaUMu ), 1], na.rm = TRUE ) + range( rlim, na.rm = TRUE )
+        xl   <- range( betaFec[ colnames( alphaUMu ), 1], 
+                       na.rm = TRUE ) + range( rlim, na.rm = TRUE )
         xl[ 1] <- xl[ 1] - 1
         xl[ 2] <- xl[ 2] + 1
         
-        plot( NA, xlim = xl, ylim = ylim, xlab = 'log fecundity ( fixed plus random )', ylab = 'frequency' )
+        plot( NA, xlim = xl, ylim = ylim, 
+              xlab = 'log fecundity ( fixed plus random )', ylab = 'frequency' )
         for( s in 1:length( specNames ) ){
           
           hp <- which( hvals[, s] > 0 )
           if( length( hp ) == 0 )next
           
           ws <- suppressWarnings( range( hp ) )
-          
-          
-          
           ss <- ws[ 1]:ws[ 2]
           xs <- betaFec[ icol[ s], 1] + xvals[ ss, 1]
           xs <- c( xs[ 1], xs, xs[ length( xs )] )
           ys <- c( 0, hvals[ ss, s], 0 )
-          lines( xs, ys, type = 's', col = specCol[ s], lwd = 2 )
-          lines( xs, xs*0, col = specCol[ s], lwd = 2 )
+          lines( xs, ys, type = 's', col = specColors[ s], lwd = 2 )
+          lines( xs, xs*0, col = specColors[ s], lwd = 2 )
         }
       }else{
         
@@ -5711,7 +6242,7 @@ mastPlot <- function( output, plotPars = NULL ){
         slab <- unique( slopeLab )
         jcol <- jcol[ slopeLab == slab[ 1]]
         
-        plot( betaFec[ icol, 1], betaFec[ jcol, 1], col = .getColor( specCol, .7 ), 
+        plot( betaFec[ icol, 1], betaFec[ jcol, 1], col = .getColor( specColors, .7 ), 
              xlim = xlim, ylim = ylim, cex = .8, xlab = 'Intercept', ylab = slopeLab[ 1] )
         abline( h = 0, lwd = 2, lty = 2, col = 'grey' )
         abline( v = 0, lwd = 2, lty = 2, col = 'grey' )
@@ -5722,7 +6253,7 @@ mastPlot <- function( output, plotPars = NULL ){
                  col = .getColor( specCol[ s], .3 ), pch = 16, cex = 1 )
         }
       }
-      legend( 'topright', specNames, text.col = specCol, bty = 'n' )
+      legend( 'topright', specNames, text.col = specColors, bty = 'n' )
       
       if( CONSOLE )
         readline( 'fixed plus random effects -- return to continue ' )
@@ -5742,75 +6273,8 @@ mastPlot <- function( output, plotPars = NULL ){
   
   if( SEEDDATA ){
     
-    cols  <- specCol[ colnames( ugibbs )]
+    cols  <- specColors[ colnames( ugibbs )]
     upars <- parameters$upars[ drop = FALSE, colnames( ugibbs ), ]
-    
-    if( ncol( ugibbs ) > 1 ){
-      
-      if( is.null( rownames( upars ) ) )rownames( upars ) <- 'mean'
-      
-      if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'dispersalCoeffs.pdf' ) )
-      
-      ncc <- ncol( ugibbs )
-      sideMar <- min( c( 3, 3 + 10/ncc ) )
-      
-      par( mfrow = c( 1, 1 ), mar = c( 3, 5, 5, 4 ), bty = 'n', oma = c( 2, sideMar, 1, sideMar ) )
-      
-      ylim <- range( ugibbs )
-      ylim[ 1] <- .75*ylim[ 1]
-      ylim[ 2] <- 1.25*ylim[ 2]
-      
-      ylab1 <- expression( paste( hat( u ), ' ( ', plain( m )^2, ' )' ) )
-      ylab2 <- expression( paste( 'Kernel mean ', bar( d ), ' ( m )' ) )
-      
-      # uord <- order( colMeans( ugibbs, na.rm = T ) )
-      # colu <- cols[ uord]
-      
-      atvals <- c( 1:ncc )/( ncc + 1 )
-      atvals <- atvals - mean( atvals )
-      
-      tmp <- .boxplotQuant( ugibbs, xaxt = 'n', add = F, xlim = NULL, 
-                            ylab = ylab1, ylim = ylim, boxwex = .1, 
-                            at = atvals, 
-                            outline = FALSE, col = .getColor( cols, .3 ), 
-                            border = cols, lty = 1, boxfill = NULL )
-      tmp$xtick <- atvals
-      .boxCoeffsLabs( boxPars = tmp, labels = names( cols ), 
-                      colLabs = cols, cex = .8 )
-      
-      rr <- range( pi*sqrt( ugibbs )/2 )
-      rm <- -1
-      by <- 10
-      if( diff( rr ) < 20 ){
-        by <- 5
-        rm <- 0
-      }
-      if( diff( rr ) < 10 ){
-        by <- 2
-        rr[ 1] <- rr[ 1] - 1
-        rr[ 2] <- rr[ 2] + 1
-      }
-      
-      rr <- round( rr, rm )
-      rr <- seq( rr[ 1], rr[ 2], by = by )
-      
-      axis( 4, at = ( 2*rr/pi )^2, labels = rr )
-      mtext( ylab2, 4, line = 0, outer = TRUE )
-      abline( v = par( 'usr' )[ 1:2], lwd = 2 )
-      
-      if( CONSOLE )
-        readline( 'dispersal by group -- return to continue ' )
-      if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
-      if( is.null( RMD ) ){
-        graphics.off( )
-      }else{
-        words <- paste( 'Posterior estimates for dispersal parameters' )
-        message( words )
-        caption <- c( caption, words )
-      }
-    }
-    
-    if( is.null( RMD ) ) graphics.off( )
     
     if( SAVEPLOTS )pdf( file = .outFile( outFolder, 'seedShadow.pdf' ) )
     
@@ -5819,7 +6283,7 @@ mastPlot <- function( output, plotPars = NULL ){
     xfec  <- data$setupData$xfec
     
     qd     <- .75
-    dcol  <- grep( ':diam', colnames( xfec ) )
+    dcol  <- grep( '_diam', colnames( xfec ) )
     dtcol <- grep( 'diam', colnames( tdata ) )
     lab60 <- tdata[, dtcol]
     lab60 <- lab60[ lab60 != 0]
@@ -5868,7 +6332,7 @@ mastPlot <- function( output, plotPars = NULL ){
     dseq <- 10^seq( 0, log10( mm ), length = ns ) - 1
     dseq <- matrix( dseq, ns, nsim )
     
-    ij <- sample( 1:nrow( ugibbs ), nsim, replace = TRUE )
+    ij <- sample( 1:length(chainRows), nsim, replace = TRUE )
     
     ssList <- numeric( 0 )
     maxy   <- 0
@@ -6471,12 +6935,14 @@ mastPlot <- function( output, plotPars = NULL ){
         
         sj <- sj[ is.finite( ej )]
         
+        gcol <- groupCol[ rownames( betaYrMu)[nj] ]
+        
         for( m in 1:length( sj ) ){
           mm   <- sj[ m]:ej[ m]
           if( length( mm ) < 2 )next
           loHi <- cbind( betaYrMu[ nj, mm] - 1.96*betaYrSe[ nj, mm], 
                          betaYrMu[ nj, mm] + 1.96*betaYrSe[ nj, mm] )
-          .shadeInterval( yr[ mm], loHi, col = groupCol[ nj], PLOT = TRUE, add = TRUE, trans = .3 )
+          .shadeInterval( yr[ mm], loHi, col = gcol, PLOT = TRUE, add = TRUE, trans = .3 )
         }
       }
       
@@ -6498,14 +6964,17 @@ mastPlot <- function( output, plotPars = NULL ){
         
         legj <- c( legj, j )
         
+        gcol <- groupCol[ rownames( betaYrMu)[nj] ]
+        
         for( m in 1:length( sj ) ){
           mm   <- sj[ m]:ej[ m]
           lines( yr[ mm], betaYrMu[ nj, mm], col = .getColor( 'white', .7 ), lwd = 5 )
-          lines( yr[ mm], betaYrMu[ nj, mm], col = groupCol[ nj], lwd = 2 )
+          lines( yr[ mm], betaYrMu[ nj, mm], col = gcol, lwd = 2 )
         }
       }
       if( length( legj ) < 10 ){
-        cornerLegend( 'topright', yeGr[ legj], text.col = groupCol[ yeGr[ legj]], 
+        cornerLegend( 'topright', rownames( betaYrMu ), 
+                      text.col = groupCol[ rownames( betaYrMu ) ], 
                      cex = .8, bty = 'n' )
       }
     }
@@ -6550,13 +7019,6 @@ mastPlot <- function( output, plotPars = NULL ){
     if( AR )file <- 'lagEffectByGroup.pdf'
     
     if( SAVEPLOTS )pdf( file = .outFile( outFolder, file ) )
-                 
-    
- #   yeGr <- output$data$setupYear$yeGr
- #   if( is.null( yeGr ) )yeGr <- as.character( output$data$setupData$yeGr )
- #   region <- yearEffect$plotGroups
- #   spec   <- yearEffect$specGroups
-    
     
     rgg <- grep( '_', rownames(betaYrRand) )
     
@@ -6626,7 +7088,8 @@ mastPlot <- function( output, plotPars = NULL ){
             if( length( mm ) < 2 )next
             loHi <- cbind( betaYrMu[ nj, mm] - 1.96*betaYrSe[ nj, mm], 
                            betaYrMu[ nj, mm] + 1.96*betaYrSe[ nj, mm] )
-            .shadeInterval( yr[ mm], loHi, col = groupCol[ nj], PLOT = TRUE, add = TRUE, trans = .3 )
+            .shadeInterval( yr[ mm], loHi, col = groupCol[ nj], PLOT = TRUE, 
+                            add = TRUE, trans = .3 )
           }
         }
         
@@ -6666,7 +7129,6 @@ mastPlot <- function( output, plotPars = NULL ){
     }
     
     if( AR ){ 
-      
       
       par( mfrow = c( 1, 1 ), bty = 'n', mar = c( 4, 2, .1, 2 ), oma = c( 2, 3, 1, 1 ) )  
       
@@ -6739,7 +7201,7 @@ mastPlot <- function( output, plotPars = NULL ){
       
       if( yeGr[ 1] %in% specNames & specNames[ 1] %in% rownames( acm ) ){
         acm <- acm[ drop = FALSE, specNames, ]
-        cols <- specCol[ specNames]
+        cols <- specColors[ specNames]
         leg  <- specNames
       }else{
         cols <- groupCol
@@ -6861,32 +7323,30 @@ mastPlot <- function( output, plotPars = NULL ){
           
           ac <- acm[ j, wj]
           
-          lines( lag[ wj], ac, col = plotCol[ preg[ j, 2]], lwd = 2 )
+          lines( lag[ wj], ac, col = plotColors[ preg[ j, 2]], lwd = 2 )
           loHi <- cbind( ac - 1.96*acs[ j, wj], 
                          ac + 1.96*acs[ j, wj] )
-          .shadeInterval( lag[ wj], loHi, col = plotCol[ preg[ j, 2]], PLOT = TRUE, add = TRUE, 
+          .shadeInterval( lag[ wj], loHi, col = plotColors[ preg[ j, 2]], PLOT = TRUE, add = TRUE, 
                          trans = .4 )
           
           up <- which( loHi[, 1] > 0 )
           up <- up[ up > 1]
           points( lag[ wj[ up]], ac[ up], cex = 1.3, pch = 16, 
-                 col = .getColor( plotCol[ preg[ j, 2]], .5 ) )
+                 col = .getColor( plotColors[ preg[ j, 2]], .5 ) )
           
           up <- up[ up < 10]
           up <- paste0( up[ up > 2], collapse = ', ' )
           ll <- rownames( acm )[ j]
-          #    leg <- c( leg, ll )
-          #    col <- c( col, j )
         }
         .plotLabel( specNames[ k], 'topright' ) 
       }
       if( nspec == prod( mfrow$mfrow ) ){
         if( length( plots ) < 20 ){
-          cornerLegend( 'bottomright', plots, bty = 'n', text.col = plotCol[ plots], cex = .9 )
+          cornerLegend( 'bottomright', plots, bty = 'n', text.col = plotColors[ plots], cex = .9 )
         }
       }else{
         plot( NULL, xlim = xlim, ylim = ylim, xlab = '', ylab = '', axes = FALSE )
-        legend( 'topleft', plots, bty = 'n', text.col = plotCol[ plots], cex = 1.2 )
+        legend( 'topleft', plots, bty = 'n', text.col = plotColors[ plots], cex = 1.2 )
       }
       mtext( 'Lag ( yr )', side = 1, line = 1, outer = TRUE )
       mtext( 'PACF', side = 2, line = 1, outer = TRUE )
@@ -7181,19 +7641,19 @@ mastPlot <- function( output, plotPars = NULL ){
         tmp <- .getPoly( breaks[ -1], ovec )
         if( jk == 1 ){
           plot( tmp[ 1, ], tmp[ 2, ], type = 's', lwd = 2, 
-               col = .getColor( specCol[ specNames[ k]], .3 ), 
+               col = .getColor( specColors[ specNames[ k]], .3 ), 
                xlab = '', ylab = '', ylim = ylim, xaxt = 'n', yaxt = 'n' )
           axis( 1, at = c( -1, 0, 1 ), labels = c( -1, 0, 1 ) )
           axis( 2, labels = TRUE )
         }
         
         tmp <- .getPoly( breaks[ -1], ovec )
-        polygon( tmp[ 1, ], tmp[ 2, ], col = .getColor( specCol[ specNames[ k]], .3 ), lwd = 2, 
-                 border = specCol[ specNames[ k]] )
+        polygon( tmp[ 1, ], tmp[ 2, ], col = .getColor( specColors[ specNames[ k]], .3 ), lwd = 2, 
+                 border = specColors[ specNames[ k]] )
       }
       if( length( sk ) == 0 )next
       .plotLabel( ppt[ j], 'topleft' )
-      legend( 'topright', sk, text.col = specCol[ sk], bty = 'n' )
+      legend( 'topright', sk, text.col = specColors[ sk], bty = 'n' )
     }
     
     if( jk > 0 ){
@@ -7215,7 +7675,7 @@ mastPlot <- function( output, plotPars = NULL ){
   
   ############# predicted maps
   
-  if( !SEEDDATA )return( invisible( caption ) )
+  if( !SEEDDATA )return( invisible( list( caption = caption, diam90 = diamFec ) ) )
   
   if( MAPS & is.null( RMD ) ){
     
@@ -7232,7 +7692,7 @@ mastPlot <- function( output, plotPars = NULL ){
       seedMax <- rowSums( seedMax, na.rm = TRUE )
     }
     
-    seedMax <- max( seedMax, na.rm = TRUE ) + 1
+    seedMax <- quantile( seedMax[seedMax > 0], .95, na.rm = TRUE ) + 1
     fecMax  <- max( treeSymbol )
     
     
@@ -7241,7 +7701,7 @@ mastPlot <- function( output, plotPars = NULL ){
     mpp <- 1:length( plots )
     
     plotDims <- as.matrix( plotDims )
-    plotDims <- plotDims[ !is.na( plotDims[, 1] ), ]
+    plotDims <- plotDims[ drop = F, !is.na( plotDims[, 1] ), ]
     
     for( m in 1:nrow( plotDims ) ){
       
@@ -7897,7 +8357,7 @@ mastPlot <- function( output, plotPars = NULL ){
    
   invisible( list( caption = caption, diam90 = diamFec ) )
 }
-  
+   
 .getPoly <- function( x, y ){
   
   dx <- diff( x )
@@ -7909,7 +8369,8 @@ mastPlot <- function( output, plotPars = NULL ){
   rbind( xx, yy )
 }
 
-.chainPlot <- function( mat, burnin, label, ngLab = NULL, burnLab = NULL, 
+.chainPlot <- function( mat, burnin, label, title = NULL,
+                        ngLab = NULL, burnLab = NULL, 
                        refVals = NULL, CONSOLE, RMD, 
                        SAVEPLOTS = FALSE, outFolder = '', ALLONE = F, 
                        cols = NULL, ylim = NULL, intval = NULL ){
@@ -7942,7 +8403,8 @@ mastPlot <- function( output, plotPars = NULL ){
   if( ALLONE )npp <- 1
   
   mfrow <- .getPlotLayout( npp )
-  par( mfrow = mfrow$mfrow, bty = 'n', mar = c( 2, 2, 1, 1 ), oma = c( 2, 3, 1, 1 ) ) 
+  par( mfrow = mfrow$mfrow, bty = 'n', mar = c( 2, 2, 1, 1 ), 
+       oma = c( 2, 3, 3, 1 ) ) 
   
   cex <- 1/( 1 + mfrow$mfrow[ 2] )^.1
   
@@ -7991,7 +8453,9 @@ mastPlot <- function( output, plotPars = NULL ){
       npp <- ncol( mat ) - j
       if( npp > 36 )npp <- 36
       mfrow <- .getPlotLayout( npp )
-      par( mfrow = mfrow$mfrow, bty = 'n', mar = c( 2, 2, 2, 2 ), oma = c( 2, 3, 1, 1 ) ) 
+      par( mfrow = mfrow$mfrow, bty = 'n', mar = c( 2, 2, 2, 2 ), 
+           oma = c( 2, 3, 1, 1 ) ) 
+      
     }
     
     xlabels <- FALSE
@@ -7999,20 +8463,21 @@ mastPlot <- function( output, plotPars = NULL ){
     if( j %in% mfrow$bottom )xlabels <- TRUE
     
     mj <- mat[, j]
+    cf <- which( is.finite( mj[cseq] ) )
     
     if( NEWY ){
-      ylim <- range( mj )
+      ylim <- range( mj[ is.finite(mj) ] )
       if( !is.null( refVals ) & NEWY ){
-        ylim <- range( c( refVals[ j], mj ) )
+        ylim <- range( c( refVals[ j], mj[ is.finite(mj) ] ) )
         expd <- diff( ylim )
         ylim <- ylim + c( -1, 1 )*.5*expd
       }
+      if( !is.null( title ) )mtext( title, side = 3, outer = T )
     }
     if( cnames[ j] %in% c( 'sigma', 'mspe' ) )ylim <- c( 0, 1.2*ylim[ 2] )
-      
     
     if( j == 1 | !ALLONE ){
-      plot( mj[ cseq], type = 'l', ylim = ylim, xaxt = 'n', xlab = '', ylab = '', 
+      plot( mj[ cseq[cf] ], type = 'l', ylim = ylim, xaxt = 'n', xlab = '', ylab = '', 
            col = cols[ j], lwd = 1.5 )
       if( xlabels ){
         axis( 1, at = c( 0, burnline, 1000 ), labels = c( 0, burnLab, ngLab ) )
@@ -8020,7 +8485,7 @@ mastPlot <- function( output, plotPars = NULL ){
         axis( 1, at = c( 0, burnline, 1000 ), labels = F )
       }
     }else{
-      lines( mj[ cseq], col = cols[ j] )
+      lines( mj[ cseq[cf] ], col = cols[ j] )
     }
     if( !is.null( intval ) ){
       int <- intval[ colnames( mat )[ j], ]
@@ -8061,6 +8526,7 @@ mastPlot <- function( output, plotPars = NULL ){
   if( ALLONE ){
     legend( 'topright', colnames( mat ), text.col = cols, bty = 'n' )
   }
+  if( !is.null( title ) )mtext( title, side = 3, outer = T )
  
   if( CONSOLE ){
     lab <- paste( label, ' -- return to continue' )
@@ -8079,7 +8545,7 @@ mastPlot <- function( output, plotPars = NULL ){
   paste( outFolder, file, sep = '/' )
 }
 
-.plotLabel <- function( label, location = 'topleft', cex = 1.3, font = 1, 
+.plotLabel <- function( label, location = 'topleft', cex = 1.3, font = 1, col = 'black',
                        above = FALSE, below = FALSE, bg = NULL, wrap = 1000 ){
   
   # wrap - no. of characters to wrap label to two lines
@@ -8087,20 +8553,23 @@ mastPlot <- function( output, plotPars = NULL ){
   if( above ){
     adj <- 0
     if( location == 'topright' )adj = 1
-    title( label, adj = adj, font.main = font, font.lab = font, cex.main = cex )
+    title( label, adj = adj, font.main = font, font.lab = font, cex.main = cex,
+           col.main = col)
     return( )
   }
   if( below ){
     adj <- 0
     if( location == 'bottomright' )adj = 1
-    mtext( label, side = 1, adj = adj, outer = FALSE, font.main = font, font.lab = font, cex = cex )
+    mtext( label, side = 1, adj = adj, outer = FALSE, col = col, 
+           font.main = font, font.lab = font, cex = cex )
     return( )
   }
   
   if( is.null( bg ) ){
     tmp <- legend( location, legend = ' ', bty = 'n' )
   } else {
-    tmp <- legend( location, legend = label, bg = bg, border = bg, text.col = bg, bty = 'o' )
+    tmp <- legend( location, legend = label, bg = bg, border = bg, text.col = col, 
+                   bty = 'o' )
   }
   
   xt <- tmp$rect$left # + tmp$rect$w
@@ -8117,14 +8586,14 @@ mastPlot <- function( output, plotPars = NULL ){
   if( YY )yt <- 10^yt
   
   if( wrap > nchar( label ) ){
-    text( xt, yt, label, cex = cex, font = font, pos = pos )
+    text( xt, yt, label, cex = cex, font = font, pos = pos, col = col )
     return( )
   }
   
   # split at spaces
   words <- unlist( strsplit( label, ' ' ) )
   if( length( words ) == 1 ){
-    text( xt, yt, label, cex = cex, font = font, pos = pos )
+    text( xt, yt, label, cex = cex, font = font, pos = pos, col = col )
     return( )
   }
   
@@ -8148,8 +8617,8 @@ mastPlot <- function( output, plotPars = NULL ){
     yz <- exp( log( yt ) + .15*c( -da, 0 ) )
   }
   
-  text( xt, yz[ 2], lab1, cex = cex, font = font, pos = pos )
-  text( xt, yz[ 1], lab2, cex = cex, font = font, pos = pos )
+  text( xt, yz[ 2], lab1, cex = cex, font = font, pos = pos, col = col )
+  text( xt, yz[ 1], lab2, cex = cex, font = font, pos = pos, col = col )
 
 }
 
@@ -8178,6 +8647,13 @@ commas4numbers <- function( x ){
                        addSpec = 'species', ylim = NULL, cols = NULL, 
                        xaxt = 's', yaxt = 's' ){
   
+  dp <- grep( '-', snames ) # names combine spp and plot
+  if( length( dp ) > 0 ){
+    snames <- columnSplit( snames , '-' )
+    pnames <- snames[,2]
+    snames <- snames[,1]
+  }
+  
   nspec  <- length( snames )
   cnames <- colnames( chain )
   xn     <- character( 0 )
@@ -8196,6 +8672,8 @@ commas4numbers <- function( x ){
                     ncol = 2, byrow = TRUE )[, 2]
     }
   }
+  
+  print( vnames )
     
   rownames( vnames ) <- snames[ vnames[, 1]]
   colnames( vnames ) <- c( iname, xn )
@@ -8337,7 +8815,7 @@ commas4numbers <- function( x ){
   
   # clean names  for coefficients
   
-  fnames  <- .replaceString( cvec, '( Intercept )', 'intercept' )
+  fnames  <- .replaceString( cvec, '(Intercept)', 'intercept' )
   fnames  <- .replaceString( fnames, 'I( ', '' )
   fnames  <- .replaceString( fnames, ' ) )', ' )' )
   fnames  <- .replaceString( fnames, 'species', '' )
@@ -8374,6 +8852,7 @@ commas4numbers <- function( x ){
   if( all ) cvec <- .replaceString( cvec, '_', '' )
   if( NODASH )cvec <- .replaceString( cvec, '-', '' )
   cvec <- .replaceString( cvec, ' ', '' )
+  cvec <- .replaceString( cvec, '/', '' )
   cvec <- .replaceString( cvec, "'", "" )
  # cvec <- .replaceString( cvec, ".", "dot" )
   cvec <- .replaceString( cvec, '"', '' )
@@ -8402,7 +8881,7 @@ commas4numbers <- function( x ){
   if( length( wun ) == 1 )UCOLS <- TRUE
     
   if( !'specPlot' %in% colnames( tdata ) )
-    tdata$specPlot <- columnPaste( tdata$species, tdata$plot, '-' )
+    tdata$specPlot <- columnPaste( tdata$species, tdata$plot, '__' )
   
   if( length( seedNames ) == 1 )SAMPR <- FALSE
   
@@ -8411,26 +8890,29 @@ commas4numbers <- function( x ){
   
   for( j in 1:length( plots ) ){
     
-    wj   <- which( tdata$plot == plots[ j] )
+    wj   <- which( tdata$plot == plots[ j ] )
     jtab <- table( tdata$species[ wj] )
     jtab <- jtab[ jtab > 0]
     
-    ws   <- which( sdata$plot == plots[ j] )
+    ws   <- which( sdata$plot == plots[ j ] )
     stab <- colSums( sdata[ drop = FALSE, ws, seedNames], na.rm = TRUE )
     sname <- names( stab )
     unkn <- grep( 'UNKN', sname )
     UNKN <- sname[ unkn]
     
     jvec <- matrix( jtab )
+    rownames(jvec) <- names( jtab )
     JJ   <- crossprod( t( jvec ) ) + diag( .01, length( jvec ) )
-    rr   <- crossprod( matrix( stab, nrow = 1 ), t( jvec ) )%*%solve( JJ )
-    rownames( rr ) <- names( stab )
-    colnames( rr ) <- names( jtab )
+    svec <- matrix( stab, nrow = 1, dimnames = list( 'x', names( stab)) )
+    rr   <- crossprod( svec, t( jvec ) )%*%solve( JJ )
+ #   rownames( rr ) <- names( stab )
+ #   colnames( rr ) <- names( jtab )
     rr <- t( rr )
     
+    
     if( length( rr ) == 1 ){
-      rr[ 1] <- 1
-      rownames( rr ) <- paste( names( jtab ), plots[ j], sep = '-' )
+      rr[ 1 ] <- 1
+      rownames( rr ) <- paste( names( jtab ), plots[ j], sep = '__' )
       priorR <- rbind( priorR, rr )
     }else{
       
@@ -8444,47 +8926,37 @@ commas4numbers <- function( x ){
           next
         }
         
-        # counted as a different species
-        OTHER <- FALSE
-        wm <- which( rr[ m, ] > 0 )
-        wk <- which( !names( wm ) %in% c( rownames( rr ), UNKN ) )
-        keep <- character( 0 )
-        if( length( wk ) > 0 ){
-          keep  <- names( wm[ wk] )
-          OTHER <- TRUE
-        }
+        cm <- which( colnames(rr) == rownames(rr)[m] )
+        om <- c(1:ncol(rr))[-cm]
         
-        # to unknown class
-        if( UCOLS ){
-          wm <- which( !colnames( rr ) %in% c( rownames( rr )[ m], UNKN, keep ) )
-          if( length( wm ) > 0 )rr[ m, wm] <- 0
-        }
-        
-        # to same class
-        wm <- which( colnames( rr ) == rownames( rr )[ m] )
-        if( length( wm ) > 0 ){
-          if( OTHER )rr[ m, wm] <- rr[ m, wm]*10
-          if( UCOLS & OTHER )rr[ m, unkn] <- rr[ m, unkn]*10
-          if( !UCOLS ){
-            rr[ m, wm] <- 1
-            rr[ m, -wm] <- 0
+        if( length(cm) > 0 ){
+          spSame <- rr[ m, cm ]    # seeds of this species
+          spNot  <- rr[ m, om ]    # seeds of other species
+          spUn   <- rr[ m, unkn ]  # unknown seeds
+          if( spSame == 0 & sum( spNot ) > 0 ){  # spp missing, assign to unknown
+      #      rr[m, m ]   <- 1
+            rr[m, unkn] <- 1
+            rr[m, om ]  <- 0
           }
+          if( spSame == 0 & spUn == 0 )rr[m, unkn] <- 1
+          if( spSame > 0 & spUn == 0 )rr[m,unkn] <- 0
         }
       }
-   #   rownames( rr ) <- paste( names( jtab ), plots[ j], sep = '-' )
-      rownames( rr ) <- paste( names( jtab ), plots[ j], sep = '_' )
+      
+      rownames( rr ) <- paste( names( jtab ), plots[ j], sep = '__' )
       rr <- sweep( rr, 1, rowSums( rr ), '/' )
       priorR <- rbind( priorR, rr )
     }
   }
+  
   
   priorR[ !is.finite( priorR )] <- 0
   
   seedCount <- as.matrix( sdata[, seedNames, drop = FALSE] )
   rownames( seedCount ) <- rownames( sdata )
 
-  rownames( priorR ) <- .replaceString( rownames( priorR ), '_', '-' )
-  tt <- columnSplit( rownames( priorR ), '-' )
+  rnames <- .replaceString( rownames( priorR ), '__', '__' )
+  tt <- columnSplit( rnames, '__' )
   
   attr( priorR, 'species' ) <- tt[, 1]
   attr( priorR, 'plot' )    <- tt[, 2]
@@ -8506,7 +8978,9 @@ commas4numbers <- function( x ){
   
   return( list( SAMPR = SAMPR, R = priorR, priorR = priorR, priorRwt = priorRwt, 
                seedCount = seedCount, posR = posR, tdata = tdata ) )
-}
+  }
+  
+  
 
 setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES, 
                    seedTraits = NULL, verbose ){
@@ -8534,10 +9008,11 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
     tdata$repr[ tdata$repr < .5] <- 0
     tdata$repr[ tdata$repr >= .5] <- 1
   }
-  
+  if( 'cropCount' %in% colnames( tdata ) ){
+    tdata$repr[ tdata$cropCount > 0]  <- 1
+  }
   if( 'cropMax' %in% colnames( tdata ) ){
     tdata$repr[ tdata$cropMax > 0]  <- 1
- #   tdata$repr[ tdata$cropMax == 0] <- 0
   }
   if( 'cropMin' %in% colnames( tdata ) ){
     tdata$repr[ tdata$cropMin > 0] <- 1
@@ -8613,7 +9088,6 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
     }               
   }
   
-
   if( 'serotinous' %in% colnames( tdata ) ){
     
     ww <- which( tdata$serotinous == 1 )
@@ -8681,39 +9155,25 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
     znew[, k] <- zk
   }
   
-  for( k in nyr:1 ){                                                # note reverse
+  for( k in nyr:1 ){                                                  # note reverse
     w1 <- which( dmat[, k] > dmaxMat[, k] & last0 < k & first1 > k )  # large and after last obs immature
-    if( length( w1 ) > 0 )first1[ w1] <- k
+    if( length( w1 ) > 0 )first1[ w1 ] <- k
     znew[ w1, k] <- 1
   }
   
-  zknown <- znew
+  zknown <- znew  # observed repr or above min diam
   
   all0 <- all1 <- last0*0
-  all0[ last0 >= nyr] <- 1
-  all1[ first1 == 1] <- 1
+ # all0[ last0 >= nyr] <- 1
+ # all1[ first1 == 1] <- 1
   
   # mature first yr in data?
   fyr <- tapply( tdata$year, tdata$treeID, min )  # 1st yr in data
-  fyr <- fyr[ names( last0 )]
-  f1  <- first1
-#  f1[ f1 > length( years )] <- length( years ) - 1
-  zyr <- years[ f1]                          # 1st yr mature
+  all1[ which( zknown[ cbind( names(fyr), as.character(fyr) ) ] == 1 ) ] <- 1
   
-  ww <- which( fyr == zyr )                   # always mature
-  if( length( ww ) > 0 )all1[ ww] <- 1
-  
-  # is last yr in data a zero?
-  lyr <- tapply( tdata$year, tdata$treeID, max )  # last yr in data
-  lyr <- lyr[ names( last0 )]
-  l0  <- last0
-  l0[ l0 == 0] <- 1
-  zyr <- years[ l0]
-  
-  ww <- which( lyr == zyr )   
-  if( length( ww ) > 0 )all0[ ww] <- 1
-  
-  last0[ all0 == 1] <-  ncol( zknown )
+  # immature last yr in data
+  fyr <- tapply( tdata$year, tdata$treeID, max )  # 1st yr in data
+  all0[ which( zknown[ cbind( names(fyr), as.character(fyr) ) ] == 0 )] <- 1
   
   last0first1 <- cbind( last0, first1, all0, all1 )
   
@@ -8743,7 +9203,7 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   dcol <- match( tdata$treeID, tids )
      
   tyindex <- cbind( dcol, iy )  #tree-yr index
-  z    <- zmat[ tyindex]
+  z    <- zmat[ tyindex ]
   
   zknownVec <- zknown[ tyindex]
   
@@ -8772,6 +9232,9 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   
   if( CONES ){
     
+    ww <- which( tdata$cropCount < 0 )
+    if( length( ww ) > 0 )tdata$cropCount[ ww] <- 0
+    
     ww <- which( is.finite( tdata$cropCount ) &
                   !is.finite( tdata$cropFraction ) )
     if( length( ww ) > 0 )tdata$cropFraction[ ww] <- .95
@@ -8789,13 +9252,7 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
     cll <- seedTraits[ tdata$species[ ww], 'seedsPerFruit']*tdata$cropCount[ ww] # min is those counted
     scc <- round( cll/tdata$cropFraction[ ww] )                               # mean no. seeds
     
-  #  chi <- scc*2
-  #  clo <- scc*.5
-  #  clo[ clo < cll] <- cll[ clo < cll]
-  #  clo[ clo < 1 & cll >= 1] <- 1
-  #  chi[ chi < 10] <- 10
-    
-    clo <- qbinom( tdata$cropFraction[ ww], scc, .1 )
+    clo <- qbinom( tdata$cropFraction[ ww ], scc, .1 )
     chi <- qbinom( tdata$cropFraction[ ww], scc*2, .9 )
     
     chi[ chi < 5] <- 5
@@ -8945,13 +9402,13 @@ getPredGrid <- function( predList, tdat, sdata, xytree, xytrap, group,
     wj <- which( plotYrComb[ j, ] > 0 )
     pj <- rownames( plotYrComb )[ j]
     wy <- as.numeric( colnames( plotYrComb )[ wj] )
-  
+    
     jplot <- as.matrix( plotDims[ rownames( plotDims ) == pj, ] )
     
     jx <- c( jplot[ 'xmin', 1] - mapMeters[ j]/2, 
-            jplot[ 'xmax', 1] + mapMeters[ j]/2 )
+             jplot[ 'xmax', 1] + mapMeters[ j]/2 )
     jy <- c( jplot[ 'ymin', 1] - mapMeters[ j]/2, 
-            jplot[ 'ymax', 1] + mapMeters[ j]/2 )
+             jplot[ 'ymax', 1] + mapMeters[ j]/2 )
     
     sx <- seq( jx[ 1], jx[ 2], by = mapMeters[ j] )
     sy <- seq( jy[ 1], jy[ 2], by = mapMeters[ j] )
@@ -8966,7 +9423,7 @@ getPredGrid <- function( predList, tdat, sdata, xytree, xytrap, group,
     
     dgrid   <- drowTot + jseq
     drowTot <- max( dgrid )
-    trapID  <- paste( pj, '-g', dgrid, sep = '' )
+    trapID  <- paste( pj, '-grid', dgrid, sep = '' )
     
     dj  <- data.frame( trapID = trapID, year = yrj, jgrid, drow = 0, dgrid = dgrid )
     dj$plot  <- pj
@@ -9019,6 +9476,17 @@ getPredGrid <- function( predList, tdat, sdata, xytree, xytrap, group,
     print( plotYrComb[, c( 'mapMeters', 'gridSize' )] )
   }
   
+  
+  rr <- columnPaste( seedPred$trapID, seedPred$year, '_' )
+  dd <- which( duplicated(rr) )
+  if( length(dd) > 0 ){
+    stop( 'duplicated trapID-year in seedPred' )
+  #  seedPred <- seedPred[-dd,]
+  #  distPred <- distPred[-dd,]
+  }
+  
+  rownames( seedPred ) <- columnPaste( seedPred$trapID, seedPred$year, '_' )
+  
   list( seedPred = seedPred, distPred = distPred, 
        treePred = treePred, predList = predList )
 }
@@ -9036,15 +9504,18 @@ cleanFactors <- function( x ){
   x
 }
   
-.setupRandom <- function( randomEffect, tdata, xfec, xFecNames, specNames ){
+.setupRandom <- function( randomEffect, tdata, xfec, specNames ){
   
-  tdata$species <- as.factor( tdata$species )
+ # tdata$species <- as.factor( tdata$species )
   
   nspec      <- length( specNames )
   formulaRan <- randomEffect$formulaRan
-  if( nspec > 1 )formulaRan <- .specFormula( randomEffect$formulaRan )
-  xx        <- .getDesign( formulaRan, tdata )$x
-  if( nspec > 1 )xx <- xx[, grep( 'species', colnames( xx ) ), drop = FALSE]  # CHECK for 1 spp
+  xFecNames  <- colnames( xfec )
+ # if( nspec > 1 )formulaRan <- .specFormula( randomEffect$formulaRan )
+ # xx        <- .getDesign( formulaRan, tdata )$x
+ # if( nspec > 1 )xx <- xx[, grep( 'species', colnames( xx ) ), drop = FALSE]  # CHECK for 1 spp
+  
+  xx <- xfec[drop=F, , grep('_intercept', colnames(xfec) ) ]
   
   xrandCols  <- match( colnames( xx ), colnames( xfec ) )
   
@@ -9150,8 +9621,7 @@ formit <- function( form, nspec ){
   
   ff   <- as.character( form )
   ff   <- .replaceString( ff, ':', '*' )
-  
-  form <- as.formula( paste( ff, collapse = ' ' ) )
+  form <- as.formula( paste0( ff, collapse = ' ' ) )
   
   if( nspec > 1 ){
     fc   <- .replaceString( as.character( form ), 'species *', '' )
@@ -9355,7 +9825,7 @@ check4na <- function( tmp, functionName = '' ){
   return( )
 }
 
-mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL, 
+mastif <- function( inputs, formulaFec = NULL, formulaRep = as.formula( "~diam" ), 
                    ng = NULL, burnin = NULL ){   
   
   data  <-  modelYears <- NULL
@@ -9368,16 +9838,19 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     parameters <- inputs$parameters
     priorTable <- inputs$inputs$priorTable
     xrep       <- inputs$data$setupData$xrepUn
+    predList   <- inputs$predList
     
     data   <- inputs$data
     if( !is.null( modelYears ) ){
       inputs$inputs$tdataOut <- inputs$prediction$tdataOut
       inputs$inputs$sdataOut <- inputs$prediction$sdataOut
     }
+    
     inputs <- inputs$inputs
     inputs$parameters <- parameters
     inputs$priorTable <- priorTable
-    inputs$xrep  <- xrep
+    inputs$xrep       <- xrep
+    inputs$predList   <- predList 
     class( inputs ) <- 'mastif'
   }
 
@@ -9390,13 +9863,13 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
    
 .mast <- function( inputs, data, formulaFec, formulaRep, ng, burnin ){
    
-  upar <- xytree <- xytrap <- specNames <- treeData <- seedData <-
-    seedNames <- arList <- times <- xmean <- xfecCols <- xrepCols <-
-    groupByInd <- dfA <- xrands2u <- lagGroup <- lagMatrix <- xfecs2u <-
+  acfMat <- arList <- dfA <- upar <- xytree <- xytrap <- specNames <- treeData <- seedData <-
+    seedNames <- times <- xmean <- xfecCols <- xrepCols <-
+    groupByInd <- xrands2u <- lagGroup <- lagMatrix <- xfecs2u <-
     xreps2u <- Qrand <- xfecU <- xrepU <- seedTraits <- 
     plotDims <- plotArea <- tdataOut <- sdataOut <- specPlots <- 
     plotNames <- distall <- trapRows <- fstart <- output <- 
-    xsd <- notStandard <- acfMat <- reg <-
+    xsd <- notStandard <- reg <-
     fecMinCurrent <- fecMaxCurrent <- plotRegion <- NULL
   predList <- yearEffect <- randomEffect <- modelYears <- plotDims <- NULL
   sigmaWt <- 1
@@ -9406,6 +9879,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   censMin <- censMax <- NULL
   SEEDCENSOR <- CONES <- RANDOM <- YR <- AR <- ARSETUP <- USPEC <- 
     TREESONLY <- FECWT <- verbose <- SEEDDATA <- SAMPR <- FALSE
+  PREDSEED <- TRUE
   
   words <- inwords <- character( 0 )
   
@@ -9416,7 +9890,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   priorValues <- data.frame( priorDist, priorVDist, minDist, maxDist, 
                              minDiam, maxDiam, maxFec = maxF )
  
-  plag  <- p  <- 0; 1e+8; priorVtau <- 6
+  plag  <- p  <- 0; priorVtau <- 6
   ug <- priorTauWt <- NULL
   alphaRand <- Arand <- priorB <- priorIVB <- betaPrior <- NULL
   
@@ -9428,8 +9902,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     }
   }
   
-  PREDSEED <- TRUE
-  if( is.null( predList ) )PREDSEED <- FALSE
+  if( is.null( inputs$predList ) )PREDSEED <- FALSE
   
   betaYr <- betaLag <- yeGr <- plots <- years <- NULL
   facLevels <- character( 0 )
@@ -9440,13 +9913,12 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     
     ARSETUP <- TRUE
     
-    ww <- which( !names( inputs ) %in% c( 'inputs', 'chains', 'fit', 
-                                      'burnin', 'ng', 'predList' ) )
+    # extract "data", "parameters", "prediction", "predList", "priorTable", "xrep"
+    ww <- which( !names( inputs ) %in% c( 'inputs', 'chains', 'fit',    
+                                          'burnin', 'ng' ) )
     
-    for( k in ww )assign( names( inputs )[ k], inputs[[ k]] )
- #   tdata <- treeData
+    for( k in ww )assign( names( inputs )[ k ], inputs[[ k ]] )
     
- #   xrep <- inputs$data$setupData$xrepUn
     
     for( k in 1:length( data$setupData ) ){
       assign( names( data$setupData )[ k], data$setupData[[ k]] )
@@ -9476,19 +9948,21 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       if( !( diff( range( ug ) ) == 0 ) )USPEC <- TRUE
     }
     
-    upar <- ug
+    upar  <- ug
     years <- sort( unique( treeData$year ) )
     years <- min( years ):max( years )
-    nyr <- length( years )
+    nyr   <- length( years )
+    
     if( !is.null( predList ) ){
+      
+      PREDSEED <- T
       predList$years <- predList$years[ predList$years %in% years]
       if( 'plots' %in% names( predList ) )
         predList$plots <- .fixNames( predList$plots, all = TRUE )$fixed
     }
     yrIndex <- yrIndex[, !duplicated( colnames( yrIndex ) )]
     
-    R <- parameters$rMu
-    
+    R           <- parameters$rMu
     seedTable   <- inputs$seedByPlot
     matYr       <- inputs$matYr 
     last0first1 <- inputs$last0first1
@@ -9529,6 +10003,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
         ptmp <- rbind( ptmp, new )
       }
     }
+    
     inputs$priorTable <- ptmp[ inputs$specNames, ]
     
     if( !'FILLED' %in% names( inputs ) ){
@@ -9580,10 +10055,11 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     }
     
     words <- c( words, inwords )
-    years <- years[ 1]:years[ 2]
+    years <- years[ 1 ]:years[ 2 ]
   } # end inherits
   
   keepIter <- 4000
+  ngInput  <- ng
   
   plots <- .fixNames( sort( unique( as.character( treeData$plot ) ) ), all = TRUE )$fixed
   nspec <- length( specNames )
@@ -9613,6 +10089,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       stop( '\nPrediction plots do not occur in treeData\n' )
     if( !'mapGrid' %in% names( predList ) )predList$mapGrid <- 5
   }
+  
   
   if( !is.null( yearEffect ) ){
     YR <- TRUE
@@ -9650,7 +10127,6 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   }
   
   if( !is.null( yearEffect ) )plag <- yearEffect$p
-  
   
   formulaFec <- formit( formulaFec, nspec )
   formulaRep <- formit( formulaRep, nspec )
@@ -9708,6 +10184,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     # tdata$obsTrap - a seed trap
     
     notFit <- betaPrior$notFit
+    
     tmp    <- .setupData( formulaFec, formulaRep, tdata, sdata, 
                          xytree, xytrap, specNames, seedNames, AR, YR, 
                          yearEffect, minDiam, maxDiam, TREESONLY, maxFec, CONES, 
@@ -9720,10 +10197,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     tdata$treeID <- as.character( tdata$treeID )
     
     xrep <- tmp$xrepUn                            # xrep is not standardized
-    
-    
-    notFit  <- notFit[ notFit %in% colnames( xfec )]
-    notCols <- match( notFit, colnames( xfec ) )
+    xfec <- xfec[, !colnames(xfec) %in% notFit ]
     
     tid  <- unique( tdata$treeID )
     tnum <- match( tdata$treeID, tid )
@@ -9734,7 +10208,6 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       yrIndex <- cbind( yrIndex, tnum )
     }
     ntree <- length( tid )
-    
     
     setupData <- tmp[ !names( tmp ) %in% 
                         c( "tdata", "sdata", "seedNames", "specNames", 
@@ -9787,9 +10260,9 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     years <- years[ 1]:years[ 2]
 
     if( YR ){
-      setupYear <- list( yeGr = yeGr, yrIndex = yrIndex )
       
-      data     <- append( data, list( setupYear = setupYear ) )
+      setupYear <- list( yeGr = yeGr, yrIndex = yrIndex )
+      data      <- append( data, list( setupYear = setupYear ) )
       
       betaYr <- matrix( 0, ngroup, length( years ) )
       rownames( betaYr ) <- yeGr
@@ -9808,8 +10281,15 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     }
    } ################ end ARSETUP
    
-  notFit  <- notFit[ notFit %in% colnames( xfec )]
-  notCols <- match( notFit, colnames( xfec ) )
+  
+  xfec  <- xfec[ , !colnames(xfec) %in% notFit ]
+  xfecU <- xfecU[ , !colnames(xfecU) %in% notFit ]
+  xfec  <- rmQuad( xfec )
+  xfecU <- rmQuad( xfecU )
+  
+  xfecu2s <- solveRcpp( crossprod( xfec ) )%*%crossprod( xfec, xfecU )
+  xfecs2u <- solveRcpp( crossprod( xfecU ) )%*%crossprod( xfecU, xfec )
+  
   
   tid   <- unique( tdata$treeID )
   ntree <- length( tid )
@@ -9835,7 +10315,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     nsobs    <- table( sdata$plot )
     ntrap    <- nrow( xytrap )
     obsYr    <- sort( unique( tdata$year[ tdata$obsTrap == 1] ) ) # there are sdata!
-    obsTimes <- match( obsYr, years )                           # when there are trap years   
+    obsTimes <- match( obsYr, years )                           # when there are trap years 
   }
   
   nplot <- length( plots )
@@ -9898,7 +10378,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       if( 'tree' %in% randomEffect$randGroups )
         randomEffect$randGroups[ randomEffect$randGroups == 'tree'] <- 'treeID'
       
-      tmp <- .setupRandom( randomEffect, tdata, xfec, xFecNames, specNames ) 
+      tmp <- .setupRandom( randomEffect, tdata, xfec, specNames ) 
       
       we <- which( table( tmp$reIndex ) > 2 )   # replication for random groups?
       if( length( we ) < 2 ){                    # less than 2 groups
@@ -9958,8 +10438,6 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       distPred  <- tmp$distPred
       tdatPred  <- tmp$treePred
       nseedPred <- nrow( sdatPred )
-      
-      rownames( sdatPred ) <- columnPaste( sdatPred$trapID, sdatPred$year, '_' )
       
       if( !is.null( nseedPred ) ){ 
         
@@ -10049,13 +10527,51 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   diamMean <- xmean[ 'diam']
   diamSd   <- xsd[ 'diam']
   
+  tOpt <- NULL
+  
   if( !is.null( betaPrior ) ){         # betaPrior$rep is unstandardized
+    
+    betaPrior$notFit <- notFit
+    
     betaPriorInput <- betaPrior
     betaPrior      <- .getBetaPrior( betaPriorInput, bgFec, bgRep, specNames, diamMean, diamSd, 
                                     priorTable = priorTable )
+    if( 'tOpt' %in% names( betaPriorInput ) ){
+      tOpt <- betaPriorInput$tOpt
+      tOpt <- (betaPriorInput$tOpt - xmean['tempSite'])/xsd['tempSite']
+    }
+  }
+  ############################# quadratic temperature
+  
+  if( length( grep( '_I(tempSite^2)', colnames(xfec), fixed = T ) ) == 0 ){
+    tOptList <- NULL
+  }else{
+    
+    wg <- grep('I(tempSite^2)', rownames( betaPrior$fec ), fixed = T )
+    
+    if( length( wg ) > 0 ){
+      
+      c1 <- grep('_tempSite', colnames(xfec) )
+      c2 <- grep('_I(tempSite^2)', colnames(xfec), fixed = T )
+      cn <- colnames(xfec)[c1]
+      cq <- colnames(xfec)[c2]
+      
+      if( length( cq ) > length( cn ) )stop('quadratic terms that lack linear terms')
+      
+      scc1 <- columnSplit( cn, '_' )[,1]
+      scc2 <- columnSplit( cq, '_' )[,1]
+      ww <- which( scc1 %in% scc2 )
+      cn <- cn[ ww ]
+      scc1 <- columnSplit( cn, '_' )[,1]
+      cn <- cn[ match(scc1, scc2) ]
+      c1 <- match( cn, colnames(xfec) )
+      c2 <- match( cq, colnames(xfec) )
+    }
+    tOptList = list( tOpt = tOpt, c1 = c1, c2 = c2, cn = cn, cq = cq )
   }
   
- # print( betaPrior )
+  
+  
   
   if( FECWT ){
     freq <- rep( 1, nrow( tdata ) )
@@ -10074,8 +10590,8 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   
   ngroup <- length( yeGr )
   
-  fitCols <- 1:Qfec
-  if( length( notCols ) > 0 )fitCols <- fitCols[ -notCols]
+ # fitCols <- 1:Qfec
+ # if( length( notFit ) > 0 )fitCols <- fitCols[ !colnames(xfec) %in% notFit ]
   
   
   #prior bgRep
@@ -10083,12 +10599,13 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   rvp  <- bgRep*0
   rvp[ 1:nspec] <- -.5
   rvp[ endsWith( rownames( bgRep ), ':diam' )] <- 1
+  
 
   .updateBeta <- .wrapperBeta( rvp, rVPI, priorB, priorIVB, SAMPR, obsRows, 
                               tdata, xfecCols, xrepCols, last0first1, ntree, nyr, 
                               betaPrior, years, YR, AR, yrIndex, 
                               RANDOM, reIndex, xrandCols, RANDYR, 
-                              fitCols, specNames, FECWT )
+                              specNames, FECWT, tOptList )
   
   if( SEEDDATA ){
     .updateU <- .wrapperU( distall, tdata, minU, maxU, priorU, priorVU, 
@@ -10230,9 +10747,13 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   wlo[ z == 1] <- 0
   w <- .tnorm( length( z ), wlo, whi, tdata$repMu, 1 )
   
+  
+  
   tmp <- .updateBeta( pars, xfec, xrep, w, z, zmat, matYr, muyr )
   bgFec <- pars$bgFec <- tmp$bgFec
   bgRep <- pars$bgRep <- tmp$bgRep
+  
+#  xfecs2u <- xfecs2u[ rownames(bgFec),rownames(bgFec) ]
   
   if( ARSETUP ){
     bgFec[ rownames( parameters$betaFec ), 1] <- parameters$betaFec[, 1]
@@ -10300,8 +10821,8 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     }
   }
   
-  ff     <- colnames( xfec )[ fitCols]
-  suCols <- match( ff, colnames( xfecs2u ) )
+ # ff     <- colnames( xfec )[ fitCols]
+ # suCols <- match( ff, colnames( xfecs2u ) )
   ntoty  <- ntotyy <- rmspe <- deviance <- 0
   ntot   <- 0
   zest   <- zpred <- fest <- fest2 <- fpred <- fpred2 <- fg*0 # fecundity 
@@ -10359,11 +10880,20 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   sfmat  <- matrix( NA, ntree, nyr )
   rownames( sfmat ) <- treeID
   symat <- matrix( 1:ncol( sfmat ), nrow( sfmat ), ncol( sfmat ), byrow = T )
-  #sgmat  <- matrix( NA, ntree, nyr )
   rownames( symat ) <- treeID
   slopesRate <- slopesNyr <- rep( 0, ntree )
   
   wcrop <- which( is.finite( tdata$cropCount ) )
+  
+  if( !is.null(tOpt) ){
+    toptGibbs <- matrix( NA, nkeep, nspec )
+    colnames( toptGibbs ) <- paste( specNames, 'tempSite', sep = '_' )
+  }
+  
+  if( verbose ){
+    cat('\n fitted variables\n:')
+    print( colnames(xfec) )
+  }
   
  # xreps2u%*%bgRep
   
@@ -10435,7 +10965,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
       
       tmp      <- .updateBetaYr( yg, z, sg, sgYr, betaYrF, betaYrR, yrIndex, yeGr, 
                                 RANDYR, obs = tdata$obs )
-    #  check4na( tmp, '.updateBetaYr' )
+      check4na( tmp, '.updateBetaYr' )
       betaYrF  <- pars$betaYrF <- tmp$betaYrF
       betaYrR  <- pars$betaYrR <- tmp$betaYrR
       sgYr     <- pars$sgYr    <- tmp$sgYr
@@ -10477,13 +11007,14 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     whi   <- 10*z
     w     <- .tnorm( length( z ), wlo, whi, xrep%*%bgRep, 1 )
     tmp   <- .updateBeta( pars, xfec, xrep, w, z, zmat, matYr, muyr )
-  #  check4na( tmp, '.updateBeta' )
+   # check4na( tmp, '.updateBeta' )
     bgFec <- pars$bgFec <- tmp$bgFec
     bgRep <- pars$bgRep <- tmp$bgRep
+    optimumT <- tmp$optimumT
     
     if( SEEDDATA ){
       tmp   <- .updateU( pars, z, propU, sdata )
-   #   check4na( tmp, '.updateU' )
+      check4na( tmp, '.updateU' )
       ug    <- pars$ug    <- tmp$ug
       umean <- pars$umean <- tmp$umean
       uvar  <- pars$uvar  <- tmp$uvar
@@ -10492,7 +11023,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     
     tmp <- .updateFecundity( g, pars, xfec, xrep, propF, z, zmat, matYr, muyr, 
                             epsilon = epsilon )
-  #  check4na( tmp, '.updateFecundity' )
+    check4na( tmp, '.updateFecundity' )
     
     fg    <- pars$fg <- tmp$fg
     fecMinCurrent <- tmp$fecMinCurrent
@@ -10508,13 +11039,13 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     if( YR | AR )muf <- muf + muyr
     if( RANDOM )muf  <- muf + muran
     
-    wrow   <- obsRows[ z[ obsRows] == 1]
+    wrow <- obsRows[ z[ obsRows] == 1]
     stmp <- .updateVariance( log( fg[ wrow] ), muf[ wrow], s1, s2 )
-  #  check4na( stmp, '.updateVariance' )
+    check4na( stmp, '.updateVariance' )
     
     sg <- pars$sg <- stmp
     
-    if( sg > 30 )sg <- pars$sg <- 30
+  #  if( sg > 30 )sg <- pars$sg <- 30
     
     if( SAMPR ){
       tmp  <- .updateR( ug, fz = fg[ obsTrapRows]*z[ obsTrapRows], SAMPR, USPEC, distall, 
@@ -10522,7 +11053,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
                        tdat = tdata[ obsTrapRows, c( 'specPlot', 'year', 'plotyr', 'dcol' )], 
                        R, priorR, priorRwt, obsYr, posR, plots )
       pars$R <- R <- tmp
-      if( g %in% ikeep )rgibbs[ gk, ]  <- R[ posR]
+      if( g %in% ikeep )rgibbs[ gk, ]  <- R[ posR ]
     }
     
     ################## predicted state
@@ -10569,8 +11100,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     brSave <- bgRep
     
     if( UNSTAND ){
-      if( length( xfecs2u ) > 0 )bfSave[ fitCols, 1] <- xfecs2u[, suCols]%*%bgFec[ fitCols, 1]  
-      if( length( notFit ) > 0 )bfSave[ notFit, 1] <- 0
+      if( length( xfecs2u ) > 0 )bfSave <- xfecs2u%*%bgFec 
     }
     
     if( g %in% ikeep ){
@@ -10585,6 +11115,9 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
         }else{
           ugibbs[ gk, 1] <- ug[ 1]
         }
+      }
+      if( !is.null(tOpt) ){
+        toptGibbs[ gk, names( optimumT ) ] <- optimumT
       }
     }
     
@@ -10868,13 +11401,11 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     scols <- c( 'plot', 'year', 'trapID', 'drow', 'area' )
     countPerTrap <- rowSums( sdata[, seedNames, drop = FALSE] )
     
- #   seedEst <- cbind( colMeans( SvarEst ), apply( SvarEst, 2, sd ) )
     seedEst <- svarEst/nprob
     s2      <- svarEst2/nprob - seedEst^2
     seedEst <- cbind( seedEst, sqrt( s2 ) )
     colnames( seedEst ) <- c( 'estMeanTrap', 'estSeTrap' )
     
-  #  seedPred <- cbind( colMeans( SvarPred ), apply( SvarPred, 2, sd ) )
     seedPred <- svarPred/nprob
     s2       <- svarPred2/nprob - seedPred^2
     seedPred <- cbind( seedPred, sqrt( s2 ) )
@@ -11058,9 +11589,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   
   trendPlotSpec <- signif( cbind( trendMu, trendSe ), 4 )
   
-  # by species
- 
-  # weighted by series length
+  # by species, weighted by series length
   ws <- tapply( trendRate*trendNyr, si, sum, na.rm = T )
   wt <- tapply( trendNyr, si, sum, na.rm = T )
   trendMu <- ws/wt
@@ -11072,12 +11601,9 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   
   names( trendMu ) <- paste( names( trendMu ), 'Mean' )
   names( trendSe ) <- paste( names( trendSe ), 'SE' )
-  
   trendSpec <- signif( c( trendMu, trendSe ), 4 )
-  
   trendEst <- list( trendSpec = trendSpec, trendPlotSpec = trendPlotSpec, 
                     trendTree = trendTree )
-  
   
   ################ years/lags
   
@@ -11207,6 +11733,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
     }
   }
   
+  
   mmu <- 1
   if( SAMPR ){
     
@@ -11257,15 +11784,15 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   su <- .chain2tab( sgibbs[ kg, ] )[, c( 1:4 )]
   
   # coefficients are saved unstandardized 
-  beta <- betaStd
+  beta <- as.matrix(betaStd[drop=F, ,1] )
   
   if( UNSTAND ){
     xfec <- xfecU
-    beta <- betaFec
+    beta <- as.matrix(betaFec[drop=F, ,1] )
   }
   
   zp <- pnorm( xrep%*%betaRep[, 1] )
-  fp <- xfec%*%matrix( beta[, 1], ncol = 1 ) 
+  fp <- xfec%*%beta 
   
   if( YR ){
     byr <- betaYrMu[ yrIndex[, 'year']] 
@@ -11363,7 +11890,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   inputs$formulaRep  <- formulaRep
   inputs$notStandard <- notStandard
  
-  inputs$ng         <- ng
+  inputs$ng         <- ngInput
   inputs$burnin     <- burnin
   inputs$keepIter   <- keepIter
   inputs$plotDims   <- plotDims
@@ -11417,6 +11944,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   }
   fecPred$obs <- tdata$obs
   prediction  <-  list( fecPred = fecPred )
+  
 
   if( YR ){
     chains <- append( chains, list( sygibbs = sygibbs ) )
@@ -11470,9 +11998,15 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
                               aMu = aMu, aSe = aSe, 
                               alphaUMu = alphaUMu, alphaUSe = alphaUSe, 
                               aUMu = aUMu, aUSe = aUSe ) )
+  }else{
+    inputs$RANDOM <- inputs$randomEffect <- NULL
   }
   data$setupData$distall <- distall
   
+  if( !is.null(tOpt) ){
+    chains     <- append( chains, list( toptGibbs ) )
+  }
+                          
   chains     <- chains[ sort( names( chains ) )]
   inputs     <- inputs[ sort( names( inputs ) )]
   data       <- data[ sort( names( data ) )]
@@ -11487,17 +12021,18 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = NULL,
   if( length( fit ) > 0 )out$fit <- fit
   
   class( out ) <- 'mastif'
+  
   out
 } 
-          
+            
 .chain2tab <- function( chain, sigfigs = 3 ){
   
   if( !is.matrix( chain ) )chain <- matrix( chain, ncol = 1 )
   
   mu <- colMeans( chain )    
   
-  SE <- apply( chain, 2, sd )
-  CI <- apply( chain, 2, quantile, c( .025, .975 ) )
+  SE <- apply( chain, 2, sd, na.rm=T )
+  CI <- apply( chain, 2, quantile, c( .025, .975 ), na.rm=T )
   splus <- rep( ' ', length = length( SE ) )
   splus[ CI[ 1, ] > 0 | CI[ 2, ] < 0] <- '*'
   
@@ -12707,6 +13242,63 @@ pacfFromAcf <- function( xacf ){
   invisible( c( px, py ) )
 }
 
+filledContour <- function (x , y , z, 
+                           xlim = range(x, finite = TRUE), 
+                           ylim = range(y, finite = TRUE), 
+                           zlim = range(z, finite = TRUE), 
+                           levels = pretty(zlim, nlevels), nlevels = 20, 
+                           color.palette = function(n) hcl.colors(n, "YlOrRd", rev = TRUE), 
+                           col = color.palette(length(levels) - 1), 
+                           plot.title, plot.axes, key.title, key.axes, asp = NA, 
+                           xaxs = "i", yaxs = "i", las = 1, axes = TRUE, frame.plot = axes, 
+                           ...){
+  
+    # from filled.contour with legend removed
+    
+  if (missing(z)) {
+    if (!missing(x)) {
+      if (is.list(x)) {
+        z <- x$z
+        y <- x$y
+        x <- x$x
+      }
+      else {
+        z <- x
+        x <- seq.int(0, 1, length.out = nrow(z))
+      }
+    }
+    else stop("no 'z' matrix specified")
+  }
+  else if (is.list(x)) {
+    y <- x$y
+    x <- x$x
+  }
+  
+  if ( any(diff(x) <= 0) || any(diff(y) <= 0) ) 
+    stop("increasing 'x' and 'y' values expected")
+  if (!missing(key.title)) 
+    key.title
+  
+  plot.new()
+  plot.window(xlim, ylim, "", xaxs = xaxs, yaxs = yaxs, asp = asp)
+  .filled.contour(x, y, z, levels, col)
+  if (missing(plot.axes)) {
+    if (axes) {
+      title(main = "", xlab = "", ylab = "")
+      Axis(x, side = 1)
+      Axis(y, side = 2)
+    }
+  }
+  else plot.axes
+  if (frame.plot) 
+    box()
+  if (missing(plot.title)) 
+    title(...)
+  else plot.title
+  invisible()
+}
+
+
 checkPlotDims <- function( plots, years, xytree = NULL, xytrap = NULL, 
                           plotDims, plotArea, verbose = FALSE ){
   
@@ -12757,13 +13349,15 @@ mastMap <- function( mapList ){
   
   # if PREDICT, needs seedPredGrid, treePredGrid
   
-  mapPlot <- mapYears <- treeSymbol <- xlim <- ylim <- NULL
+  mapPlot <- mapYears <- treeSymbol <- xlim <- ylim <- dem <- NULL
   seedMax <- fecMax <- fecPred <- seedPred <- RMD <- 
     seedPredGrid <- treePredGrid <- treeData <- seedData <- 
-    specNames <- seedNames <- acfMat <- NULL
+    specNames <- seedNames <- acfMat <- DEMfile <- NULL
   
   SEED <- PREDICT <- LEGEND <- SCALEBAR  <- verbose <- FALSE
   MAPTRAPS <- MAPTREES <- COLORSCALE <- TRUE  
+  
+  DEM <- F
   
   treeScale  <- trapScale <- plotScale  <- 1
   scaleValue <- 20
@@ -12785,12 +13379,8 @@ mastMap <- function( mapList ){
     seedPred <- mapList$prediction$seedPred
     treePredGrid  <- mapList$prediction$treePredGrid
     seedPredGrid  <- mapList$prediction$seedPredGrid
-  }else{
- #   mi    <- match( indat, names( mapList$inputs ) )
- #   for( i in mi ){
- #     mapList <- append( mapList, mapList$inputs[ i ] )
- #   }
   }
+  
   
   minPars <- c( 'specNames', 'treeData', 'xytree', 'seedData', 'xytrap',
                 'mapPlot', 'mapYears' )
@@ -12809,14 +13399,18 @@ mastMap <- function( mapList ){
     wk <- which( names( mapList ) == minPars[ k] )
     assign( minPars[ k], mapList[[ wk[ 1]]] )
   }
+  if( !is.null( mapPlot ) )
+    treeData <- treeData[ treeData$plot %in% mapPlot, ]
   
   ALLSPECS <- mapList$ALLSPECS
   if( is.null( ALLSPECS ) )ALLSPECS <- FALSE
   
-  if( !ALLSPECS )treeData <- treeData[ as.character( treeData$species ) %in% specNames, ]
-  
+  if( !ALLSPECS ){
+    treeData <- treeData[ as.character( treeData$species ) %in% specNames, ]
+  }
+ 
   if( nrow( treeData ) == 0 )stop( 'species absent from plot' )
-  
+  specNames <- sort( unique( treeData$species ) )
   
   tdat <- treeData
   sdat <- seedData
@@ -12853,6 +13447,7 @@ mastMap <- function( mapList ){
     xytrap$plot   <- .fixNames( xytrap$plot, all = TRUE )$fixed
     xytrap$trapID <- columnPaste( xytrap$plot, xytrap$trap )
     sdat$trapID   <- columnPaste( sdat$plot, sdat$trap )
+    if( is.null( seedNames ) )seedNames <- mapList$seedNames
   }
   
   
@@ -12884,7 +13479,7 @@ mastMap <- function( mapList ){
   if( length( wtdata ) == 0 ){
     wdata <- which( as.character( tdat$plot ) %in% mapPlot )
     ws    <- which( tdat$plot == mapPlot )
-    cyr   <- RANN::nn2( tdat$year[ ws], mapTreeYr, k = 1 )[[ 1]][, 1]
+    cyr   <- nn2( tdat$year[ ws], mapTreeYr, k = 1 )[[ 1]][, 1]
     mapTreeYr <- mapTreeYr[ cyr ]
   }
   tree <- tdat[ wtdata, ]
@@ -12900,6 +13495,7 @@ mastMap <- function( mapList ){
   }else{
     treeSymbol <- treeSymbol[ wtdata ]
   }
+  
   
   if( MAPTRAPS ){
     wsdata <- which( sdat$year %in% mapYears & 
@@ -12938,6 +13534,8 @@ mastMap <- function( mapList ){
       fmat <- tree
     }
     
+    
+    
     if( MAPTRAPS ){
       wsdata <- which( seedPred$year %in% mapYears & 
                         as.character( seedPred$plot ) %in% mapPlot )
@@ -12966,6 +13564,7 @@ mastMap <- function( mapList ){
     return( add = FALSE )
   }
   
+  
   if( MAPTRAPS ){
     SEED   <- TRUE
     snames <- paste( seedNames, '_meanM2', sep = '' )
@@ -12985,7 +13584,6 @@ mastMap <- function( mapList ){
   }
   fecMax <- max( fecMax, na.rm = TRUE )
   treeSymbol <- treeSymbol/fecMax
-
   
   nspec <- length( specNames )
   
@@ -13159,6 +13757,12 @@ mastMap <- function( mapList ){
       tree <- tree[ c( kk, jj ), ] 
     }
     
+    if( 'DEMfile' %in% names( mapList ) ){
+      dfile <- mapList$DEMfile
+      DEM   <- endsWith( dfile, paste( mapPlot[ j ], '.rdata', sep = '' ) )
+      if( !file.exists( dfile ) )DEM <- FALSE
+    }
+    
     if( MAPTRAPS ){
       
       for( k in 1:njyr ){
@@ -13174,6 +13778,27 @@ mastMap <- function( mapList ){
         }
         
         if( !WO & !WP & !MAPTREES )next
+        
+        if( DEM ){
+          load( dfile, verbose = T )
+          
+          by <- 10
+          levels <- round( range( dem$z, na.rm = T ), -1 )
+          levels <- seq( levels[1] - by, levels[2] + by, by = by )
+          
+          if( length(levels) < 7 ){
+            by <- 1
+            levels <- round( range( dem$z, na.rm = T ), -1 )
+            levels <- seq( levels[1] - 2*by, levels[2] + 2*by, by = by )
+          }
+          
+          filledContour( dem$x, dem$y, dem$z, asp = 1, levels = levels,
+                             color.palette = function(n) hcl.colors(n, "terrain"),
+                             axes = F)
+          .plotLabel( paste( by, '-m contours', sep = '' ), 'bottomleft', 
+                      below = T, cex = 1 )
+          add <- T
+        }
         
         if( WP ){  #predicted surface, fecundity
           
@@ -13201,7 +13826,6 @@ mastMap <- function( mapList ){
           w1 <- which( z > 0 )
           w0 <- which( z == 0 )
           
-          
           if( length( w1 ) > 0 ){
             z <- z/seedMax
             z <- 5*sqrt( sc*z )*trapScale
@@ -13215,7 +13839,7 @@ mastMap <- function( mapList ){
           if( add == F ){
             plot( NULL, xlim = xlimit[ j, ], ylim = ylimit[ j, ], xlab = '', ylab = '', 
                  axes = F )
-            for( i in 1:4 )axis( i, labels = FALSE, tck = .01 )
+            for( i in 1:4 )axis( i, labels = FALSE, tck = .02 )
             add <- TRUE
           }
           if( length( w0 ) > 0 )points( sx[ w0], sy[ w0], pch = 3, cex = .3, 
@@ -13238,13 +13862,11 @@ mastMap <- function( mapList ){
           sy <- treek$y
           
           if( !all( is.na( z ) ) ){
-        #    mmm <- max( z, na.rm = TRUE )
-        #    if( mmm == 0 )mmm <- 1
-        #    z <- 1*sc*z/mmm*treeScale
             z <- 1*sc*z*treeScale
             ic <- match( treek$species, specNames )
             
-            symbols( sx, sy, circles = z*1.3, inches = F, add = add, 
+            
+            symbols( sx, sy, circles = z*1.5, inches = F, add = add, 
                     xlim = xlim, ylim = ylim, 
                     fg = .getColor( 'white', .5 ), xlab = '', ylab = '', 
                     bg = .getColor( 'white', .5 ), xaxt = 'n', yaxt = 'n' )
@@ -13253,15 +13875,15 @@ mastMap <- function( mapList ){
                     xlab = '', ylab = '', 
                     fg = .getColor( specCol[ specNames[ ic]], .6 ), 
                     bg = .getColor( specCol[ specNames[ ic]], .3 ), xaxt = 'n', yaxt = 'n' )
-            if( !add )for( i in 1:4 )axis( i, labels = FALSE, tck = .01 )
+            if( !add )for( i in 1:4 )axis( i, labels = FALSE, tck = .02 )
           }
         }
         
         if( !add )next
         
         cex <- sum( mfrow )^( -.1 )
-        .plotLabel( jyr[ k], 'topright', cex = cex, above = TRUE ) 
-        .plotLabel( mapPlot[ j], 'topleft', cex = cex, above = TRUE )
+        .plotLabel( jyr[ k], 'topleft', cex = cex, above = TRUE ) 
+   #     .plotLabel( mapPlot[ j], 'topleft', cex = cex, above = TRUE )
       }
       
     }else{
@@ -13310,7 +13932,7 @@ mastMap <- function( mapList ){
               points( sx[ id], sy[ id], pch = 3, col = specCol[ specNames[ ic[ id]]], lwd = 2 )
             }
           }
-          for( i in 1:4 )axis( i, labels = FALSE, tck = .01 )
+          for( i in 1:4 )axis( i, labels = FALSE, tck = .02 )
           text( xlimit[ j, 1], ylimit[ j, 2] - dy/20, mapYears[ k], pos = 4 )
         }
         
@@ -13342,7 +13964,7 @@ mastMap <- function( mapList ){
       ck <- .getColor( specCol[ cols$species[ k]], cols$colorLevels )
       
       clist <- list( kplot = k, ytick = NULL, text.col = 'black', 
-                     cols = ck, labside = 'right', text.col = col, 
+                     cols = ck, labside = 'right', #text.col = col, 
                      bg = 'grey', endLabels = endLabels ) 
       cornerScale( clist )
   #    kk <- kk + 1
@@ -13372,6 +13994,60 @@ cornerScale <- function( clist ) {
   .cornerLegendScale( clist )
 }
 
+changeCode <- function( toCode, specVec, 
+                        tfile = '../traitsByGroup/plantTraits.csv' ){
+  
+  # toCode is 'code4', 'code6', or 'code7'
+  
+  traitTable <- read.csv( tfile, stringsAsFactors=F )
+  
+  mm  <- match( specVec, traitTable$code4 )
+  kk  <- match( specVec, traitTable$code6 )
+  mm[ is.na( mm ) & !is.na( kk ) ] <- kk[ is.na( mm ) & !is.na( kk ) ]
+  wna <- which( is.finite( mm ) )
+  specVec[wna] <- traitTable[mm[wna],toCode]
+  specVec
+  
+}
+
+diamFill <- function( tdata ){
+  
+  # diam fill
+  
+  wd <- which( is.na( tdata$diam ) | tdata$diam == 0 )
+  if( length( wd ) == 0 )return( tdata$diam )
+  
+  if( !'treeID' %in% colnames( tdata ) ){
+    tdata$treeID <- columnPaste( tdata$plot,tdata$tree )
+  }
+  
+  id <- which( tdata$treeID %in% tdata$treeID[wd] )
+  dmat <- table( tdata$treeID[id], tdata$year[id] )
+  dmat[ dmat == 0 ] <- NA
+  
+  it <- match( tdata$treeID, rownames( dmat ) )
+  it <- it[is.finite( it )]
+  iy <- match( tdata$year[id], as.numeric( colnames( dmat ) ) )
+  dmat[ cbind( it, iy ) ] <- tdata$diam[id]
+  wk   <- which( rowSums( dmat, na.rm=T ) > 0 )
+  dmat <- dmat[ drop = F, wk, ]
+  
+  if( nrow( dmat ) == 0 )return( tdata$diam )
+  
+  dmat <- .interpRows( x = dmat, INCREASING=T, minVal=.1, maxVal=1000,
+                       defaultValue=NULL,tinySlope=.02 ) 
+  rr <- match( tdata$treeID[wd], rownames( dmat ) )
+  cc <- match( as.character( tdata$year[wd] ), colnames( dmat ) )
+  wf <- which( is.finite( rr ) & is.finite( cc ) )
+  
+  tdata$diam[wd[wf]] <- dmat[ cbind( rr[wf], cc[wf] ) ]
+  
+  round( tdata$diam, 1 )
+}
+
+
+
+
 .cornerLegendScale <- function( clist ){  
   
   # left and right corners: xx = ( x1, x2 ), y = ( y1, y2 )
@@ -13390,7 +14066,7 @@ cornerScale <- function( clist ) {
   for( k in 1:length( clist ) )assign( names( clist )[ k], clist[[ k]] ) 
   
   xx <- -1.08 + .1*( kplot - 1 ) + c( .1, .2 )
-  yy <- c( -1, -.75 )
+  yy <- c( -1, -.85 )
   
   nn <- length( cols )
   ys <- seq( yy[ 1], yy[ 2], length = nn )
@@ -13468,6 +14144,7 @@ values2grid <- function( x, y, z, nx = NULL, ny = NULL, dx = NULL, dy = NULL,
   fec  <- treePredGrid[, 'fecEstMu']
   matr <- treePredGrid[, 'matrPred']
   smat <- as.matrix( seedPredGrid[, predCols] )
+  if( !is.null(year) )smat <- smat[ seedPredGrid$year == year, ]
   
   nx <- ceiling( diff( xlim )/3 )
   ny <- ceiling( diff( ylim )/3 )
@@ -13490,7 +14167,7 @@ values2grid <- function( x, y, z, nx = NULL, ny = NULL, dx = NULL, dy = NULL,
   levels <- signif( quantile( smat[, pnames], q ) , sn )
   levels <- c( levels, signif( max( seedMax )*1.3, sn ) )
   levels <- sort( unique( levels ) )
-  colorLevels <- seq( .001, .99, length = length( levels ) )^3
+  colorLevels <- seq( .01, .99, length.out = length( levels ) )^2
   
   for( k in wspec ){
     
@@ -13519,7 +14196,7 @@ values2grid <- function( x, y, z, nx = NULL, ny = NULL, dx = NULL, dy = NULL,
       
       z   <- 5*sc*fec[ wk]*treeScale
       z[ z > 0] <- z[ z > 0]/fecMax
-      .mapSpec( x = treePredGrid[ wk, 'x'], y = treePredGrid[ wk, 'y'], z*1.5, 
+      .mapSpec( x = treePredGrid[ wk, 'x'], y = treePredGrid[ wk, 'y'], z*1.1, 
                add = add, 
                mapx = xlim, mapy = ylim, 
                colVec = 'white', fill = 'white' )
@@ -14097,8 +14774,7 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   species      <- sample( specNames, length( id ), replace = TRUE ) 
   tree$species <- factor( species[ match( tree$treeID, id )], levels = specNames )
   
-  tree$dcol <- match( as.character( tree$treeID ), id )
-  
+  tree$dcol   <- match( as.character( tree$treeID ), id )
   tree$plotYr <- columnPaste( tree$plot, tree$year, '_' )
   plotyr      <- unique( tree$plotYr )
   tree$plotyr <- match( tree$plotYr, plotyr )
@@ -14143,7 +14819,7 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   if( !SPECS ){
     ss     <- paste( 'species', specNames, sep = '' )
     xnames <- paste( ss, colnames( xfec ), sep = ':' )
-    xnames[ 1] <- .replaceString( xnames[ 1], ':( Intercept )', '' )
+    xnames[ 1] <- .replaceString( xnames[ 1], ':(Intercept)', '' )
     colnames( xfec ) <- xnames
   }
     
@@ -14220,7 +14896,6 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
                     maxFec, CONES = FALSE, 
                     notFit = NULL, priorTable = priorTable, 
                     CHECKNOSEED = FALSE, 
-    #                group = NULL, 
                     seedTraits = NULL, verbose = FALSE )
   treeData  <- tmp$tdata
   seedData  <- tmp$sdata
@@ -14314,7 +14989,7 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   rspec <- specNames[ which( !specNames %in% names( br ) )]
   
   ints <- br[ ints]
-  ints[ -1] <- ints[ -1] + br[ '( Intercept )']
+  ints[ -1] <- ints[ -1] + br[ '(Intercept)']
   names( ints )[ 1] <- rspec
   slopes <- br[ slopes]
   slopes[ -1] <- slopes[ -1] + br[ 'diam']
@@ -14441,16 +15116,16 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
       
 .seedFormat <- function( sfile, lfile, trapFile = NULL, seedNames = NULL, 
                         specNames, genusName = NULL, omitNames = NULL, plot, 
-                        newplot = plot, trapID = 'trap', monthYr = 7, active = 1, 
-                        area = .5, verbose = FALSE ) {
+                        newplot = plot, trapID = 'trap', monthYr = 7, 
+             #           active = 1, area = .5, 
+                        verbose = FALSE ) {
   
   # always include specNames due to ambiguous substr( genusName, 1, 4 )
-  
+   
   if( is.null( newplot ) )newplot <- plot
   
   scols      <- c( 'site', 'plot', 'trap', 'trapID', 'trapnum', 'X', 'Y', 
-                  'month', 'day', 'year', 
-                  'UTMx', 'UTMy' )
+                  'month', 'day', 'year', 'UTMx', 'UTMy' )
   
   hcols <- c( 'plot', 'trap', 'basket', 'month', 'day', 'year', 
              'site', 'trapID', 'trapNum', 'trapName', 'X', 'Y', 'UTMx', 'UTMy' )
@@ -14458,7 +15133,6 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   midCD <- c( 273890.6, 3938623.3 )  #plot center for ( x, y ) at GSNP_CD
   
   loc  <- read.csv( lfile, stringsAsFactors = F )
-  
   loc  <- loc[ loc$plot == plot, ]
     xy <- loc[, c( 'UTMx', 'UTMy' )]
     xy <- round( sweep( xy, 2, colMeans( xy ), '-' ), 1 )
@@ -14490,8 +15164,11 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   counts <- read.csv( sfile, stringsAsFactors = F )
   counts <- counts[ counts$plot == plot, ]
   
-  if( 'area' %in% colnames( counts ) )area <- counts$area[ 1]
-    
+  wu <- grep('UNKNUNKN', colnames(counts) )
+  if( length(wu) > 0 )counts <- counts[,-wu]
+  
+ # if( 'area' %in% colnames( counts ) )area <- counts$area[ 1]
+  area <- counts$area
   
   counts[ is.na( counts$month ), 'month'] <- 3
   counts[ counts[, 'month'] < monthYr, 'year'] <- 
@@ -14536,6 +15213,9 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   smat <- matrix( 0, length( tn ), length( yr ) )
   rownames( smat ) <- tn
   colnames( smat ) <- yr
+  
+  ay <- tapply( counts$area, list( trap = counts$trap, year = counts$year ), mean, na.rm = TRUE )
+  area <- as.vector( ay )
   
   seedj <- numeric( 0 )
   
@@ -14589,17 +15269,7 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   
   active <- as.vector( active )
   
-  
-  if( !is.null( trapFile ) ){
-    taa <- read.table( trapFile, header = TRUE )[, c( 'plot', 'seedArea' )]
-    area <- taa[ taa$plot == plot, 'seedArea']
-    if( length( area ) == 0 ){
-      site <- columnSplit( plot, '_' )[ 1]
-      area <- taa[ grep( site, taa$plot ), 'seedArea']
-    }
-  }
- 
-  area <- area[ 1]
+ # if( 'active' %in% colnames( counts ) )active <- counts$active
   
   seed[, colnames( seedj )] <- seedj
   
@@ -14607,8 +15277,8 @@ mastSim <- function( sim ){       # setup and simulate fecundity data
   trap <- rep( tn, length( yr ) )
   tr <- apply( cbind( plot, trap ), 1, paste0, collapse = '-' )
   
-  sd   <- data.frame( plot, trapID = tr, trap = trap, 
-                      year = year, active = active, area = area, stringsAsFactors = F ) 
+  sd   <- data.frame( plot = plot, trapID = tr, trap = trap, 
+                      year = year, area = area, active = active, stringsAsFactors = F ) 
   seed <- cbind( sd, seed )
   rownames( seed ) <- 
     apply( cbind( plot, trap, year ), 1, paste0, collapse = '-' )
@@ -14714,6 +15384,43 @@ multiStemBA <- function( diam ){
   }
   model.frame( formula, data, na.action = NULL )
 }
+
+
+designColumns <- function( x, specNames ){
+  
+  # cx are column names of design matrix
+  
+  cx <- colnames( x )
+  
+  nspec <- length(specNames)
+  
+  cx[ cx == '(Intercept)' ] <- 'intercept'
+  
+  if( nspec == 1 ){
+    cx <- paste( specNames, cx, sep = '_' )
+  }else{
+    ws <- grep( 'species', cx )
+    x  <- x[, ws]
+    cx <- colnames(x)
+    cx <- .replaceString( cx, 'species','' )
+    
+    for(k in 1:nspec)cx <- .replaceString( cx, paste( specNames[k], ':', sep = '' ),
+                                           paste( specNames[k], '_', sep = '' ) )
+    ii <- match(specNames, cx )
+    cx[ii] <- paste( cx[ii], '_intercept', sep='' )
+  }
+  
+  # standardize order
+  icols <- grep(':', cx, fixed = T )
+  if( length( icols ) > 0 ){
+    kmat <- columnSplit( cx[icols], '_' )
+    kvar <- columnSplit( kmat[,2], ':' )
+    kvar <- t( apply(kvar, 1, sort) )
+    cx[ icols ] <- paste( kmat[,1], '_', kvar[,1], ':', kvar[,2], sep = '' )
+  }
+  colnames(x) <- cx
+  x
+}
   
 .getDesign <- function( formula, data, verbose = FALSE ){
   
@@ -14726,7 +15433,7 @@ multiStemBA <- function( diam ){
   
   if( f1 == '~1' & nspec == 1 ){
     x  <-  matrix( 1, nrow( data ), 1 )
-    colnames( x ) <- "(Intercept)"
+    colnames( x ) <- paste( specNames, "intercept", sep = "_" )
     return( list( x = x, missx = integer( 0 ), specCols = numeric( 0 ) ) )
   }
   
@@ -14746,46 +15453,27 @@ multiStemBA <- function( diam ){
   
   if( length( miss ) > 0 ){
     xmean <- colMeans( data[, sp1, drop = F], na.rm = TRUE )
-    data[, sp1][ miss] <- 1e+10
+    data[, sp1][ miss ] <- 1e+20
     if( verbose )cat( '\nNote: missing values in xfec filled with mean values\n' )
   }
   
   x  <- .get.model.frame( formula, data )
   x  <- model.matrix( formula, x )
+  x  <- designColumns( x, specNames )
   
-#  colnames( x )[ colnames(x) == '(Intercept)' ] <- 'intercept'
-  
-  if( nspec > 1 ){
-    ws <- grep( 'species', colnames( x ) )
-    x  <- x[, ws]
-  }
-  missx <- which( x > 1e+9, arr.ind = TRUE )
+  missx <- which( x == 1e+20, arr.ind = TRUE )
   
   if( length( missx ) > 0 ){
-    data[, sp1][ miss] <- xmean[ miss[, 2]]
-    
-    mux <- apply( x, 2, mean, na.rm = TRUE )
-    x[ missx] <- mux[ missx[, 2]]
+    data[, sp1][ miss ] <- xmean[ miss[, 2] ]
   }
+  
   x  <- .get.model.frame( formula, data )
   x  <- model.matrix( formula, x )
-  if( nspec > 1 ){
-    ws <- grep( 'species', colnames( x ) )
-    x  <- x[, ws]
-  }
-  rm( data )
+    
+  x  <- designColumns( x, specNames )
+  x  <- rmQuad( x )
   
-  specCols  <- numeric( 0 )
-  if( nspec > 1 ){
-    for( j in 1:length( specNames ) ){
-      specCols <- rbind( specCols, grep( paste( 'species', specNames[ j], sep = '' ), 
-                                        colnames( x ) ) )
-    }
-    rownames( specCols ) <- specNames
-  }
-  
-  
-  list( x = x, missx = missx, specCols = specCols )
+  list( x = x, missx = missx )
 }
 
 columnSplit <- function( vec, sep = '_', ASFACTOR = F, ASNUMERIC = FALSE, 
@@ -14998,14 +15686,15 @@ trimData <- function( treeData, xytree, seedData = NULL, xytrap = NULL,
   nspec <- length( specNames )
   
   if( nspec == 1 ){
+    
     ff <- as.character( formulaFec )
   
-    if( length( grep( 'species', ff[ 2] ) ) > 0 ){
+    if( length( grep( 'species', ff[ 2 ] ) ) > 0 ){
       ff <- .replaceString( ff, 'species * ', '' )
       formulaFec <- as.formula( paste0( ff[ 1], ff[ 2], collapse = '' ) )
       ff <- as.character( formulaRep )
       ff <- .replaceString( ff, 'species * ', '' )
-      formulaRep <- as.formula( paste0( ff[ 1], ff[ 2], collapse = '' ) )
+      formulaRep <- as.formula( paste0( ff[ 1 ], ff[ 2 ], collapse = '' ) )
     }
   }
   specNames <- sort( unique( treeData$species ) )
@@ -15030,27 +15719,99 @@ checkPlotName <- function( pdata ){
 }
 
 
+missingTreeData <- function( treeData, vname ){
+  
+  wna <- which( is.na( treeData[,vname] ) )
+  if( length( wna ) == 0 )return( treeData[,vname] )
+  
+  # use other years for same tree
+  
+  tvec <- treeData[,vname]
+  year <- treeData$year
+  tid  <- columnPaste( treeData$plot,treeData$tree )
+  yrs  <- range( year )
+  yrs  <- yrs[1]:yrs[2]
+  ids  <- sort( unique( tid ) )
+  tmat <- matrix( NA, length( ids ), length( yrs ) )
+  rownames( tmat ) <- ids
+  mm   <- match( tid, ids )
+  ij   <- cbind( mm, match( year, yrs ) )
+  tmat[ij] <- tvec
+  mu   <- rowMeans( tmat, na.rm=T )
+  mu[ !is.finite( mu ) ] <- NA
+  
+  nvec <- mu[tid]
+  tvec[ !is.finite( tvec ) ] <- nvec[ !is.finite( tvec ) ]
+  tvec
+}
+
+
+aspectAxis <- function( at = c(0, 90, 180, 270, 360), labels = c('N','E','S','W','N'), 
+                        cex.axis = 1.2, tick = T ){
+  
+  axis( 1, at = at, labels = labels, 
+        cex.axis = cex.axis, tick = tick ) 
+}
+
 treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable, 
-                           seedNames = NULL, minTrees = 5, minYears = 2, 
+                           seedNames = NULL, specNames = NULL,
+                           minTrees = 5, minYears = 2, 
                            formulaFec = NULL, formulaRep = NULL, 
-                           skipSpec = character( 0 ), omitNames = character( 0 ), 
+                           serotinousSpecies = NULL,
+                           skipSpecies = character( 0 ), omitNames = character( 0 ), 
                            combineSeeds = NULL, combineSpecs = NULL, 
                            cropCountCols = c( 'fecMin', 'fecMax', 'cropCount' ), 
-                           CHECKNOSEED = TRUE, 
-                           verbose = FALSE ){
+                           CHECKNOSEED = TRUE, verbose = FALSE ){
   # criteria: - at least minTrees ( over all plots ), CC or ST
   #           - at least minYears ( over all plots )
   #           - non-zero cropCount or seed count somewhere
   #           - ST counts only where tree species is present
   #           - specNames get credit for UNKN seeds in same plot
   
-  scols <- c( "plot", "trap", "year", "area", "active", "drow", 
+  ocols <- c( "plot", "site", "trap", "year", "area", "active", "drow", 
              "trapID", "plotYr", "plotyr", "obs", "times" )
   SEEDDATA <- FALSE
   
-#  specNames <- specNames[ specNames %in% tdata$species]
   
-  tdata$plot <- .fixNames( tdata$plot, all = TRUE, MODE = 'character' )$fixed
+  
+  if( !'site' %in% colnames( tdata ) ) {
+    
+    site <- tdata$plot
+    gd   <- grep('_', site, fixed = T )
+    if( length(gd) > 0 )site[ gd ] <- columnSplit( site[gd], '_' ) [,1]
+    wpt  <- grep( '.', site, fixed=T )
+    if( length( wpt ) > 0 ){
+      site[wpt] <- columnSplit( site[wpt], '.' )[,1]
+    }
+    tdata$site <- site
+    
+    site <- sdata$plot
+    gd   <- grep('_', site, fixed = T )
+    if( length(gd) > 0 )site[ gd ] <- columnSplit( site[gd], '_' ) [,1]
+    sdata$site <- site
+  }
+  
+  tdata$plot      <- .fixNames( tdata$plot, all = TRUE, MODE = 'character' )$fixed
+  plots <- unique( tdata$plot )
+  
+  if( !is.null(sdata) ){
+    SEEDDATA <- T
+    sdata$plot  <- .fixNames( sdata$plot, all = TRUE, MODE = 'character' )$fixed
+    xytree$plot <- .fixNames( xytree$plot, all = TRUE, MODE = 'character' )$fixed
+    xytrap$plot <- .fixNames( xytrap$plot, all = TRUE, MODE = 'character' )$fixed
+    sdata$trap  <- .fixNames( sdata$trap, all = TRUE, MODE = 'character' )$fixed
+    xytrap$trap <- .fixNames( xytrap$trap, all = TRUE, MODE = 'character' )$fixed
+    if( is.null( seedNames ) ){
+      seedNames <- colnames( sdata )[ !colnames( sdata ) %in% ocols]
+    }
+    
+    uu <- grep( 'UNKN.', colnames(sdata), fixed=T )
+    if( length( uu ) > 0 )sdata <- sdata[,-uu]
+    
+    seedNames <- colnames( sdata )[ !colnames( sdata ) %in% ocols ] 
+  }
+  
+  
   priorTable <- as.data.frame( priorTable )
   
   tmp <- combineSpecies( tdata$species, specNames, combineSpecs )
@@ -15058,9 +15819,85 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   specNames     <- tmp$specNames
   nspec <- length( specNames )
   
+  #prior for serotiny
+  
+  if( 'serotinous' %in% colnames( tdata ) ){
+    ww <- which( tdata$species %in% serotinousSpecies &
+                   is.na( tdata$serotinous ) )
+    if( length( ww ) > 0 )tdata$serotinous[ww] <- .5
+  }
+  
+  if( 'shade' %in% colnames(tdata) )tdata$shade <- round( missingTreeData( tdata, 'shade' ) )
+  
+  # diameter check
+  
+  diam  <- missingTreeData( tdata, 'diam' ) 
+  tdata <- tdata[is.finite( diam ), ]
+  
+  wsa <- which( is.na( tdata$shade ) )
+  if( length( wsa ) > 0 )tdata$shade[wsa] <- 3
+  
+  tdata$diam[ tdata$diam <= 0 ] <- NA
+  tdata$treeID <- columnPaste( tdata$plot, tdata$tree )
+  maxd  <- tapply( tdata$diam, tdata$treeID, max, na.rm=T )
+  maxd[ !is.finite( maxd ) ] <- 0
+  tdata$maxd  <- maxd[ tdata$treeID ]
+  mm    <- match( tdata$species, rownames( priorTable ) )  
+  tdata$mind  <- priorTable$minDiam[ mm ]
+  keep  <- tdata$maxd > .2
+  tdata <- tdata[ !is.na( tdata$diam ) & keep,]
+  
+  # min diameter for repro
+  mm    <- match( tdata$species, rownames( priorTable ) )  
+  mind  <- priorTable$minDiam[ mm]
+  sites <- columnSplit( tdata$plot, '_' )[, 1]
+  sites[ which( startsWith( sites, 'GYE' ) ) ] <- 'GYE'
+  
+  wi    <- which( !duplicated( tdata$treeID ) & tdata$maxd > tdata$mind/2 )
+  sbys  <- table( tdata$species[ wi], sites[ wi] )
+  stot  <- rowSums( sbys )                           # trees > mind
+  
+  if( verbose ){
+    cat( '\nnumber trees above min diam:\n\n' )
+    print( stot )
+  }
+  
+  specNames <- names( stot )[ stot > minTrees]      # minimum large trees
+  if( length( specNames ) == 0 ){
+    cat( '\nno trees big enough\n\n' )
+    return( list( treeData = NULL, seedData = NULL ) )
+  }
+  
+  if( length( skipSpecies ) > 0 )specNames <- specNames[ !specNames %in% skipSpecies ]
+  tdata <- tdata[ tdata$species %in% specNames, ]
   
   plotBySpec <- table( tdata$plot, tdata$species )
   yearBySpec <- table( tdata$year, tdata$species )
+  
+  # seed trap data
+  
+  if( SEEDDATA ){
+
+    sbyp      <- buildSeedByPlot( sdata, seedNames, specNames, 
+                                  UNKN2TREE = FALSE, SHORTNAMES = T )
+    if( verbose ){
+      cat( '\nPlots by seed counts:\n' )
+      print( sbyp )
+      cat( '\n' )
+    }
+    
+    if( verbose ){
+      cat( '\nmastif thinks these are seed types in seedData:\n' )
+      stt <- colnames( sdata )
+      stt <- paste0( stt[ !stt %in% ocols], collapse = ', ' )
+      print( stt )
+      cat( '\n' )
+    }
+    plotBySeed <- buildSeedByPlot( sdata, seedNames, specNames, UNKN2TREE = T, SHORTNAMES = T )  
+    yearBySeed <- buildSeedByYear( sdata, seedNames, specNames, UNKN2TREE = T, SHORTNAMES = T )
+    yearBySpec <- .appendMatrix( yearBySeed, yearBySpec )
+    yearBySpec <- yearBySpec[ drop = F, order( as.numeric( rownames( yearBySpec ) ) ), ]
+  }
   
   pbs <- ybs <- numeric( 0 )   # CC
   
@@ -15079,69 +15916,20 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     yearBySpec <- .appendMatrix( yearBySpec, ybs  )
   }
   
-  if( !is.null( sdata ) ){
-    if( nrow( sdata ) > 1 )SEEDDATA <- T
- 
-    sdata$plot  <- .fixNames( sdata$plot, all = TRUE, MODE = 'character' )$fixed
-    xytree$plot <- .fixNames( xytree$plot, all = TRUE, MODE = 'character' )$fixed
-    xytrap$plot <- .fixNames( xytrap$plot, all = TRUE, MODE = 'character' )$fixed
-    sdata$trap  <- .fixNames( sdata$trap, all = TRUE, MODE = 'character' )$fixed
-    xytrap$trap <- .fixNames( xytrap$trap, all = TRUE, MODE = 'character' )$fixed
-    if( is.null( seedNames ) ){
-      seedNames <- colnames( sdata )[ !colnames( sdata ) %in% scols]
-    }
-    if( verbose ){
-      cat( '\nmastif thinks these are seed types in seedData:\n' )
-      stt <- colnames( sdata )
-      stt <- paste0( stt[ !stt %in% scols], collapse = ', ' )
-      print( stt )
-      cat( '\n' )
-    }
-    plotBySeed <- buildSeedByPlot( sdata, seedNames, specNames, UNKN2TREE = T, SHORTNAMES = T )  
-    yearBySeed <- buildSeedByYear( sdata, seedNames, specNames, UNKN2TREE = T, SHORTNAMES = T )
-    yearBySpec <- .appendMatrix( yearBySeed, yearBySpec )
-    yearBySpec <- yearBySpec[ drop = F, order( as.numeric( rownames( yearBySpec ) ) ), ]
-    
-  }
-  
   #  sufficient trees on plots
-  yearBySpec[ yearBySpec > 0] <- 1
-  keepYear   <- colnames( yearBySpec )[ colSums( yearBySpec ) > minYears] # specs with enough years
+  yearBySpec[ yearBySpec > 0 ] <- 1
+  keepYear   <- colnames( yearBySpec )[ colSums( yearBySpec ) >= minYears] # specs with enough years
   plotBySpec <- plotBySpec[ drop = F, , colnames( plotBySpec ) %in% keepYear]
   keepPlot   <- rownames( plotBySpec )[ rowSums( plotBySpec ) > 0]        # CC or ST 
   
   tdata  <- tdata[ tdata$plot %in% keepPlot, ]
   
   if( nrow( tdata ) == 0 ){
-    cat( '\nThere are no seeds in trees or traps, abort:\n' )
+    cat( '\nThere are not enought seeds in trees or traps, abort:\n' )
     return( )
   }
 
-  # enough trees above minimum diameter
-  tid   <- columnPaste( tdata$plot, tdata$tree )
-  maxd  <- tapply( tdata$diam, tid, max, na.rm = T )
-  maxd  <- maxd[ tid]
-  
-  mm    <- match( tdata$species, rownames( priorTable ) )  
-  mind  <- priorTable$minDiam[ mm]
-  sites <- columnSplit( tdata$plot, '_' )[, 1]
-  
-  wi    <- which( !duplicated( tid ) & maxd > mind/2 )
-  sbys  <- table( tdata$species[ wi], sites[ wi] )
-  stot  <- rowSums( sbys )                           # trees > mind
-  
-  if( verbose ){
-    cat( '\nnumber trees above min diam:\n\n' )
-    print( stot )
-  }
-  
-  specNames <- names( stot )[ stot > minTrees]      # minimum large trees
-  if( length( specNames ) == 0 ){
-    cat( '\nno trees big enough\n\n' )
-    return( list( treeData = NULL ) )
-  }
-  
-  tdata <- tdata[ tdata$species %in% specNames, ]
+  tdata    <- tdata[ tdata$species %in% specNames, ]
   keepPlot <- unique( tdata$plot )
 
   wfirst <- unlist( gregexpr( "[ A-Z]", tdata$species[ 1] ) ) # position where specEpith starts
@@ -15161,13 +15949,12 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
       ss <- .replaceString( ss, '_max', '' )
       seedNames <- sort( unique( ss ) )
     }
-    if( !is.null( skipSpec ) ){
-      skip  <- skipSpec
+    if( !is.null( skipSpecies ) ){
+      skip  <- skipSpecies
       gg    <- which( endsWith( skip, 'UNKN' ) )
-      skip  <- skip[ !skip %in% skipSpec[ gg]]
+      skip  <- skip[ !skip %in% skipSpecies[ gg]]
       sdata <- sdata[, !colnames( sdata ) %in% skip, drop = F]
     }
-    
     
     ws   <- which( startsWith( colnames( sdata ), gen4 )  )
     cc   <- colnames( sdata )[ ws]
@@ -15177,8 +15964,6 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     
     seedNames <- colnames( sdata )[ ws ]
     totSeed   <- sum( as.vector( as.matrix( sdata[, cc] ) ) , na.rm = T )
-  #  checkPlotName( sdata )
-  #  checkPlotName( xytrap )
     
     onames <- c( omitNames, paste( seedNames, 'cones', sep = '_' ), 
                  paste( seedNames, 'emptyseeds', sep = '_' ) )
@@ -15209,7 +15994,7 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     sdata     <- tmp$seedData
     seedNames <- tmp$seedNames
     
-    wg <- unlist( gregexpr( "[ A-Z]", specNames ) ) # position where species starts
+    wg <- unlist( gregexpr( "[ A-Z ]", specNames ) ) # position where species starts
     
     als <- c( specNames, paste( specNames, '_min', sep = '' ), 
              paste( specNames, '_max', sep = '' ), 
@@ -15227,21 +16012,13 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     sdata <- NULL
   }
   
-  ttt   <- trimData( tdata, xytree, sdata, xytrap, 
-                    formulaFec, formulaRep, specNames, seedNames )
-  tdata <- ttt$treeData
-  sdata <- ttt$seedData
-  xytree <- ttt$xytree
-  xytrap <- ttt$xytrap
-  specNames <- ttt$specNames
-  seedNames <- ttt$seedNames
-  formulaFec <- ttt$formulaFec
-  formulaRep <- ttt$formulaRep
-  
   # species by site
-  if( 'site' %in% colnames( tdata ) & verbose ){
-    cat( '\nSites by by tree-yrs:\n\n' )
-    print( table( tdata$site, tdata$species ) )
+  #if( 'site' %in% colnames( tdata ) & verbose ){
+  #  cat( '\nSites by tree-yrs:\n\n' )
+  #  print( table( tdata$site, tdata$species ) )
+  #}
+  if( !SEEDDATA ){
+    sdata <- xytree <- xytrap <- NULL
   }
   
   list( treeData = tdata, seedData = sdata, xytree = xytree, xytrap = xytrap, 
@@ -15250,14 +16027,33 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
 }
 
 
+rmQuad <- function( x ){
+  
+  # rm quadratic terms that do not have linear terms in x
+  
+  c2 <- grep('^2)', colnames(x), fixed = T )
+  
+  if( length(c2) == 0 )return( x )
+  
+  qcol  <- colnames( x )[c2]
+  sname <- columnSplit( qcol, '_' )
+  cname <- .replaceString( sname[,2], 'I(', '' )
+  cname <- .replaceString( cname, '^2)', '' )
+  ccol  <- paste( sname[,1], cname, sep = '_' )
+  
+  wc <- which( !ccol %in% colnames(x) )
+  if( length(wc) > 0 )x <- x[ ,!colnames(x) %in% qcol[wc] ]
+  x
+}
+ 
+
 .setupData <- function( formulaFec, formulaRep, tdata, sdata, 
                        xytree, xytrap, specNames, seedNames, AR, YR, 
                        yearEffect, minDiam, maxDiam, TREESONLY, maxFec, CONES, 
                        notFit, priorTable, 
                        CHECKNOSEED = TRUE, 
-       #                plotRegion = NULL, 
-       #                group = 'ecoCode', 
                        seedTraits = NULL, verbose = FALSE ){
+  
   SEEDDATA <- TRUE
   if( is.null( sdata ) )SEEDDATA <- FALSE
   
@@ -15291,10 +16087,9 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     columnPaste( xytree$plot, xytree$tree )
   
   # if no crop count and seed never observed, remove
-  
   ttt <- treeSeedPlots( tdata, sdata, # plotRegion, 
                         xytree, xytrap, priorTable, 
-                        seedNames = seedNames, #group = group, 
+                        seedNames = seedNames, specNames = specNames,  
                         formulaFec = formulaFec, formulaRep = formulaRep, 
                         CHECKNOSEED = CHECKNOSEED )
   tdata  <- ttt$treeData
@@ -15323,26 +16118,26 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   dtab <- ttab*0
   tmp  <- table( tdata$plot[ wd], tdata$species[ wd] )
   dtab[ rownames( tmp ), colnames( tmp )] <- tmp               # only includes > minD
-  ww <- which( ttab > 0 & dtab == 0, arr.ind = TRUE )     # trees, but none > minD
+  ww <- which( ttab > 0 & dtab == 0, arr.ind = TRUE )          # trees, but none > minD
   
   if( SEEDDATA ){          # transfer to UNKN type
     
     stab <- tapply( unlist( sdata[, seedNames] ), 
                     list( rep( sdata$plot, length( seedNames ) ), 
-                         rep( seedNames, each = nrow( sdata ) ) ), sum, na.rm = T )
+                          rep( seedNames, each = nrow( sdata ) ) ), sum, na.rm = T )
     
     # plots where tdata$species absent, seedNames present for non-UNKN
     moveToUNKN <- character( 0 )
     ktab <- ttab[ drop = F, rownames( stab ), ]
     wk   <- which( !colnames( ktab ) %in% colnames( stab ) )
-  #  print( wk )
+
     if( length( wk ) > 0 ){                       # append seedNames
       mcols <- ktab[ drop = F, , colnames( ktab )[ wk]]*0
       stab <- cbind( stab, mcols )
       stab <- stab[ drop = F, , colnames( ktab )]
     }
     wk   <- which( !colnames( stab ) %in% colnames( ktab ) )
-  #  print( wk )
+
     if( length( wk ) > 0 ){
       mcols <- stab[ drop = F, , colnames( stab )[ wk]]*0
       ktab <- cbind( ktab, mcols )
@@ -15417,6 +16212,8 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   fstart        <- tmp$fstart
   seedTraits    <- tmp$seedTraits
   tdata         <- tmp$tdata
+  
+  xytree <- xytree[ xytree$treeID %in% tdata$treeID, ]
   
   if( verbose ){
     cat( '\nMaximum diameter:\n' )
@@ -15576,11 +16373,10 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   if( length( scode ) > 0 ){
     for( j in 1:length( scode ) ) tdata[, scode[ j]] <- droplevels( tdata[, scode[ j]] )
   }
-  ccode <- names( tunstand[ which( sapply( tunstand, is.character ) )] )
+  ccode <- names( tunstand[ which( sapply( tunstand, is.character ) ) ] )
   scode <- c( ccode, scode )
   scode <- c( scode, colnames( tunstand )[ c( grep( 'slope', colnames( tunstand ) ), 
-                                            grep( 'aspect', colnames( tunstand ) ) )] )
-  
+                                              grep( 'aspect', colnames( tunstand ) ) )] )
   
   specNames <- sort( unique( as.character( tdata$species ) ) )
   
@@ -15593,7 +16389,7 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   # standardize columns in tdata
   if( length( wstand ) > 0 ){
     
-    standX <- colnames( tunstand )[ wstand]
+    standX <- colnames( tunstand )[ wstand ]
     
     wlog <- grep( "log( ", standX, fixed = TRUE )
     if( length( wlog ) > 0 )standX <- standX[ -wlog]
@@ -15612,225 +16408,247 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     }
   }
   
-  tmp  <- .getDesign( formulaFec, tdata, verbose = verbose )
-  xfec <- tmp$x
+  fvars <- attr( terms( formulaFec ), 'term.labels' )
   
-  if( nspec > 1 )xfec <- xfec[, grep( 'species', colnames( xfec ) ), drop = FALSE]
+  tmp      <- .getDesign( formulaFec, tdata, verbose = verbose )
+  xfec     <- tmp$x
   xfecMiss <- tmp$missx
-  xfecCols <- tmp$specCols
   
-  tmp  <- .getDesign( formulaRep, tdata, verbose = verbose )
-  xrep <- tmp$x
-  
-  if( nspec > 1 )xrep <- xrep[, grep( 'species', colnames( xrep ) ), drop = FALSE]
+  tmp      <- .getDesign( formulaRep, tdata, verbose = verbose )
+  xrep     <- tmp$x
   xrepMiss <- tmp$missx
-  xrepCols <- tmp$specCols
   
-  rank <- qr( xfec )$rank
+  notCheck <- c( grep('^2', colnames(xfec), fixed = T ),
+                 grep(':', colnames(xfec), fixed = T ))
+  notCheck <- colnames(xfec)[notCheck]
+  notCheck <- sort( unique( c(notCheck, notFit ) ) )
   
-  if( rank < ncol( xfec ) ){
+  rowsBySpec <- rep(0, nspec)
+  names( rowsBySpec ) <- specNames
+  
+  # excluded variables in notFit #####################
+  for( m in 1:nspec ){
     
-    for( m in 1:nspec ){
+    sname <- paste( specNames[ m ], "intercept", sep = "_" )
+    xx    <- colnames( xfec )[ grep( specNames[m], colnames(xfec) ) ]
+    xx    <- xx[ !xx %in% c( sname, notFit ) ]
+    wrow   <- which( xfec[, sname] == 1 & z == 1 ) # mature
+    xfecm <- xfec[ wrow, xx, drop = F]
+    rspec <- qr( xfecm )$rank
+    
+    rowsBySpec[m] <- length(wrow)
+    
+    if( rspec < ncol( xfecm ) ){
+      tmp    <- fullRank( xfecm )
       
-      sname <- "(Intercept)"
-      if( nspec > 1 ){
-        sname <- paste( 'species', specNames[ m], sep = '' )
-        wk <- grep( sname, colnames( xfec ) )
-        wn <- which( colnames( xfec )[ wk] != sname & !colnames( xfec )[ wk] %in% notFit )
-        wk <- wk[ wn]
-        snew <- colnames( xfec )[ wk]
-        snew <- .replaceString( snew, paste( sname, ':', sep = '' ), '' )
-      }else{
-        wk <- colnames( xfec )[ colnames( xfec ) != sname]
-        snew <- colnames( xfec )[ -1]
-      }
-      
-      wr <- which( xfec[, sname] == 1 & z == 1 )
-      
-      xfecm <- xfec[ wr, wk, drop = F]
-      rspec <- qr( xfecm )$rank
-      
-      if( rspec < ncol( xfecm ) ){
-        tmp <- fullRank( xfecm )
+      if( nrow(tmp) == nrow(xfecm) ){  # did not omit rows
         notFit <- unique( c( notFit, 
-                            colnames( xfecm )[ !colnames( xfecm ) %in% colnames( tmp )] ) )
+                             colnames( xfecm )[ !colnames( xfecm ) %in% colnames( tmp )] ) )
+        xfecm <- tmp
       }
     }
-  }
-  
-  if( is.null( notFit ) ){
-    notFit <- character( 0 )
-  }else{
-    if( nspec == 1 )notFit <- .replaceString( notFit, 
-                                           paste( 'species', specNames, ':', sep = '' ), '' )
-  }
-  
-  notFull <- character( 0 )
-  
-  diamVec <- tdata$diam
-  
-  nff <- character( 0 )
-  ncc <- numeric( 0 )
-  
-  
-  if( ncol( xfec )/nspec > 2 ){   # more than intercept and slope
     
-    for( m in 1:nspec ){
+    VIF <- 1000
+    vex <- character(0)
+    dname <- paste( specNames[ m ], "diam", sep = "_" )
+    
+    if( 'shade' %in% fvars ){
+      dname <- c( dname, paste( specNames[ m ], "shade", sep = "_" ) )
+    }
+    
+    VIF    <- .checkDesign( xfecm[drop=F,, !colnames(xfecm) %in% notCheck] )$VIF
+    xcc    <- xfecm
+    
+    while( max(VIF, na.rm = T) > 10 ){
       
-      notw  <- character( 0 )
-      sname <- "(Intercept)"
-      pname <- paste( 'species', specNames[ m], sep = '' )
+      vm     <- columnSplit( names(VIF), '_' )[,2]
       
-      if( nspec > 1 ){
+      if( all( VIF > 10 ) ){
+        gi <- c( grep(':', colnames(xcc), fixed = T ),
+                 grep('^2', colnames(xcc), fixed = T ) )
+        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+        if( max(VIF, na.rm = T ) < 10 )break
+      }
+      if( all( VIF > 10 ) ){
+        gi <- c( grep('Site', colnames(xcc), fixed = T ),
+                 grep('cec', colnames(xcc), fixed = T ),
+                 grep('ph', colnames(xcc), fixed = T) )
         
-        nff <- c( nff, notFit[ notFit %in% colnames( xfec )] )
-        ncc <- c( ncc, match( nff, colnames( xfec ) ) )
+        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+        if( max(VIF, na.rm = T ) < 10 )break
+      }
+      if( all( VIF > 10 ) ){
+        gi <- c( grep('slope', colnames(xcc), fixed = T ),
+                 grep('aspect', colnames(xcc), fixed = T ) )
         
-        sname <- pname
-        wk <- grep( sname, colnames( xfec ) )
-        wn <- which( colnames( xfec )[ wk] != sname & !colnames( xfec )[ wk] %in% notFit )
-        wk <- wk[ wn]
-        snew <- colnames( xfec )[ wk]
-        snew <- .replaceString( snew, paste( sname, ':', sep = '' ), '' )
+        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+        if( max(VIF, na.rm = T ) < 10 )break
+      }
+      
+      ga <- grep('aspect', colnames(xcc) ) # if no slope
+      
+      if( vm[ which.max( VIF ) ] == 'slope' ){
+        gs <- unique( c(ga, grep( 'slope', colnames(xcc) ) ) )
+        notFit <- c( notFit,  colnames( xcc )[ga] )
+        xcc <- xcc[ ,-gs]
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+        if( max(VIF, na.rm = T ) < 10 )break
+      }
+      
+      ga <- grep('aspect', colnames(xcc) ) # if no slope
+      gs <- grep('slope', colnames(xcc) )
+      if( length(gs) == 0 & length(ga) > 0 ){
+        notFit <- c( notFit, colnames(xcc)[ga] )
+        xcc <- xcc[ ,-ga]
+      }
+      
+      VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+      if( max(VIF, na.rm = T ) < 10 )break
+      
+      if( all( VIF > 10 ) ){
+        gi <- c( grep('aspect', colnames(xcc) ),
+                 grep('slope', colnames(xcc) ),
+                 grep('Site', colnames( xcc ) ) )
+        if( length(gi) > 0 )xcc <- xcc[ ,-gi]
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+      }
+      
+      if( max(VIF, na.rm = T ) < 10 )break
+      
+      ga <- grep('aspect', names(VIF) )
+      if( length(ga) == 1 ){
+        aa <- paste( specNames[m], c('aspect1', 'aspect2'), sep = '_' )
+        wa <- which( !aa %in% colnames(xcc) )
+        
+        if( length( wa ) > 0 ){
+          xcc <- cbind( xcc, xfec[drop=F, wrow, aa[wa]] )
+        }
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+      }
+      
+      vmax   <- names( which.max(VIF) )
+      ga <- grep('aspect', vmax )
+      if( length(ga) > 0 ){  # is biggest is aspect & both too high, rm both
+        va <- VIF[ paste( specNames[m], c('aspect1','aspect2'), sep = '_' ) ]
+        if( all(va > 10) ){
+          xcc <- xcc[ drop=F, , !colnames(xcc) %in% names(va) ]
+          VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+          if( max(VIF, na.rm = T ) < 10 )break
+        }
+        ga <- grep('aspect', names(VIF) )
+        if( all(VIF[-ga ] < 10 ) & any(VIF[ga] < 10) )break
+        if( any(VIF[ga] < 10) ){
+          notCheck <- c( notCheck, names(VIF[ga][ VIF[ga] > 10 ]) )
+        }
       }else{
-        wk <- colnames( xfec )[ colnames( xfec ) != sname]
-        snew <- colnames( xfec )[ -1]
-        
-        pname <- paste( pname, ':', colnames( xfec ), sep = '' )
-        nff   <- c( nff, notFit[ notFit %in% pname] )
-        ncc   <- c( ncc, match( nff, pname ) )
+        xcc <- xcc[drop=F, , !colnames(xcc) == vmax ]
       }
       
-      wr    <- which( xfec[, sname] == 1 )
-      xfecm <- xfec[ wr, wk, drop = FALSE]
-      
-      # quadratic or interactions that lack main effects
-      
-      gw <- grep( "^2 )", colnames( xfecm ), fixed = TRUE )
-      
-      if( length( gw ) > 0 ){
-        
-        for( i in gw ){
-          fi <- colnames( xfecm )[ i]
-          f2 <- .replaceString( fi, 'I( ', '' )
-          f2 <- .replaceString( f2, '^2 )', '' )
-          if( !f2 %in% colnames( xfecm ) )notw <- c( notw, fi )
-        }
-        xfecm <- xfecm[, -gw, drop = F]
-        snew <- snew[ -gw]
-      }
-      
-      gw <- grep( ":", snew, fixed = TRUE )
-      if( length( gw ) > 0 ){
-        for( i in gw ){
-          fi <- colnames( xfecm )[ i]
-          si <- columnSplit( snew[ i], ':' )
-          if( !si[ 1] %in% snew | !si[ 2] %in% snew )notw <- c( notw, fi )
-        }
-        xfecm <- xfecm[, -gw, drop = F]
-        snew <- snew[ -gw]
-      }
-      
-      colnames( xfecm ) <- snew
-      cc <- suppressWarnings( cor( xfecm ) )
-      diag( cc ) <- 0
-      
-      ww <- which( abs( cc ) > .95 | is.na( cc ), arr.ind = TRUE )
-      
-      if( length( ww ) > 0 ){                                  
-        mvars <- unique( c( rownames( cc )[ ww[, 1]], colnames( cc )[ ww[, 2]] ) )
-        kvars <- rep( 0, length( mvars ) )
-        
-        for( k in 1:length( mvars ) ){
-          
-          xcc <- xfecm[, !colnames( xfecm ) == mvars[ k], drop = F]
-          
-          xcc <- cbind( 1, xcc )
-          colnames( xcc )[ 1] <- 'intercept'
-          xcheck <- .checkDesign( xcc )
-          VIF <- xcheck$VIF
-          kvars[ k] <- sum( VIF )
-        }
-        m0 <- mvars[ which.min( kvars )]
-        m1   <- paste( 'species', specNames[ m], ':', m0, sep = '' )
-        m2   <- paste( 'species', specNames[ m], ':I( ', m0, '^2 )', sep = '' )
-        notw <- c( m0, m1, m2 )
-        notw <- notw[ notw %in% colnames( xfec )]
-      }
-      
-      if( length( notw ) > 0 ){
-        nff <- c( nff, notw )
-      }
+      cx <- columnSplit( colnames(xcc), '_' )[,2]
+      form <- as.formula( paste( '~', paste0(cx, collapse = ' + ') ) )
+      terms <- rmInteractionsFormula( form )$terms
+      terms <- paste( specNames[m], terms, sep = '_' )
+      xcc <- xcc[drop=F, , terms ]
+      xc    <- xcc[drop=F,, !colnames(xcc) %in% notCheck]
+      if( ncol(xc) == 0 )break
+      VIF <- .checkDesign( xc )$VIF
+      VIF <- VIF[ !names(VIF) %in% dname ]
     }
-    asp <- grep( 'aspect', nff )
-    if( length( asp ) > 0 ) nff <- unique( c( nff, 'aspect1', 'aspect2' ) )
+     
+    notFit <- unique( c( notFit, 
+                         colnames(xfecm)[!colnames(xfecm) %in% colnames(xcc) ] ) )
+    # exclude slope, then exclude aspect
+    ss <- grep( 'slope', vex )
+    aa <- grep( 'aspect', vex )
+    if( length(ss) == 1 & length(aa) > 0 )notFit <- c( notFit,  vex[aa] )
     
+    # if one aspect included, then include both
+    aa <- grep( 'aspect', vex )
+    if( length(aa) == 1 )notFit <- notFit[ notFit != vex[aa] ]
+  } 
+  
+  if( length( notFit ) > 0 ){  
+    notFit <- unique( notFit )
+    ww <- which( endsWith( notFit, '_' ) )
+    if( length(ww) > 0 )notFit <- notFit[ -ww ]
   }
-  
-  notFit <- unique( c( notFit, nff ) )
-  
-  
-  # main effects, interactions
-  fecTerms <- attr( terms( formulaFec ), 'term.labels' )
-  fecTerms <- fecTerms[ !startsWith( fecTerms, 'species' )]
-  
   
   if( length( notFit ) > 0 ){
     
-    kwords <- character( 0 )
+    fft <- .replaceString( attr( terms( formulaFec ), 'term.labels' ), 'species:', '' )
+    fft <- unique( fft )
+    ss     <- columnSplit(notFit, '_' )
+    fall   <- unique( c( fft, ss[,2] ) ) 
     
-    nff <- .replaceString( notFit, 'species', '' )
-    nkk <- numeric( 0 )
-    for( k in 1:length( fecTerms ) ){
-      nkk <- c( nkk, grep( fecTerms[ k], nff ) )
-    }
-    nkk <- sort( unique( nkk ) )
+    ptab <- matrix( 0, nspec, length( fall ), dimnames = list( specNames, fall ) )
+    ptab[ ss ] <- 1
+    fc   <- colSums( ptab )
+    keep <- names(fc)[ fc < nspec ]
+    SPEC <- T
+    if( nspec == 1 )SPEC <- F
+    formulaFec <- vars2formula( keep, SPEC = SPEC )
+    notFit <- notFit[ ss[,2] %in% keep ]  # keep only notFit still in full model
+  }
+  
+  # species with too few observations
+  fft <- .replaceString( attr( terms( formulaFec ), 'term.labels' ), 'species:', '' )
+  fft <- unique( fft )
+  fft <- fft[ !fft %in% c('species','diam','shade') ]
+  ptab <- matrix( 1, nspec, length( fft ), dimnames = list( specNames, fft ) )
+  
+  if( length( notFit ) > 0 ){
+    ss <- columnSplit(notFit, '_' )
+    ss <- ss[ drop=F, ss[,2] %in% fft, ]
+    if( length(ss) > 0 )ptab[ ss ] <- ptab[ ss ] - 1
+  }
+
+  ww <- which( rowSums( ptab ) > rowsBySpec )               # FIX THIS
+  if( length(ww) > 0 ){                                     # remove species
+    specNames <- specNames[ !specNames %in% names( ww ) ]
+    nspec <- length(specNames)
+    treeStand <- treeStand[ tdata$species %in% specNames, ] # this is original scale
+    minD <- minD[ tdata$species %in% specNames ]
+    maxD <- maxD[ tdata$species %in% specNames ]
+    maxFec <- maxFec[ specNames ]
+    tdata  <- tdata[ tdata$species %in% specNames, ]
     
-    if( length( nkk ) > 0 ){
-      nff <- nff[ nkk]
-      notFit <- notFit[ nkk]
-      kwords <- paste0( nff, collapse = ', ' )
-      kwords <- paste( ' Fecundity is not full rank, omitted columns:\n', kwords )
-      if( verbose )cat( paste( '\nNote: ', kwords, '\n' ) )
-    }
+    tmp <- setupZ( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES, 
+                   seedTraits, verbose )
+    z           <- tmp$z
+    zmat        <- tmp$zmat
+    zknown      <- tmp$zknown
+    matYr       <- tmp$matYr 
+    last0first1 <- tmp$last0first1
+    tdata       <- tmp$tdata       # fecMin, fecMax included
+    fecMinCurrent <- tmp$fecMinCurrent
+    fecMaxCurrent <- tmp$fecMaxCurrent
+    fstart        <- tmp$fstart
+    seedTraits    <- tmp$seedTraits
+    tdata         <- tmp$tdata
     
-    nff <- nxx <- character( 0 )
     
-    for( k in 1:length( notFit ) ){  # formula contains variables without species
-      
-      kk <- columnSplit( notFit[ k], ':' )
-      vk <- kk[ 2]
-      sk <- kk[ 1]
-      sk <- .replaceString( sk, 'species', '' )
-      sr <- specNames[ !specNames == sk]   #species not in notFit
-      
-      ff <- as.character( formulaFec )[ 2]
-      gg <- grep( kk[ 2], ff, fixed = T )
-      if( length( gg ) == 0 )nxx <- c( nxx, notFit[ k] )
-      
-      if( length( sr ) == 0 ){                  #remove from formula
-        
-        ff <- .replaceString( ff, paste( '+', vk ), '' )
-        formulaFec <- as.formula( paste( '~', ff, collapse = ' ' ) )
-        nff <- c( nff, notFit[ k] )
-      }
-      
-    }
+    if( length( notFit ) > 0 )notFit <- notFit[ ss[,1] %in% specNames ]
     
-    if( length( nff ) > 0 )notFit <- notFit[ notFit %in% nff]
-    if( length( nxx ) > 0 )notFit <- notFit[ !notFit %in% nxx]
-    
-      
-    if( length( notFit ) > 0 ){
-      notCols <- match( notFit, colnames( xfec ) )
-      if( length( kwords ) > 0 )words <- paste( words, kwords )
+    if( nspec == 1 ){
+      fft <- .replaceString( attr( terms( formulaFec ), 'term.labels' ), 'species:', '' )
+      fft <- unique( fft )
+      fft <- fft[ !fft == 'species' ]
+      if( length(notFit) > 0 )fft <- fft[ !fft %in% columnSplit( notFit, '_' )[,2] ]
+      formulaFec <- vars2formula( fft, SPEC = F )
+      formulaRep <- as.formula( '~ diam' )
     }
   }
   
-  rank <- qr( xrep )$rank
-  if( rank < ncol( xrep ) )stop( '\nmaturation design not full rank\n' )
-  
+  xfec <- .getDesign( formulaFec, tdata, verbose = verbose )$x
+  xfec <- rmQuad( xfec )
   xfecU <- xfec
+  
+  tmp      <- .getDesign( formulaRep, tdata, verbose = verbose )
+  xrep     <- tmp$x
+  xrepMiss <- tmp$missx
   xrepU <- xrep
   xfecT <- xrepT <- NULL
   
@@ -15842,9 +16660,14 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   xfecu2s <- xfecs2u
   xrepu2s <- xreps2u
   
-  if( length( xmean ) > 0 ){   # unstandardized
+  
+  # species may have been eliminated
+  xmean <- colMeans( treeStand[, standX, drop = FALSE], na.rm = TRUE )
+  xsd   <- apply( treeStand[, standX, drop = FALSE], 2, sd, na.rm = TRUE )
+  
+  if( length( xmean ) > 0 ){      # unstandardized
     
-    tdata[, standX] <- treeStand
+    tdata[, standX] <- treeStand  # replace with unstandardized variables
     
     xmu <- xmean
     if( length( notStandard ) > 0 ){
@@ -15854,35 +16677,36 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     }
     
     tmp <- .unstandBeta( formula = formulaFec, xdata = tdata, xnow = xfec, 
-                        xmean = xmu, notCols = notCols, notFit = notFit, 
-                        specNames = specNames )
+                         xmean = xmu, notCols = NULL, notFit = notFit, 
+                         specNames = specNames )
     xfecU   <- tmp$x          
+    xfecU   <- rmQuad( xfecU )
     xfecs2u <- tmp$s2u      # multiply by beta_s to get beta_u
     xfecu2s <- tmp$u2s      # multiply by beta_u to get beta_s
-  #  notCols <- tmp$notCols
     notFit  <- tmp$notFit
     notCols <- match( notFit, colnames( xfec ) )
-    
     
     tmp <- .unstandBeta( formula = formulaRep, xdata = tdata, xnow = xrep, 
                         xmean = xmu, notCols = NULL, specNames = specNames )
     xrepUn   <- tmp$x
     xreps2u <- tmp$s2u
     xrepu2s <- tmp$u2s
-    
     xmean[ abs( xmean ) < 1e-10] <- 0
   }
   
   # xrep unstandardized
-  
   xrepUn <- .getDesign( formulaRep, tdata )$x
-  
   
   tdata <- cleanFactors( tdata )
   
   distTreeID <- NULL
   
   if( SEEDDATA ){
+    
+    if( !'trapID' %in% colnames(sdata) )
+      sdata$trapID <- columnPaste( sdata$plot, sdata$trap, '-' )
+    if( !'trapID' %in% colnames(xytrap) )
+      xytrap$trapID <- columnPaste( xytrap$plot, xytrap$trap, '-' )
     
     sdata <- cleanFactors( sdata )
     tmp   <- setupDistMat( tdata, sdata, xytree, xytrap, verbose )
@@ -15910,6 +16734,7 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   
   tdata$species <- as.character( tdata$species )
   
+  yrIndex <- tdata[, colnames(yrIndex)]
   ynow    <- colnames( yrIndex )
   gy      <- columnPaste( tdata$group, yrIndex[, 'year'] )
   gyall   <- unique( gy )
@@ -15919,10 +16744,8 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   yrIndex <- cbind( yrIndex, tdata$dcol, groupYr )
   colnames( yrIndex ) <- c( ynow, 'dcol', 'groupYr' )
   
-  
-  
   specPlot  <- columnPaste( as.character( tdata$species ), 
-                            as.character( tdata$plot ), '-' )
+                            as.character( tdata$plot ), '__' )
   tdata$specPlot <- specPlot
   specPlots <- unique( as.character( specPlot ) )
   specPlot  <- match( specPlot, specPlots )
@@ -15938,49 +16761,40 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   
   for( k in 1:nspec ){
     
-    if( nspec == 1 ){
-      gg <- 1:ncol( xfec )
-      xt <- xfec
-      xu <- xfecU
-      if( ncol( xt ) <= 2 )next
-    }else{
-      sk <- paste( 'species', specNames[ k], sep = '' )
-      st <- paste( sk, ':', sep = '' )
-      gg <- grep( sk, colnames( xfec ) )
-      rr <- which( xfec[, sk] == 1 )
-      xt <- xfec[ rr, gg]
-      xu <- xfecU[ rr, gg]
-      if( length( notFit ) > 0 ){
-        xt <- xt[, !colnames( xt ) %in% notFit]
-        xu <- xu[, !colnames( xu ) %in% notFit]
-      }
-      
-      colnames( xt )[ 1] <- 'intercept'
-      colnames( xt )    <- .replaceString( colnames( xt ), st, '' )
+    xt <- xfec[, startsWith( colnames(xfec), specNames[k] ) ]
+    xu <- xfecU[, startsWith( colnames(xfecU), specNames[k] ) ]
+    
+    if( length( notFit ) > 0 ){
+      xt <- xt[, !colnames( xt ) %in% notFit]
+      xu <- xu[, !colnames( xu ) %in% notFit]
     }
     
-    s2 <- grep( '^2', colnames( xt ), fixed = TRUE )
-    if( length( s2 ) > 0 )xt <- xt[, -s2]
+    wr <- which( xt[,1] == 1 )
+    xt <- xt[wr,]
+    xu <- xu[wr,]
+    
+    s2 <- c( grep( '^2', colnames( xt ), fixed = TRUE ),
+             grep( ':', colnames( xt ), fixed = TRUE ) )
+    if( length( s2 ) > 0 )xt <- xt[, -s2 ]
     
     if( ncol( xt ) < 3 )next
     
-    xcheck <- .checkDesign( xt )
-    VIF <- xcheck$VIF
+    xcheck <- .checkDesign( xt[,-1] )
+    VIF    <- xcheck$VIF
     designTable <- xcheck$design
     xrange <- signif( xcheck$range, 3 )
     
     cfx <- round( xcheck$correlation, 2 )
-    
-    rownames( cfx ) <- colnames( cfx ) <- names( VIF ) <- .coeffNames( rownames( cfx ) )
-    
-    colnames( cfx ) <- substr( colnames( cfx ), 1, 6 )
+    colnames(cfx) <- columnSplit( colnames(cfx), '_' )[,2]
     cfx <- cfx[, 1:( ncol( cfx )-1 ), drop = 0]
-    
     
     vif <- append( vif, list( cbind( VIF, xrange, cfx ) ) )
     names( vif )[ length( vif )] <- specNames[ k]
     
     if( verbose ){
+      
+      rownames(cfx) <- names(VIF) <- rownames( xrange ) <- columnSplit( rownames(cfx), '_' )[,2]
+      
       cat( paste( '\n', specNames[ k], ':\n', sep = '' ) )
       print( cbind( VIF, xrange, cfx ) )
       
@@ -15988,7 +16802,7 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
         cat( 'VIF too high or undefined--too many predictors\n' )
     }
   }
-  
+   
   tdata$species <- as.character( tdata$species )
   tdata$treeID  <- as.factor( tdata$treeID )
   if( !'repMu' %in% colnames( tdata ) )tdata$repMu <- .5
@@ -16005,7 +16819,8 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
        plotNames = plotNames, plots = plotNames, years = years, 
        xfec = xfec, xrepSt = xrep, xrepUn = xrepUn, scode = scode, 
        xfecMiss = xfecMiss, yeGr = yeGr, 
-       xrepMiss = xrepMiss, xfecCols = xfecCols, xrepCols = xrepCols, 
+       xrepMiss = xrepMiss, 
+       formulaFec = formulaFec, formulaRep = formulaRep,
        xmean = xmean, xsd = xsd, xfecU = xfecU, 
        xfecs2u = xfecs2u, xfecu2s = xfecu2s, xreps2u = xreps2u, xrepu2s = xrepu2s, 
        xrepT = xrepT, specPlots = specPlots, yrIndex = yrIndex, 
@@ -16023,9 +16838,41 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
     out$xytrap <- xytrap
     out$trapRows <- trapRows
   }
+  out <- out[order(names(out))]
   out
 }
   
+
+
+rmInteractionsFormula <- function( form ){
+  
+  ff <- .replaceString( as.character( form ), '~', '' )
+  ff <- unlist(strsplit( ff, '+', fixed = T ) )
+  terms <- .replaceString( ff, ' ', '' )
+  
+  # terms <- attr( terms( form ), 'term.labels' )
+  gi    <- grep(':', terms, fixed = T )
+  
+  if( length( gi ) > 0 ){
+    main  <- terms[ -gi ]
+    ivars <- unique( as.vector( columnSplit( terms[gi], ':' ) ) )
+    notm  <- ivars[ which( !ivars %in% main ) ]
+    if( length( notm ) > 0 ){
+      for( k in 1:length(notm) ){
+        noti <- grep( notm[k], terms[gi] )
+        noti <- terms[ gi[ noti] ]
+        terms <- terms[ !terms %in% noti ]
+      }
+    }
+    form <- vars2formula( terms, SPEC = F )
+  }
+  ff <- .replaceString( as.character( form ), '~', '' )
+  ff <- unlist(strsplit( ff, '+', fixed = T ) )
+  terms <- .replaceString( ff, ' ', '' )
+  
+  list( form = form, terms = terms )
+}
+
 
 .unstandBeta <- function( formula, xdata, xnow, xmean = NULL, notCols = NULL, notFit = NULL, 
                          specNames ){
@@ -16034,24 +16881,23 @@ treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable,
   # xnow  - current standardized matrix
   
   nspec <- length( specNames )
-  
   xdata$species <- factor( xdata$species )
-  
   tmp <- .get.model.frame( formula, xdata )  #unstandardized
+  if( nspec == 1 )colnames(tmp) <- paste( specNames, colnames(tmp), sep = '_' )
   
   xterm <- names( tmp )
-  st    <- grep( 'species', xterm )
-  if( length( st ) > 0 )xterm <- xterm[ -st]
+ # st    <- grep( 'species', xterm )
+ # if( length( st ) > 0 )xterm <- xterm[ -st ]
   
   xfu  <- .getDesign( formula, xdata )$x    # unstandardized
   
-  if( length( st ) > 0 & length( xterm ) > 1 )
-    xfu  <- xfu[, grep( 'species', colnames( xfu ) )]
+ # if( length( st ) > 0 & length( xterm ) > 1 )
+ #   xfu  <- xfu[, grep( 'species', colnames( xfu ) )]
   
   xuu <- xfu
   xss <- xnow  # standardized
   
-  if( is.null( notFit ) & !is.null( notCols ) )notFit <- colnames( xfu )[ notCols]
+ # if( is.null( notFit ) & !is.null( notCols ) )notFit <- colnames( xfu )[ notCols]
   
   if( length( notFit ) > 0 ){
     xuu <- xfu[, !colnames( xfu ) %in% notFit, drop = TRUE]
@@ -16383,30 +17229,78 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   tmp$max
 }
 
-.tnormMVNmatrix <- function( avec, muvec, smat, 
-                            lo = matrix( -1000, nrow( muvec ), ncol( muvec ) ), 
-                            hi = matrix( 1000, nrow( muvec ), ncol( muvec ) ), 
-                            whichSample = c( 1:nrow( smat ) ) ){
+
+.tnormMVNmatrix <- function(avec, muvec, smat, 
+                            lo=matrix(-1000,nrow(muvec),ncol(muvec)), 
+                            hi=matrix(1000,nrow(muvec),ncol(muvec)),
+                            whichSample = c(1:nrow(smat)) ){
   
-  # lo, hi must be same dimensions as muvec, avec
-  # each sample is a row
+  #lo, hi must be same dimensions as muvec,avec
   
-  lo[ lo < -1000] <- -1000
-  hi[ hi > 1000]  <- 1000
+  lo[lo < -1000] <- -1000
+  hi[hi > 1000]  <- 1000
   
-  if( max( whichSample ) > length( muvec ) )
-    stop( '\nwhichSample outside length( muvec )\n' )
-  
-  whichSample <- sample( whichSample ) # randomize order
-  
-  nd <- dim( avec )
+  if(max(whichSample) > length(muvec))
+    stop('whichSample outside length(muvec)')
   
   r <- avec
-  a <- trMVNmatrixRcpp( avec, muvec, smat, 
-                       lo, hi, whichSample, 
-                       idxALL = c( 0:( nrow( smat )-1 ) ) ) 
-  r[, whichSample] <- a[, whichSample]
+  a <- trMVNmatrixRcpp(avec, muvec, smat, lo, hi, whichSample, 
+                       idxALL = c(0:(nrow(smat)-1)) )  
+  r[,whichSample] <- a[,whichSample]
   r
+}
+
+
+.tnormMVNmatrix <- function(avec, muvec, smat, 
+                            lo=matrix(-1000,nrow(muvec),ncol(muvec)), 
+                            hi=matrix(1000,nrow(muvec),ncol(muvec)),
+                            whichSample = c(1:nrow(smat)) ){
+  
+  #lo, hi must be same dimensions as muvec,avec
+  
+  lo[lo < -1000] <- -1000
+  hi[hi > 1000]  <- 1000
+  
+  if(max(whichSample) > length(muvec))
+    stop('whichSample outside length(muvec)')
+  
+  r <- avec
+  a <- trMVNmatrixRcpp(avec, muvec, smat, lo, hi, whichSample, 
+                       idxALL = c(0:(nrow(smat)-1)) )  
+  r[,whichSample] <- a[,whichSample]
+  r
+}
+
+.conditionalMVN <- function( xx, mu, sigma, cdex, p=ncol(mu) ){  
+  # xx, mu are matrices
+  # cdex conditional for these variables, must come last
+  # gdex condition on these variables
+  
+  if(ncol(xx) != ncol(sigma))stop('ncol(xx) != ncol(sigma)')
+  if(ncol(mu) != ncol(sigma))stop('ncol(mu) != ncol(sigma)')
+  if(max(cdex) > ncol(mu))stop('max(cdex) > ncol(mu)')
+  
+  # new order
+  ci   <- (1:p)[-cdex]
+  new  <- c(ci, cdex)
+  cnew <- match(cdex, new)
+  pnew <- 1:(p - length(cnew))
+  
+  cond <- try( 
+    condMVNRcpp(cnew-1, pnew-1, xx[,new, drop=F], 
+                mu[,new, drop=F], sigma[new,new]), T)
+  
+  if( !inherits( cond,'try-error') ){
+    return(cond)
+    
+  }else{
+    
+    sinv <- solve( sigma[drop=F, pnew, pnew] )
+    p1   <- sigma[drop=F, cnew,pnew]%*%sinv
+    mu1  <- mu[drop=F, ,cnew] + t( p1%*%t( xx[drop=F, ,pnew] - mu[drop=F, ,pnew] ) )
+    vr1  <- sigma[drop=F, cnew,cnew] - p1%*%sigma[drop=F, pnew,cnew]
+    return( list( mu = mu1, vr = vr1 ) )
+  }
 }
 
 .initEM <- function( last0first1, yeGr, distall, priorU, 
@@ -16639,7 +17533,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   
   p <- ncol( x )
   
-  if( ncol( x ) < 3 ){
+  if( ncol( x ) < 2 ){
     return( list( VIF = 0, correlation = 1, rank = 2, p = 2, isFactor = isFactor ) )
   }
   
@@ -16655,8 +17549,10 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
                        stringr::str_count( colnames( x ), pattern = xflag ) < 2 )
   wx <- wx[ !wx %in% ws]
   
+  w2 <- grep('^2', colnames(x), fixed = T)
+  
   wi <- which( colnames( x ) == intName )
-  wi <- unique( c( wi, wx ) )
+  wi <- unique( c( wi, wx, w2 ) )
   
   xname <- colnames( x )
   
@@ -16672,6 +17568,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   
   GETF <- FALSE
   if( length( isFactor ) > 0 )GETF <- TRUE
+  
   
   rr <- matrix( NA, p, 2 )
   
@@ -16692,7 +17589,6 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
     }
     
     ttt <- suppressWarnings( lm( ykk ~ xkk ) )
-    
     tkk <- suppressWarnings( summary( ttt )$adj.r.squared )
     VIF[ k] <- 1/( 1 - tkk )
     
@@ -16702,13 +17598,12 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
     rr[ k, ] <- range( ykk, na.rm = TRUE )
   }
   
-  VIF <- VIF[ -wi] 
-  rr  <- rr[ drop = FALSE, -wi, ]
+  VIF[ !is.finite(VIF) ] <- 999
   
   rownames( rr ) <- names( VIF )
   colnames( rr ) <- c( 'min', 'max' )
   
-  corx <- suppressWarnings( cor( x[, -wi, drop = F], use = "complete.obs" ) )
+  corx <- suppressWarnings( cor( x, use = "complete.obs" ) )
   
   if( length( wna ) == 0 ){
     rankx <- qr( x )$rank
@@ -16721,8 +17616,8 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   
   findex[ xname %in% isFactor] <- 1
   
-  designTable <- list( 'table' = rbind( round( VIF, 2 ), findex[ -wi], round( corx, 2 ) ) )
-  rownames( designTable$table ) <- c( 'VIF', 'factor', xname[ -wi] )
+  designTable <- list( 'table' = rbind( round( VIF, 2 ), findex, round( corx, 2 ) ) )
+  rownames( designTable$table ) <- c( 'VIF', 'factor', xname )
   
   designTable$table <- designTable$table[ -3, ]
   
@@ -16733,11 +17628,46 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
        isFactor = isFactor, designTable = designTable, range = rr )
 }
 
+invertXX <- function( XX ){
+  
+  # inverse of design crossproduct
+  
+  testv <- try( chol( XX ) , T )
+  if( inherits( testv, 'try-error' ) ){
+    diag( XX )  <- diag( XX )*1.00001
+    testv <- try( chol( XX, pivot = TRUE ), T )
+  }
+  chol2inv( testv )
+}
+
+
+getVv <- function( x, y, sigma, priorIV = NULL ){
+  
+  XX <- 1/sigma*crossprod( x )
+  if( is.null(priorIV) ){  # Zellner's g
+    XX <- XX*(1 + 1/nrow(x))
+  }
+  v  <- 1/sigma*crossprod( x, y )
+  V  <- invertXX( XX )
+  list( V = V, v = v )
+}
+
+
 .wrapperBeta <- function( rvp, rVPI, priorB, priorIVB, SAMPR, obsRows, 
                           tdata, xfecCols, xrepCols, last0first1, ntree, nyr, 
                           betaPrior, years, YR, AR, yrIndex, 
-                          RANDOM, reIndex, xrandCols, RANDYR, fitCols, 
-                          specNames, FECWT ){
+                          RANDOM, reIndex, xrandCols, RANDYR, 
+                          specNames, FECWT, tOptList ){
+  
+  c1 <- c1 <- c2 <- c2 <- cn <- cn <- cq <- cq <- tOpt <-NULL
+  
+  if( !is.null(tOptList) ){
+    tOpt <- tOptList$tOpt
+    c1 <- tOptList$c1
+    c2 <- tOptList$c2
+    cn <- tOptList$cn
+    cq <- tOptList$cq 
+  }
   
   function( pars, xfec, xrep, w, z, zmat, matYr, muyr ){
     
@@ -16754,6 +17684,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
     qr <- ncol( xrep )
     
     accept <- 0
+    optimumT <- NULL
 
     ONEF <- ONER <- ONEA <- FALSE
     if( ncol( xfec ) == 1 )ONEF <- TRUE
@@ -16765,18 +17696,13 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
     
     yeffect <- reffect <- 0
     
-    
     xfz <- xfec[ drop = FALSE, obsRows, ]
     bgf <- bgFec
     
     if( FECWT )weight <- tdata$fecWt[ obsRows]
     
-    w0  <- which( colSums( xfz ) == 0 )  
-    
-    fitCols <- fitCols[ !fitCols %in% w0]
-    qf <- length( fitCols )
-    xfz <- xfz[, fitCols, drop = FALSE]
-    bgf <- bgf[ drop = FALSE, fitCols, ]
+   # xfz <- xfz[, , drop = FALSE]
+   # bgf <- bgf[ drop = FALSE, , ]
     
     if( YR ){                            # yeffect in mean
       yg <- yg - betaYrF[ yrIndex[ obsRows, 'year']] 
@@ -16819,24 +17745,68 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
         bgf   <- matrix( .tnorm( 1, lo = lims[, 1], hi = lims[, 2], V*v, sqrt( V ) ), 1 )
       }
       
-    }else{
+    }else{  # !ONEF
       
       if( FECWT ){
-        xw <- xfz[ zrow == 1, ]*weight[ zrow == 1]
-        yw <- yg[ zrow == 1]*weight[ zrow == 1]
-        XX <- 1/sg*crossprod( xw ) + diag( .1, qf )
-        v  <- 1/sg*crossprod( xw, yw ) 
+        xw <- xfz[ zrow == 1, ]*weight[ zrow == 1 ]
+        yw <- yg[ zrow == 1]*weight[ zrow == 1 ]
+        tmp <- getVv( xw, yw, sg )
+        V   <- tmp$V
+        v   <- tmp$v
       }else{
-        XX <- 1/sg*crossprod( xfz[ zrow == 1, ] ) + diag( .1, qf )
-        v  <- 1/sg*crossprod( xfz[ zrow == 1, ], yg[ zrow == 1] ) 
+        
+        if( !is.null(tOpt) ){
+          
+          # condition on bt1
+          b1 <- bgf[drop=F, cn, ]
+          b1[ b1 < 0 ] <- 0
+          bgf[cn, ] <- b1
+          bt2 <- -b1[,c(1,1),drop=F]/2/matrix( tOpt, length(cn), 2, byrow=T )#[,2:1]  #quad
+          rownames( bt2 ) <- cq
+          bt2[ bt2[,1] == 0, 1] <- -.1
+          bt2[ bt2[,2] > 0, 2] <- 0
+          bt2[ bt2[,1] >= bt2[,1], 1] <- bt2[ bt2[,1] >= bt2[,1], 2] - .001
+          
+          yt  <- yg - xfz[,cn, drop = F]%*%bgf[cn,]
+          tmp <- getVv( xfz[,-c1], yt, sg )
+          V   <- tmp$V
+          v   <- tmp$v
+          
+          lims <- betaPrior$fec
+          lims[ cq, ] <- bt2
+          ma   <- t( V%*%v )
+          bgf[rownames(v),]  <- t( .tnormMVNmatrix( avec = t( bgf[rownames(v),, drop=F] ), 
+                                                    muvec = ma, smat = V, 
+                                                    lo = matrix( lims[rownames(v), 1], 1 ), 
+                                                    hi = matrix( lims[rownames(v), 2], 1 ) ) )
+          # condition on bt2
+          b1  <- bgf[cq,c(1,1),drop=F]
+          b1[ b1 > 0 ] <- 0
+          bt1 <- -2*b1[,c(1,1)]*matrix( tOpt, length(cq), 2, byrow=T )
+          rownames( bt1 ) <- cn
+          bt1[ bt1[,1] < 0, 1] <- 0
+          bt1[ bt1[,2] <= bt1[,1], 2] <- bt1[ bt1[,2] <= bt1[,1], 1] + .1
+          
+          yt <- yg - xfz[,c2, drop = F]%*%bgf[cq,]
+          tmp <- getVv( xfz[,-c2], yt, sg )
+          V   <- tmp$V
+          v   <- tmp$v
+          
+          lims <- betaPrior$fec
+          lims[ cn, ] <- bt1
+          ma   <- t( V%*%v )
+          bgf[rownames(v),]  <- t( .tnormMVNmatrix( avec = t( bgf[rownames(v),, drop=F] ), 
+                                                    muvec = ma, smat = V, 
+                                                    lo = matrix( lims[rownames(v), 1], 1 ), 
+                                                    hi = matrix( lims[rownames(v), 2], 1 ) ) )
+          optimumT <- -bgf[cn,]/2/bgf[cq,]
+          
+        }else{
+          tmp <- getVv( xfz[ zrow == 1, ], yg[ zrow == 1], sg )
+          V   <- tmp$V
+          v   <- tmp$v
+        }
       }
-      
-      testv <- try( chol( XX ) , T )
-      if( inherits( testv, 'try-error' ) ){
-        diag( XX )  <- diag( XX )*1.00001
-        testv <- try( chol( XX, pivot = TRUE ), T )
-      }
-      V  <- chol2inv( testv )
       
       if( is.null( betaPrior ) ){
         bgf  <- t( rmvnormRcpp( 1, V%*%v, V ) )
@@ -16847,23 +17817,29 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
                              hi = matrix( 10, 1, length( bgf ) ), 
                              whichSample = ww ) )
         }
-      }else{
-        lims <- betaPrior$fec[ fitCols, ]
-        diag( V ) <- diag( V )*1.000000001
+      }
+      if( !is.null( betaPrior ) & is.null(tOpt) ){
+        lims <- betaPrior$fec
         ma   <- t( V%*%v )
-        bgf  <- t( .tnormMVNmatrix( avec = t( bgf ), muvec = ma, smat = V, 
+        
+        btmp  <- try( t( .tnormMVNmatrix( avec = t( bgf ), muvec = ma, smat = V, 
                                    lo = matrix( lims[, 1], 1 ), 
-                                   hi = matrix( lims[, 2], 1 ) ) )
+                                   hi = matrix( lims[, 2], 1 ) ) ), T )
+        if( inherits( btmp, 'try-error' ) ){
+          warning( 'bgFec singular' )
+        }else{
+          bgf <- btmp
+        }
       }
     }
     
-    bgFec <- bgFec*0
-    bgFec[ fitCols, ] <- bgf
+  #  bgFec <- bgFec*0
+    bgFec <- bgf
     
     ww <- which( bgFec < betaPrior$fec[, 1] )
     vv <- which( bgFec > betaPrior$fec[, 2] )
     
-    if( length( ww ) > 0 | length( vv ) > 0 ){
+    if( is.null(tOpt) & (length( ww ) > 0 | length( vv ) > 0) ){
       print( bgFec )
       stop( 'bgfec error' )
     }
@@ -16896,7 +17872,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
     rownames( bgFec ) <- colnames( xfec ) 
     rownames( bgRep ) <- colnames( xrep ) 
     
-    list( bgFec = bgFec, bgRep = bgRep )
+    list( bgFec = bgFec, bgRep = bgRep, optimumT = optimumT )
   }
 }
     
@@ -17110,7 +18086,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
       fg[ fg < 1e-6] <- 1e-6
       
       tmp <- HMC( ff = fg[ obsTrapRows], fMin = fecMinCurrent[ obsTrapRows], 
-                 fMax = fecMaxCurrent[ obsTrapRows], 
+                 fMax = fecMaxCurrent[ obsTrapRows ], 
                  ep = epsilon[ obsTrapRows], 
                  L = 4, tree = tdat[ obsTrapRows, ], sdat = sdata[ obsRowSeed, ], ug, 
                  mu = lmu[ obsTrapRows], sg, zz = z[ obsTrapRows], R, SAMPR, 
@@ -17551,8 +18527,6 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
 .getBetaPrior <- function( betaPrior, bgFec, bgRep, specNames, diamMean, diamSd, 
                           priorTable = NULL ){
   
-  rownames( bgFec ) <- short2longParName( rownames( bgFec ), specNames )
-  rownames( bgRep ) <- short2longParName( rownames( bgRep ), specNames )
   fecHi <- bgFec*0 + 10
   fecLo <- bgFec*0 - 10
   repHi <- bgRep*0 + 5
@@ -17560,19 +18534,22 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   nspec <- length( specNames )
   
   if( 'pos' %in% names( betaPrior ) ){
+    
     for( j in 1:length( betaPrior$pos ) ){
-      jn <- character( 0 )
-      if( nspec > 1 )jn <- paste( 'species', specNames, ':', sep = '' )
-      if( betaPrior$pos[ j] != 'intercept' )jn <- paste( jn, betaPrior$pos[ j], sep = '' )
-      fecLo[ rownames( fecLo ) %in% jn] <- 0
+      pj <- paste( specNames, betaPrior$pos[ j ], sep = '_' )
+      pj <- pj[pj %in% rownames(fecLo)]
+      if( length(pj) == 0 )next
+      fecLo[ pj, 1] <- 0
     }
   }
+      
   if( 'neg' %in% names( betaPrior ) ){
+    
     for( j in 1:length( betaPrior$neg ) ){
-      jn <- character( 0 )
-      if( nspec > 1 )jn <- paste( 'species', specNames, ':', sep = '' )
-      if( betaPrior$neg[ j] != 'intercept' )jn <- paste( jn, betaPrior$neg[ j], sep = '' )
-      fecHi[ rownames( fecHi ) %in% jn] <- 0
+      pj <- paste( specNames, betaPrior$neg[ j ], sep = '_' )
+      pj <- pj[pj %in% rownames(fecHi)]
+      if( length(pj) == 0 )next
+      fecHi[ pj, 1] <- 0
     }
   }
   
@@ -17601,14 +18578,14 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
       
       if( diamMin >= diamMax )stop( ' \nprior min diam must be smaller than max diam' )
       
-      qmin <- qnorm( .0001 )                          # lower bound
-      qmax <- qnorm( .8 )
+      qmin <- qnorm( .001 )                          # lower bound
+      qmax <- qnorm( .7 )
       if( specNames[ m] %in% wd )qmax <- qnorm( .00011 )
       z <- cbind( 1, c( diamMin, diamMax ) )
       blo <- solve( crossprod( z ) )%*%crossprod( z, c( qmin, qmax ) )
       
       qmin <- qnorm( .2 )           
-      qmax <- qnorm( .9999 )
+      qmax <- qnorm( .999 )
       if( specNames[ m] %in% wd )qmin <- qnorm( .01 )
       z   <- cbind( 1, c( diamMin, diamMax ) )
       bhi <- solve( crossprod( z ) )%*%crossprod( z, c( qmin, qmax ) )
@@ -17696,7 +18673,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
                      tdat, R, priorR, priorRwt, years, posR, plots ){
   
   mnew <- R
-  mnew[ posR] <- .tnorm( length( posR ), 0, 1, R[ posR], rexp( length( posR ), 50 ) )
+  mnew[ posR ] <- .tnorm( length( posR ), 0, 1, R[ posR ], rexp( length( posR ), 50 ) )
   
   mnew <- sweep( mnew, 1, rowSums( mnew, na.rm = TRUE ), '/' )
  # mnew[ -posR] <- 0
@@ -18076,6 +19053,46 @@ scaleBar = function( label, value = 1, fromLeft = .5, yadj = .1,
   z
 }
 
+baselineHist <- function(y1, bins = NULL, ylim = NULL, 
+                              htFraction = .5, nclass=20){
+  
+  # add histogram to base of current plot
+  
+  y1 <- y1[ is.finite(y1) ]
+  y1[y1 < min(bins)] <- min(bins)
+  y1[y1 > max(bins)] <- max(bins)
+  
+  if(!is.null(bins)){
+    hh <- hist(y1,breaks=bins,plot=F)
+  } else {
+    hh <- hist(y1,nclass=nclass,plot=F)
+  }
+  
+  xvals <- rep(hh$breaks,each=2)
+  yvals <- rep(hh$density,each=2)
+  
+  nb    <- length(hh$breaks)
+  yvals <- c( 0, yvals, 0)
+  
+  xy <- rbind(xvals, yvals)
+  
+  minx <- min(xvals)
+  maxx <- max(xvals)
+  miny <- min(yvals)
+  dy   <- diff( range(yvals) )
+  
+  xy[2,] <- miny + .3*xy[2,]*dy/max(xy[2,])
+  xy[1,xy[1,] < minx] <- minx
+  xy[2,xy[2,] < miny] <- miny
+  
+  if(!is.null(ylim)){  # scale to ht of plot
+    dy <- diff(ylim)
+    sc <- htFraction*dy/max(xy[2,])
+    xy[2,] <- ylim[1] + (xy[2,] - ylim[1])*sc
+  }
+  xy
+}
+
 .shadeInterval <- function( xvalues, loHi, col = 'grey', PLOT = TRUE, add = TRUE, 
                            xlab = ' ', ylab = ' ', xlim = NULL, ylim = NULL, 
                            LOG = FALSE, trans = .5 ){
@@ -18083,8 +19100,7 @@ scaleBar = function( label, value = 1, fromLeft = .5, yadj = .1,
   #draw shaded interval
   
   loHi <- as.matrix( loHi )
-  
-  tmp <- smooth.na( xvalues, loHi )
+  tmp  <- smooth.na( xvalues, loHi )
 
   xvalues <- tmp[, 1]
   loHi <- tmp[, -1]
@@ -18125,6 +19141,534 @@ smooth.na <- function( x, y ){
   return( cbind( xnew, ynew ) )
 }
 
+
+modelMat2formula <- function( mfile, SPEC = F ){
+  
+  mmat <- read.csv( mfile, stringsAsFactors = F )[,c('name','order','site','anom')]
+  now  <- mmat$name
+  new  <- c( 'diam','shade' )
+  
+  wa   <- which( mmat$site == 1 )
+  if( length(wa) > 0 ){
+    mmat$name[wa] <- paste(now[wa], 'Site', sep = '' )
+    new <- c( new, paste(now[wa], 'Site', sep = '' ) )
+    now[ wa ] <- ''
+  }
+  
+  wa    <- which( mmat$anom == 1 )
+  if( length(wa) > 0 ){
+    mmat$name[wa] <- paste(now[wa], 'Anom', sep = '' )
+    new <- c( new, paste(now[wa], 'Anom', sep = '' ) )
+    now[ wa ] <- ''
+  }
+  w2    <- which( mmat$order == 2 )
+  if( length(w2) > 0 ){
+    new <- c(new, paste( mmat$name[w2], '^2', sep = '' ) ) 
+  }
+  terms <- sort( unique( c( new, now[ nchar(now) > 0 ] ) ) )
+  vars2formula( terms, SPEC = SPEC )
+}
+
+loadDataStats <- function( region = 'east', 
+                         xnames = NULL,
+                         outFold = 'outputTempDefPhFreezeIsolate/',
+                         beta = NULL ){
+  
+  inputs <- NULL
+  
+  # beta is fecundity parameter matrix, rownames = species_variable
+  #   generated by 
+  #   .chain2tab( loadChainMat( region, outFold, cname = 'bfec'  ) ) 
+  #   and available for individual species in parameters$betaFec
+  
+  if( !is.null( beta ) ){
+    beta  <- as.matrix( beta[ drop = F, , 1:4 ] )
+    blabs <- columnSplit( rownames(beta), '_' )
+    
+    wl <- unique( c( grep('intercept', blabs[,2]),
+            grep('^2)', blabs[,2], fixed = T ),
+            grep(':', blabs[,2], fixed = T ) ) )
+    if( length(wl) > 0 ){
+      beta <- beta[drop = F, -wl, ]
+      blabs <- blabs[drop = F, -wl, ]
+    }
+    loHi <- cbind(beta[,'estimate'] - beta[,'SE'], 
+                  beta[,'estimate'] + beta[,'SE'] )
+    colnames( loHi ) <- c('seLo','seHi')
+    beta <- cbind(beta, loHi )
+  }
+  
+  out <- paste( outFold, region, '/', sep='' )
+  
+  lf  <- list.files( out, full.names = T, recursive = T )
+  
+  if( is.null( xnames ) ){
+    mfile <- lf[ grep( 'Model.csv', lf )[1] ]
+    form  <- modelMat2formula( mfile )
+    xnames <- attr( terms( form ),"term.labels")
+    wg <- c( grep(':', xnames, fixed = T ), 
+             grep('^2)', xnames, fixed = T ) )
+    if( length(wg) > 0 )xnames <- xnames[ -wg ] 
+  }
+  
+  if( 'aspect' %in% xnames ){
+    xnames <- c( xnames, c('aspect1','aspect2') )
+    xnames <- xnames[ !xnames == 'aspect' ]
+  }
+  xnames <- .replaceString( xnames, 'deficit','def' )
+  xnames <- .replaceString( xnames, 'cec','cec30' )
+  
+  lf <- lf[ grep('inputs', lf ) ]
+  
+  dataStats <- vector( 'list', length(xnames) )
+  for( i in 1:length(dataStats) )dataStats[[i]] <- numeric(0)
+  names(dataStats) <- xnames
+  
+  for( k in 1:length(lf) ){
+    
+    print( lf[k] )
+    
+    load( lf[k] )
+    itr <- inputs$treeData
+    
+    xk <- itr[ , colnames( itr ) %in% c('species', xnames), drop = F ]
+    
+    for(j in 1:length(xnames) ){
+      
+      if( !xnames[j] %in% colnames(xk) )next
+      
+      mu  <- tapply( xk[,xnames[j]], xk$species, mean, na.rm = T )
+      min <- tapply( xk[,xnames[j]], xk$species, min, na.rm = T )
+      max <- tapply( xk[,xnames[j]], xk$species, max, na.rm = T )
+      sd  <- tapply( xk[,xnames[j]], xk$species, sd, na.rm = T )
+      q05 <- tapply( xk[,xnames[j]], xk$species, quantile, .05, na.rm = T )
+      q95 <- tapply( xk[,xnames[j]], xk$species, quantile, .95, na.rm = T )
+      jvec <- signif( cbind( mu, sd, min, q05, q95, max ), 3 )
+      
+      bj <- beta[ drop=F, blabs[,2] == xnames[j], ]
+      bl <- blabs[ drop=F, blabs[,2] == xnames[j], ] 
+      mm <- match( rownames(jvec), bl[,1] )
+      jmat <- cbind( jvec,  bj[drop=F, mm,] )
+      dataStats[[j]] <- rbind( dataStats[[j]], jmat )
+    }
+  }
+  
+  dataStats
+}
+
+loadChainMat <- function( region = 'east', 
+                          outFold = 'outputTempDefPhFreezeIsolate/',
+                          cname = 'bfec', burnin = 1000, ng = 4000  ){
+  
+  chains <- NULL
+  
+  out <- paste( outFold[1], region, '/', sep='' )
+  lf  <- list.files( out, full.names = T, recursive = T )
+  ll  <- columnSplit( lf[ grep('Model.csv', lf) ], out )[,2]
+  ll  <- .replaceString( ll, 'Model.csv', '' )
+  ll  <- .replaceString( ll, '/', '' )
+  
+  # only folders with latest fit
+  
+  lf  <- lf[ grep('chains.rdata', lf) ]
+  lk  <- .replaceString( lf, out, '' )
+  lk  <- .replaceString( lk, 'chains.rdata', '' )
+  lk  <- .replaceString( lk, '/', '' )
+  lf  <- lf[ lk %in% ll ]
+  
+  chainMat <- numeric(0)
+  
+  for( k in 1:length(lf) ){
+    
+    if( length( outFold ) > 1 ){    # get best fit
+      lfile <- loadBestFit( genus = lk[k], region, group = 'chains', 
+                   output = 'not', verbose = F )$groupFile
+      load( lfile, verbose = T )
+      
+    }else{
+      load( lf[k], verbose = F )
+    }
+    
+    ngg <- ng
+    if( ngg > nrow( chains$bfec ) )ngg <- nrow(chains$bfec)
+    ic <- sample( burnin:ngg, 2000, replace = T )
+    chainMat <- cbind( chainMat, chains$bfec[ic,] )
+  }
+  chainMat
+}
+
+
+barPlot2D <- function( x1, x2, xbar = NULL, xwhisker = NULL,
+                       ybar = NULL, ywhisker = NULL,
+                       xbarwide = 1/100, ybarwide = 1/100,
+                       xlim = NULL, ylim = NULL, 
+                       xlab = 'Observed range', ylab = 'Estimate',
+                       specCols = NULL ){
+  
+  # x is species by stats matrix, species are rownames, barx/bary are colnames
+  
+  x1 <- x1[ drop = F, is.finite(x1[,1]), ]
+  x2 <- x2[ drop = F, is.finite(x2[,1]), ]
+  
+  if( is.null( specCols ) ){
+    specCols <- rep( 'black', nrow(x1) )
+    names( specCols ) <- rownames(x1)
+  }
+  
+  specs <- sort( intersect( rownames(x1), rownames(x2) ) )
+  
+  x1 <- x1[drop = F, specs, ]
+  x2 <- x2[drop = F, specs, ]
+  
+  if( is.null(xlim) )xlim <- range( x1, na.rm = T )
+  if( is.null(ylim) )ylim <- range( x2, na.rm = T )
+  
+  col <- specCols[ rownames(x1) ]
+  
+  plot( x1[,1], x2[,1], pch = 3, xlim = xlim, ylim = ylim, xlab = xlab, ylab = ylab,
+        col = col)
+  
+  if( !is.null(xwhisker) )arrows( x1[,xwhisker[1]], x2[,1], x1[,xwhisker[2]], x2[,1],
+                                lwd = 1.5, 
+                                angle = 90, length = .05, code = 3, 
+                                col = .getColor(col, .5) )
+  if( !is.null(xbar) ){
+    if(!is.null(xwhisker)){
+      ww <- which( x1[, xbar[1]] < x1[, xwhisker[1]] )
+      if( length( ww ) > 0 )
+        x1[ ww, xbar[1] ] <- x1[ ww, xwhisker[1] ]
+      ww <- which( x1[, xbar[2]] > x1[, xwhisker[2]] )
+      if( length( ww ) > 0 )
+        x1[ ww, xbar[2] ] <- x1[ ww, xwhisker[2] ]
+    }
+    dy <- diff(par('usr')[3:4])*xbarwide
+    rect( x1[,xbar[1]], x2[,1]-dy, x1[,xbar[2]], x2[,1]+dy, 
+          col = .getColor(col, .2), border = .getColor(col, .6) )
+  }
+  if(!is.null(ywhisker))arrows( x1[,1], x2[,ywhisker[1]], x1[,1], x2[,ywhisker[2]],
+                                lwd = 1.5, 
+                                angle = 90, length = .05, code = 3, 
+                                col = .getColor(col, .5) )
+  if( !is.null(ybar) ){
+    if( !is.null(ywhisker) ){
+      ww <- which( x2[, ybar[1]] < x2[, ywhisker[1]] )
+      if( length( ww ) > 0 )
+        x2[ ww, ybar[1] ] <- x2[ ww, ywhisker[1] ]
+      ww <- which( x2[, ybar[2]] > x2[, ywhisker[2]] )
+      if( length( ww ) > 0 )
+        x2[ ww, ybar[2] ] <- x2[ ww, ywhisker[2] ]
+    }
+    dy <- diff(par('usr')[1:2])*ybarwide
+    rect( x1[,1]-dy, x2[,ybar[1]], x1[,1] + dy, x2[,ybar[2]], 
+          col = .getColor(col, .2), border = .getColor(col, .6) )
+  }
+}
+
+biVarMoments <- function( xx1, xx2, wt=1, PLOT = F, POINTS=F, color=1, pr = .95, ADD=F, lty=1, lwd=1,
+                          xylab=c('x','y')){  
+  
+  # xx1, xx2 - vectors for variables, wt is weight
+  
+  if(length(pr) > 1){
+    if(length(lty) == 1)lty = rep(lty,length(pr))
+    if(length(lwd) == 1)lwd = rep(lwd,length(pr))
+    if(length(color) == 1)color = rep(color,length(pr))
+  }
+  
+  if(length(wt) == 1)wt <- rep(wt,length(xx1))
+  
+  ww <- which(is.finite(xx1) & is.finite(xx2) & is.finite(wt) )
+  
+  x1 <- xx1[ww]
+  x2 <- xx2[ww]
+  wt <- wt[ww]
+  
+  w0  <- which( wt < 0 )
+  if( length(w0) > 0 ){                  # wts must be positive
+    minwt <- min( wt, na.rm = T )
+    wt <- wt - minwt
+  }
+  
+  w1 <- x1*wt
+  w2 <- x2*wt
+  m1 <- sum(w1)/sum(wt)
+  m2 <- sum(w2)/sum(wt)
+  
+  v1  <- sum(wt*x1^2)/sum(wt) - m1^2
+  v2  <- sum(wt*x2^2)/sum(wt) - m2^2
+  cc  <- sum(wt*(x1 - m1)*(x2 - m2))/sum(wt)
+  
+  for(k in 1:length(pr)){
+    
+    tmp <- list(loc = c(m1, m2), cov = matrix(c(v1,cc,cc,v2),2,2), d2 = qchisq(pr[k],1) )
+    
+    tmp <- predict.ellipsoid(tmp)
+    
+    if(PLOT & !ADD & k == 1){
+      plot(tmp[,1],tmp[,2], type='l', col = 'white', lty=2*lty[k],
+           lwd = lwd[k], xlab=xylab[1], ylab=xylab[2])
+    }
+    if( PLOT ){
+      if(POINTS)points(x1,x2,cex=.3,col='grey')
+      lines(tmp[,1],tmp[,2],type='l',col= 'white',lwd=2*lwd[k],lty=lty[k])
+      lines(tmp[,1],tmp[,2],type='l',col=color[k],lwd=lwd[k],lty=lty[k])
+    }
+  }
+  
+  invisible( list(loc = c(m1,m2), 
+                  cov = matrix(c(v1,cc,cc,v2),2,2) ,
+                  d2 = qchisq(pr[1],1), ellipse = tmp) )
+}
+
+
+chains2biplot <- function( chains, 
+                           xnames = c('lateFreezeSite', 'lateFreezeAnom'),
+                           specColors, xlim = NULL, ylim = NULL, cex = 1, 
+                           sigOnly = xnames,
+                           species = NULL,
+                           minZero = 1e-10 ){
+  
+  # sigOnly plots all species
+  
+  w1 <- which( columnSplit( colnames(chains), '_' )[,2] == xnames[1] )
+  w2 <- which( columnSplit( colnames(chains), '_' )[,2] == xnames[2] )
+  
+  
+  c1 <- chains[, w1 ]
+  c2 <- chains[, w2 ]
+  
+  if( ncol(c1) == 0 )stop( paste( xnames[1], 'does not occur in fitted model' ) )
+  if( ncol(c2) == 0 )stop( paste( xnames[2], 'does not occur in fitted model' ) )
+  
+  mu <- c( quantile( c1, .5 ), quantile( c2, .5 ) )
+  
+  s1 <- columnSplit( colnames(c1), '_' )
+  s2 <- columnSplit( colnames(c2), '_' )
+  specs <- intersect( s1[,1], s2[,1] )
+  
+  v1 <- paste( specs, xnames[1], sep = '_' )
+  v2 <- paste( specs, xnames[2], sep = '_' )
+  c1 <- c1[,v1]
+  c2 <- c2[,v2]
+  s1 <- columnSplit( colnames(c1), '_' )
+  s2 <- columnSplit( colnames(c2), '_' )
+  
+  if( is.null(xlim) )xlim <- range(c1)
+  if( is.null(ylim) )ylim <- range(c2)
+  
+  sig1 <- sig2 <- specs
+  sig  <- character(0)
+  
+  if( !is.null( sigOnly ) ){
+    
+    sig1 <- sig2 <- character(0)
+    
+    if( xnames[1] %in% sigOnly ){
+      btab <- .chain2tab( c1 )
+      b1   <- as.matrix( btab[ btab$sig95 == '*' & 
+                                 abs( btab$CI_025 ) > minZero &
+                                 abs( btab$CI_975 ) > minZero, 1:4 ] )
+      sig1 <- columnSplit( rownames(b1), '_' )[,1]
+    }
+    if( xnames[2] %in% sigOnly ){
+      btab <- .chain2tab( c2 )
+      b2   <- as.matrix( btab[ btab$sig95 == '*' & 
+                                 abs( btab$CI_025 ) > minZero &
+                                 abs( btab$CI_975 ) > minZero, 1:4 ] )
+      sig2 <- columnSplit( rownames(b2), '_' )[,1]
+    }
+  #  if( all( xnames %in% sigOnly ) ){
+      sig <- union( sig1, sig2 )
+  #  }
+  }
+  
+ # par( bty = 'n', omi = c(.7, .7, .1, .1), xpd = F )
+  
+  plot( NA, xlim = xlim, ylim = ylim, xlab = '', ylab = '' )
+  
+  par( xpd = T )
+  
+  if( length( sig ) > 0 & length( sig ) < length( specs ) ){        # plot silhouette
+    
+    ospec <- specs[ !specs %in% sig ]
+    o1 <- columnSplit( colnames(c1), '_' )
+    o2 <- columnSplit( colnames(c2), '_' )
+    
+    for( k in 1:length(specs) ){
+      t1 <- biVarMoments( c1[,o1[,1] == specs[k]], c2[,o2[,1] == specs[k]], 
+                          wt=1, PLOT = F, pr = .95, ADD=F )
+      lines( t1$ellipse[,1], t1$ellipse[,2], col = 'grey', lwd = 5 )
+    }
+    for( k in 1:length(specs) ){
+      t1 <- biVarMoments( c1[,o1[,1] == specs[k]], c2[,o2[,1] == specs[k]], 
+                          wt=1, PLOT = F, pr = .95, ADD=F )
+      polygon(x = t1$ellipse[,1], y = t1$ellipse[,2], 
+              border = NA, col = 'white' )
+    }
+    specs <- sig
+  }
+  
+  par( xpd = F )
+  abline( h = 0, lty = 2, lwd = 2, col = 'grey' )
+  abline( v = 0, lty = 2, lwd = 2, col = 'grey' )
+  par( xpd = T )
+  
+  xytext <- matrix( NA, length(specs), 3 )
+  rownames(xytext) <- specs
+  
+  for( k in 1:length(specs) ){
+    
+    pos <- NA
+    
+    kcol <- specColors[specs[k]]
+    
+    ck1 <- c1[,s1[,1] == specs[k]]
+    ck2 <- c2[,s2[,1] == specs[k]]
+    
+    if( diff( range(ck1) ) == 0 | diff( range(ck2) ) == 0 )next
+    
+    t1 <- biVarMoments( ck1, ck2, wt=1, PLOT = F, pr = .9, ADD=F )
+    t2 <- biVarMoments( ck1, ck2, wt=1, PLOT = F, pr = .68, ADD=F )
+    t3 <- biVarMoments( ck1, ck2, wt=1, PLOT = F, pr = .25, ADD=F )
+    
+    polygon(x = t1$ellipse[,1], y = t1$ellipse[,2], 
+            border = NA,col = .getColor(kcol, .1) )
+    polygon(x = t2$ellipse[,1], y = t2$ellipse[,2], 
+            border = NA,col = .getColor( kcol, .2) )
+    polygon(x = t3$ellipse[,1], y = t3$ellipse[,2], 
+            border = NA,col = .getColor( kcol, .5) )
+    
+    loc <- t1$loc
+    
+    if( loc[1] < mu[1] ){ loc[1]  <- min(t1$ellipse[,1]); pos <- 2 }
+    if( loc[1] >= mu[1] ){loc[1] <- max(t1$ellipse[,1]); pos <- 4 }
+    if( loc[2] < mu[2] )loc[2]  <- min(t1$ellipse[,2])
+    if( loc[2] >= mu[2] )loc[2] <- max(t1$ellipse[,2])
+    
+    if( loc[1] < xlim[1] ){
+      loc[1] <- xlim[1]
+      loc[2] <- t1$loc[2]
+      pos <- 4
+      rownames(xytext)[k] <- paste( '<-', specs[k] )
+    }
+    if( loc[1] > xlim[2] ){
+      loc[1] <- xlim[2]
+      loc[2] <- t1$loc[2]
+      pos <- 2
+      rownames(xytext)[k] <- paste( specs[k], '->' )
+    }
+    if( loc[2] < ylim[1] ){loc[2] <- ylim[1]}
+    if( loc[2] > ylim[2] ){loc[2] <- ylim[2]}
+    
+    xytext[k,] <- c(loc, pos )
+  }
+  
+  xytext <- xytext[ !is.na(xytext[,1]),]
+  
+  text( xytext[,1], xytext[,2], rownames(xytext),  col = specColors[specs], cex = cex,
+        pos = xytext[,3])
+  mtext(xnames[1], 1, line = 2 )
+  mtext(xnames[2], 2, line = 2 )
+  
+  par( xpd = F )
+}
+
+chains2boxplot <- function( cmat, xnames, specColors, 
+                            xlab = 'Standard deviations', xlim = NULL, cex = 1,
+                            above = F ){
+  
+  btab <- .chain2tab( cmat )
+  b    <- as.matrix( btab[drop=F, ,1:4] )
+  
+  tt    <- columnSplit( rownames(b), '_' )
+  spec  <- tt[,1]
+  xname <- tt[,2]
+  
+  ww <- which( xname %in% xnames )
+  
+  b <- b[drop=F, ww, ]
+  xkeep <- unique( xname[ww] )
+  
+  mfrow <- .getPlotLayout( length(xkeep) )$mfrow
+  par( mfrow = mfrow, bty = 'n', mar = c(4, 2, 1, 2), omi = c(.5,.2,.1,.1), 'xpd' = T )
+  
+ # if( is.null( xlim ) )xlim <- range(b)
+  
+  coeff2boxplot( b, specColors, xnames = xkeep, xlim = xlim, cex = cex, above = above )
+  mtext( xlab, 1, line = 0, outer = T )
+}
+
+
+
+coeff2boxplot <- function( b, specColors = NULL, xnames = NULL, xlim = NULL, cex = 1, 
+                           above = F ){
+  
+  # b is a species_variables by estimates table
+  
+  xin <- xlim
+  
+  tt <- columnSplit( rownames(b), '_' )
+  spec <- tt[,1]
+  xname <- tt[,2]
+  specs <- sort(unique(spec))
+  nspec <- length( specs )
+  
+  if( is.null(specColors) ){
+    cfun <- colorRampPalette( c('#1b9e77','#d95f02','#7570b3','#e7298a','#66a61e','#e6ab02','#a6761d','#666666') )
+    specColors <- cfun( nspec )
+    names( specColors ) <- specs
+  }
+  
+  if( is.null( xnames ) ){
+    xnames <- unique( xname )
+    xnames <- xnames[ !xnames %in% c( 'intercept', 'diam', 'I(diam^2)',
+                                      'aspect1', 'aspect2','diam:defAnom') ]
+  }
+  par( 'xpd' = T )
+  for( k in 1:length(xnames) ){
+    
+    bk <- b[ drop = F, xname == xnames[k], ]
+  #  if( nrow(bk) == 1 )next
+    rownames(bk) <- spec[ xname == xnames[k] ]
+    lo <- bk[,'estimate'] - bk[,'SE']
+    hi <- bk[,'estimate'] + bk[,'SE']
+    stats <- rbind( bk[,'CI_975' ], hi, bk[,'estimate'], lo, bk[,'CI_025'] ) 
+    stats[ 2, stats[2,] > stats[1,] ] <- stats[ 1, stats[2,] > stats[1,] ]
+    stats[ 4, stats[4,] < stats[5,] ] <- stats[ 5, stats[4,] < stats[5,] ]
+    colnames(stats) <- rownames( bk )
+    
+    stats <- stats[drop=F,,order( stats[3,] )]
+    
+    cols <- specColors[ colnames(stats) ]
+    
+    if( is.null( xlim) )xlim = range( stats )
+    
+    z <- list( stats = stats, n = rep(1, ncol(stats)),
+               names = colnames(stats) )
+    
+    if( is.null(xin))xlim <- range(stats)
+    
+    bxp( z, yaxt = 'n', boxwex = .3, horizontal = T, whisklty = 1, 
+         ylim = xlim, border = cols, whiskcol = cols,
+         boxfill = .getColor( cols, .4 ) )
+    
+    xusr <- par('usr')[1:2]
+    xmid <- mean( xusr )
+    yusr <- par('usr')[3:4]
+    
+    if( xusr[1] < 0 & xusr[2] > 0 )abline( v = 0, lwd = 2, col = 'grey', lty = 2 )
+    
+    xt <- colMeans( stats[drop=F,4:5,], na.rm=T )
+    xt[ stats[3, ] < xmid ] <- colMeans( stats[drop = F, 1:2, stats[3, ] < xmid] )
+    yt <- 1:ncol(stats) #+ #.5 + 2/diff(yusr)
+    text( xt, yt, colnames(stats), pos = 3, col = cols, cex = cex )
+    .plotLabel( xnames[k], location = 'topleft', cex = 1.5, font = 1,
+                above = above )
+  }
+  par('xpd' = F )
+}
+
+
 .boxplotQuant <- function( xx, ..., boxfill = NULL, omit.na = TRUE ){
   
   pars <- list( ... )
@@ -18145,7 +19689,6 @@ smooth.na <- function( x, y ){
   tmp <- boxplot( xx, ..., na.rm = T, plot = FALSE )
   tmp$stats <- qfec
   
-
   if( 'col' %in% names( pars ) )boxfill <- pars$col
   
   bxp( tmp, ..., boxfill = boxfill )

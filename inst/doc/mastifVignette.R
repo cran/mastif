@@ -18,9 +18,13 @@ bigskip <- function( ){
 #  library( RANN )
 #  library( robustbase )
 
+## ----eval = F-----------------------------------------------------------------
+#  library( mastif )
+
 ## ----simSetup0, eval = F------------------------------------------------------
 #  seedNames  <- specNames  <- 'acerRubr'
-#  sim <- list( nplot=5, nyr=10, ntree=30,  ntrap=40, specNames = specNames, seedNames = seedNames )
+#  sim <- list( nplot=5, nyr=10, ntree=30,  ntrap=40, specNames = specNames,
+#               seedNames = seedNames )
 
 ## ----sim0, eval = F-----------------------------------------------------------
 #  inputs     <- mastSim( sim )        # simulate dispersal data
@@ -61,7 +65,7 @@ bigskip <- function( ){
 
 ## ----map3, eval=F-------------------------------------------------------------
 #  inputs$treeSymbol <- trueValues$fec
-#  inputs$treeScale  <- 2
+#  inputs$treeScale  <- 1.5
 #  inputs$trapScale  <- 1
 #  mastMap( inputs )
 
@@ -71,7 +75,7 @@ bigskip <- function( ){
 #  mastMap( inputs )
 
 ## ----hist0, eval = F----------------------------------------------------------
-#  par( mfrow=c( 2, 1 ), bty='n', mar=c( 4, 4, 1, 1 ) )
+#  par( mfrow=c( 1, 2 ), bty='n', mar=c( 4, 4, 1, 1 ) )
 #  seedData  <- inputs$seedData
 #  seedNames <- inputs$seedNames
 #  
@@ -89,20 +93,20 @@ bigskip <- function( ){
 #  plotPars <- list( trueValues = trueValues )
 #  mastPlot( output, plotPars )
 
-## ---- eval=F------------------------------------------------------------------
+## ----eval=F-------------------------------------------------------------------
 #  output   <- mastif( inputs = output, ng = 5000, burnin = 3000 )
 
 ## ----restart, eval=F----------------------------------------------------------
-#  inputs$predList <- list( mapMeters = 3, plots = mapPlot, years = mapYears )
+#  output$predList <- list( mapMeters = 3, plots = mapPlot, years = mapYears )
 #  output   <- mastif( inputs = output, ng = 2000, burnin = 1000 )
 
 ## ----mapout, eval = F---------------------------------------------------------
 #  output$mapPlot    <- mapPlot
 #  output$mapYears   <- mapYears
-#  output$treeScale  <- 1.5
-#  output$trapScale  <- .8
-#  output$PREDICT <- T
-#  output$scaleValue <- 20
+#  output$treeScale  <- 1.2
+#  output$trapScale  <- .7
+#  output$PREDICT    <- T
+#  output$scaleValue <- 10
 #  output$plotScale  <- 1
 #  output$COLORSCALE <- T
 #  output$LEGEND     <- T
@@ -121,7 +125,7 @@ bigskip <- function( ){
 
 ## ----sim, eval = F------------------------------------------------------------
 #  inputs <- mastSim( sim )        # simulate dispersal data
-#  R      <- inputs$trueValues$R # species to seedNames probability matrix
+#  R      <- inputs$trueValues$R   # species to seedNames probability matrix
 #  round( R, 2 )
 
 ## ----mast3, eval = F----------------------------------------------------------
@@ -131,20 +135,28 @@ bigskip <- function( ){
 #  summary( output )
 
 ## ----pars0, eval = F----------------------------------------------------------
-#  plotPars <- list( trueValues = inputs$trueValues )
+#  plotPars <- list( trueValues = inputs$trueValues, RMAT = TRUE )
 #  mastPlot( output, plotPars )
 
 ## ----again, eval=F------------------------------------------------------------
 #  tab   <- with( inputs$seedData, table( plot, year ) )
-#  years <- as.numeric( colnames( tab )[tab[1, ] > 0] ) # years for 1st plot
-#  output$predList <- list( plots = 'p1', years = years )
+#  mapPlot <- 'p1'
+#  mapYears <- as.numeric( colnames( tab )[tab[1, ] > 0] )   # years for 1st plot
+#  output$predList <- list( plots = mapPlot, years = mapYears )
 #  output <- mastif( inputs = output, ng = 3000, burnin = 1500 )
-#  mastPlot( output )
+#  mastPlot( output, plotPars = list( trueValues = inputs$trueValues, MAPS = TRUE )  )
 
-## ---- eval=F------------------------------------------------------------------
+## ----eval = F-----------------------------------------------------------------
+#  output$PREDICT  <- T
+#  output$LEGEND   <- T
+#  output$mapPlot  <- mapPlot
+#  output$mapYears <- mapYears
+#  mastMap( output )
+
+## ----eval=F-------------------------------------------------------------------
 #  specNames <- c( 'pinuTaed', 'pinuEchi' )
 #  
-#  #seeds never differentiated:
+#  #seeds not differentiated:
 #  seedNames <- c( 'pinuUNKN' )
 #  
 #  #one species sometimes differentiated:
@@ -174,7 +186,6 @@ bigskip <- function( ){
 ## ----fit, eval=F--------------------------------------------------------------
 #  formulaFec <- as.formula( ~ diam )    # fecundity model
 #  formulaRep <- as.formula( ~ diam )    # maturation model
-#  
 #  inputs   <- list( specNames = specNames, seedNames = seedNames,
 #                   treeData = treeData, seedData = seedData, xytree = xytree,
 #                   xytrap = xytrap )
@@ -213,13 +224,13 @@ bigskip <- function( ){
 #  output <- mastif( inputs, formulaFec, formulaRep, ng = 2000, burnin = 1000 )
 #  mastPlot( output )
 
-## ---- yr, eval=F--------------------------------------------------------------
+## ----yr, eval=F---------------------------------------------------------------
 #  yearEffect   <- list( groups = c( 'species', 'region' ) )   # year effects
 
-## ---- eval=F------------------------------------------------------------------
+## ----eval=F-------------------------------------------------------------------
 #  inputs$priorList <- list( minDiam = 15, maxDiam = 60 )
 
-## ---- eval=F------------------------------------------------------------------
+## ----eval=F-------------------------------------------------------------------
 #  d <- "https://github.com/jimclarkatduke/mast/blob/master/priorParametersPinus.csv?raw=True"
 #  download.file( d, destfile="priorParametersPinus.csv" )
 #  
@@ -228,7 +239,7 @@ bigskip <- function( ){
 #  priorTable <- mastPriors( "priorParametersPinus.csv", specNames,
 #                           code = 'code4', genus = 'pinus' )
 
-## ---- eval=F, echo=F----------------------------------------------------------
+## ----eval=F, echo=F-----------------------------------------------------------
 #  
 #  # THIS BLOCK IS OMITTED
 #  
@@ -259,7 +270,7 @@ bigskip <- function( ){
 #  d <- "https://github.com/jimclarkatduke/mast/blob/master/pinusExample.rdata?raw=True"
 #  repmis::source_data( d )
 
-## ---- eval=F------------------------------------------------------------------
+## ----eval=F-------------------------------------------------------------------
 #  formulaRep <- as.formula( ~ diam )
 #  formulaFec <- as.formula( ~ diam + I( diam^2 ) )
 #  betaPrior  <- list( pos = 'diam', neg = 'I( diam^2 )' )
@@ -282,7 +293,7 @@ bigskip <- function( ){
 #  treeData <- treeData[treeData$year %in% sy, ]
 #  treeData[1:10, ]
 
-## ---- removed, eval=F---------------------------------------------------------
+## ----removed, eval=F----------------------------------------------------------
 #  inputs   <- list( specNames = specNames, seedNames = seedNames,
 #                    treeData = treeData, seedData = seedData,
 #                    xytree = xytree, xytrap = xytrap, priorTable = priorTable,
@@ -290,7 +301,7 @@ bigskip <- function( ){
 #  inputs <- mastFillCensus( inputs, beforeFirst=10, afterLast=10 )
 #  inputs$treeData[1:10, ]
 
-## ---- treeYr table, eval=F----------------------------------------------------
+## ----treeYr table, eval=F-----------------------------------------------------
 #  # original data
 #  table( treeData$year )
 #  
@@ -298,7 +309,7 @@ bigskip <- function( ){
 #  table( inputs$treeData$year )
 #  table( seedData$year )
 
-## ---- treeOnly, eval=F--------------------------------------------------------
+## ----treeOnly, eval=F---------------------------------------------------------
 #  p <- 3
 #  inputs   <- mastFillCensus( inputs, p = p )
 #  treeData <- inputs$treeData
@@ -342,7 +353,7 @@ bigskip <- function( ){
 #  treeData$tminDecJanFebMar <- tmin
 #  inputs$treeData <- treeData
 
-## ---- runClim, eval=F---------------------------------------------------------
+## ----runClim, eval=F----------------------------------------------------------
 #  formulaRep <- as.formula( ~ diam )
 #  formulaFec <- as.formula( ~ diam + defJunJulAugAnom + tminDecJanFebMar )
 #  inputs$yearEffect <- yearEffect
@@ -453,7 +464,7 @@ bigskip <- function( ){
 ## ----outpars0, eval=F---------------------------------------------------------
 #  summary( output )
 
-## ---- eval=F, echo = F--------------------------------------------------------
+## ----eval=F, echo = F---------------------------------------------------------
 #  
 #  # abies output west
 #  load('prediction.rdata')
@@ -551,38 +562,128 @@ bigskip <- function( ){
 #  
 #  save( fecPred, betaYrRand, file = 'outputAbies.rdata' )
 
-## ---- eval = F----------------------------------------------------------------
+## ----eval = F-----------------------------------------------------------------
 #  getColor <- function( col, trans ){                  # transparent colors
 #    tmp <- col2rgb( col )
 #    rgb( tmp[ 1, ], tmp[ 2, ], tmp[ 3, ], maxColorValue = 255,
 #         alpha = 255*trans, names = paste( col, trans, sep = '_' ) )
 #  }
 #  
-#  # from output$prediction$fecPred and output$parameters$betaYrRand
+#  getPlotLayout <- function( np, WIDE = TRUE ){
+#  
+#    # np - no. plots
+#  
+#    if( np == 1 )return( list( mfrow = c( 1, 1 ), left = 1, bottom = c( 1, 2 ) ) )
+#    if( np == 2 ){
+#      if( WIDE )return( list( mfrow = c( 1, 2 ), left = 1, bottom = c( 1, 2 ) ) )
+#      return( list( mfrow = c( 2, 1 ), left = c( 1, 2 ), bottom = 2 ) )
+#    }
+#  
+#    if( np == 3 ){
+#      if( WIDE )return( list( mfrow = c( 1, 3 ), left = 1, bottom = c( 1:3 ) ) )
+#      return( list( mfrow = c( 3, 1 ), left = 1:3, bottom = 3 ) )
+#    }
+#    if( np <= 4 )return( list( mfrow = c( 2, 2 ), left = c( 1, 3 ), bottom = c( 3:4 ) ) )
+#    if( np <= 6 ){
+#      if( WIDE )return( list( mfrow = c( 2, 3 ), left = c( 1, 4 ), bottom = c( 4:6 ) ) )
+#      return( list( mfrow = c( 3, 2 ), left = c( 1, 3, 5 ), bottom = 5:6 ) )
+#    }
+#    if( np <= 9 )return( list( mfrow = c( 3, 3 ), left = c( 1, 4, 7 ), bottom = c( 7:9 ) ) )
+#    if( np <= 12 ){
+#      if( WIDE )return( list( mfrow = c( 3, 4 ), left = c( 1, 5, 9 ), bottom = c( 9:12 ) ) )
+#      return( list( mfrow = c( 4, 3 ), left = c( 1, 4, 7, 10 ), bottom = 10:12 ) )
+#    }
+#    if( np <= 16 )return( list( mfrow = c( 4, 4 ), left = c( 1, 5, 9, 13 ),
+#                              bottom = c( 13:16 ) ) )
+#    if( np <= 20 ){
+#      if( WIDE )return( list( mfrow = c( 4, 5 ), left = c( 1, 6, 11, 15 ),
+#                              bottom = c( 15:20 ) ) )
+#      return( list( mfrow = c( 5, 4 ), left = c( 1, 5, 9, 13 ), bottom = 17:20 ) )
+#    }
+#    if( np <= 25 )return( list( mfrow = c( 5, 5 ), left = c( 1, 6, 11, 15, 20 ),
+#                              bottom = c( 20:25 ) ) )
+#    if( np <= 25 ){
+#      if( WIDE )return( list( mfrow = c( 5, 6 ), left = c( 1, 6, 11, 15, 20, 25 ),
+#                              bottom = c( 25:30 ) ) )
+#      return( list( mfrow = c( 6, 5 ), left = c( 1, 6, 11, 16, 21, 26 ), bottom = 26:30 ) )
+#    }
+#    if( np <= 36 ){
+#      return( list( mfrow = c( 6, 6 ), left = c( 1, 7, 13, 19, 25, 31 ), bottom = c( 31:36 ) ) )
+#    }
+#    return( list( mfrow = c( 7, 6 ), left = c( 1, 7, 13, 19, 25, 31, 37 ), bottom = c( 37:42 ) ) )
+#  }
+#  
+#    plotFec <- function( fec, groups = NULL, LOG = F ){
+#  
+#      if( is.null(groups) ){
+#        groupID <- rep(1, nrow(fec) )
+#        ngroup  <- 1
+#      }else{
+#        group   <- fec[, groups]
+#        groups  <- sort( unique( group ) )
+#        groupID <- match( group, groups )
+#        ngroup  <- length( groups )
+#      }
+#  
+#      if( LOG )fec$fecEstMu <- log10(fec$fecEstMu)
+#  
+#      xlim  <- range( fec$year )
+#      ylim  <- range( fec$fecEstMu, na.rm = T )
+#      mfrow <- getPlotLayout(ngroup)
+#  
+#      par( mfrow = mfrow$mfrow, bty = 'n', mar = c(4,4,1,1), omi = c( .5, .5, .2, .2) )
+#  
+#      for( k in 1:ngroup ){
+#  
+#        fk    <- fec[ groupID == k, ]
+#        tree  <- fk$treeID
+#        trees <- sort( unique( tree ) )
+#        ntree <- length( trees )
+#  
+#        plot( NA, xlim = xlim, ylim = ylim, xlab = '', ylab = '' )
+#  
+#        for(j in 1:ntree){
+#          fj <- fk[ tree == trees[j], ]
+#          lines( fj$year, fj$fecEstMu, lwd = 1 )
+#        }
+#        title( groups[k] )
+#      }
+#      mtext( 'Year', 1, outer = T, cex = 1.2 )
+#      ytext <- 'Seeds per tree'
+#      if( LOG ) ytext <- 'Seeds per tree (log_10)'
+#      mtext( ytext, 2, outer = T, cex = 1.2 )
+#    }
+
+## ----eval = F-----------------------------------------------------------------
+#  
 #  d <- "https://github.com/jimclarkatduke/mast/blob/master/outputAbies.rdata?raw=True"
 #  repmis::source_data( d )
 #  
 #  specs   <- sort( unique( fecPred$species ) )     # accumulate period estimates
 #  yseq    <- seq( 0, 10, length = 100 )
 #  intVal  <- matrix( 0, length(specs), 100 )
+#  weight  <- intVal
 #  rownames( intVal ) <- specs
 #  plotSpecs <- sort( unique( fecPred$plotSpec ) )  # label trees in a plot-species group
 #  
-#  par( mfrow = c(1, 3), bty = 'n', mar = c(2,4,1,1), omi = c(.5,.1,.1,.1) )
+#  # time series for one species:
+#  plotFec( fec = fecPred[ fecPred$species == 'abiesGrandis', ], groups = 'species', LOG = T )
 #  
-#  plot( NA, xlim = c(2, 20), ylim = c(.01, 1), xlab = '', ylab = 'Density/nyr', log = 'xy')
+#  par( mfrow = c(1, 2), bty = 'n', mar = c(3,4,1,1), omi = c(.5,.1,.1,.1) )
+#  
+#  plot( NA, xlim = c(1, 20), ylim = c(.01, 1), xlab = '', ylab = 'Density/nyr', log = 'xy')
 #  
 #  for( i in 1:length(plotSpecs) ){
 #  
 #    wi  <- which( fecPred$plotSpec == plotSpecs[i] ) # tree-years in group
 #    ci  <- fecPred$species[wi[1]]
 #    col <- match( ci, specs )                        # color by species
-#  
 #    tmp <- mastVolatility( treeID = fecPred$treeID[wi], year = fecPred$year[wi],
 #                           fec = fecPred$fecEstMu[wi] )
 #    if( is.null(tmp) )next
 #  
 #    intVal[ col, ] <- intVal[ col, ] + dnorm( yseq, tmp$stats['Period', 1], tmp$stats['Period', 2] )
+#    weight[ col, ] <- weight[ col, ] + length( wi )
 #  
 #    # density +/- 1 SD
 #    dens <- tmp$statsDensity
@@ -593,13 +694,16 @@ bigskip <- function( ){
 #  title( 'a) Plot-species groups' )
 #  legend( 'topright', specs, text.col = c(1:length(specs)), bty = 'n', cex = .8 )
 #  
+#  intVal <- intVal*weight/weight
+#  
 #  plot( NA, xlim = c(2, 8), ylim = c(0, .12), xlab = '', ylab = 'Density' )  # density of mean intervals
 #  for( i in 1:length(specs) ){
 #    polygon( yseq, intVal[i,]/sum(intVal[i,]), border = i, col = getColor(i, .4) )
 #  }
 #  title( 'b) Period estimates' )
+#  mtext( 'Year', 1, outer = T, cex = 1.3 )
 
-## ---- eval = F----------------------------------------------------------------
+## ----eval = F-----------------------------------------------------------------
 #  spec  <- strsplit( rownames( betaYrRand ), '_' ) # extract species from ecoregion_species rownames
 #  spec  <- sapply( spec, function(x) x[2] )
 #  specs <- sort( unique(spec) )
@@ -630,6 +734,6 @@ bigskip <- function( ){
 #  mtext( 'Period (yr)', 1, line = 1, outer = T )
 #  
 #  keepRows   <- which(  is.finite(mastMatrix[,'Variance']) & mastMatrix[,'Variance'] != 0 )
-#  keepCols   <- which( colSums( frequency, na.rm=T ) > 0 )
+#  #keepCols   <- which( colSums( frequency, na.rm=T ) > 0 )
 #  mastMatrix <- mastMatrix[ keepRows, ]
 

@@ -46,7 +46,7 @@ plot( NA, xlim = range( period, na.rm = TRUE ), ylim = range( density, na.rm = T
       xlab = 'Period (yr)', ylab = 'Density', log = 'xy' )
       
 for( i in 1:nrow(density) )lines( period[i,], density[i, ], col = 'grey' )
-lines( tmp$statsDensity['Period', ], tmp$statsDensity['Mean', ], lwd = 2 )
+  lines( tmp$statsDensity['Period', ], tmp$statsDensity['Mean', ], lwd = 2 )
 }
 }
 \author{

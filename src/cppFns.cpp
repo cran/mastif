@@ -140,6 +140,22 @@ double tnormRcpp(double lo, double hi, double mu, double sig){
   return(z);
 }
 
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+Rcpp::List condMVNRcpp(const arma::uvec cdex, 
+                       const arma::uvec gdex, 
+                       const arma::mat xx, arma::mat mu, 
+                       const arma::mat sigma) {
+  
+  arma::mat sinv = arma::inv_sympd(sigma.submat(gdex,gdex));
+  arma::mat p1 = sigma.submat(cdex, gdex) * sinv;
+  arma::mat mu1 = mu.cols(cdex) + trans(p1 * trans(xx.cols(gdex) - mu.cols(gdex)));
+  arma::mat vr1 = sigma.submat(cdex, cdex) - p1 * sigma.submat(gdex,cdex);
+  
+  return Rcpp::List::create(Rcpp::Named("mu") = mu1,
+                            Rcpp::Named("vr") = vr1);
+}
+
 
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
@@ -194,7 +210,6 @@ arma::mat trMVNmatrixRcpp(arma::mat avec, arma::mat muvec,
       
       avec(i,cindex) = tnormRcpp(lo(i,cindex), hi(i,cindex), mAs[0], sss);
       A(i,cindex) = avec(i,cindex);
-      
     }
   }
   return A;

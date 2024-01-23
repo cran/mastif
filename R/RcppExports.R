@@ -17,6 +17,10 @@ tnormRcpp <- function(lo, hi, mu, sig) {
     .Call(`_mastif_tnormRcpp`, lo, hi, mu, sig)
 }
 
+condMVNRcpp <- function(cdex, gdex, xx, mu, sigma) {
+    .Call(`_mastif_condMVNRcpp`, cdex, gdex, xx, mu, sigma)
+}
+
 trMVNmatrixRcpp <- function(avec, muvec, smat, lo, hi, whichSample, idxALL) {
     .Call(`_mastif_trMVNmatrixRcpp`, avec, muvec, smat, lo, hi, whichSample, idxALL)
 }

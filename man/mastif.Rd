@@ -8,8 +8,8 @@ Estimates productivity and dispersion of seeds observed at seed traps, using inf
 }
 \usage{
 
-  mastif( inputs, formulaFec = NULL, formulaRep = NULL, 
-                   ng = NULL, burnin = NULL )
+  mastif( inputs, formulaFec = NULL, formulaRep = as.formula("~diam"), 
+           ng = NULL, burnin = NULL )
   
   \method{print}{mastif}(x, ...)
   
@@ -200,6 +200,7 @@ James S Clark, \email{jimclark@duke.edu}
 }
 \references{
 Clark, J.S., C. Nunes, and B. Tomasek. 2019. Foodwebs based on unreliable foundations: spatio-temporal masting merged with consumer movement, storage, and diet. Ecological Monographs, e01381.
+Qiu, T., ..., and J. S. Clark. 2023. Mutualist dispersers and the global distribution of masting: mediation by climate and fertility. Nature Plants, https://doi.org/10.1038/s41477-023-01446-5.
 }
 \seealso{
 \code{\link{mastSim}} simulates data

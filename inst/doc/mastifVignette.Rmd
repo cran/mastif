@@ -29,7 +29,9 @@ bigskip <- function( ){
 ```
 
 #### citation:  
-Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. *Ecological Monographs*, e01381.
+Clark, JS, C Nunes, and B Tomasek. 2019. Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet. [*Ecological Monographs*, e01381](https://esajournals.onlinelibrary.wiley.com/doi/10.1002/ecm.1381).
+
+Qiu, T. ..., and J. S. Clark. 2023. Mutualist dispersers and the global distribution of masting: mediation by climate and fertility. [*Nature Plants* 9, 1044–1056](https://doi.org/10.1038/s41477-023-01446-5).
 
 [website]( http://sites.nicholas.duke.edu/clarklab/r-packages/disperse/ )
 
@@ -101,13 +103,18 @@ library( RANN )
 library( robustbase )
 ```
 
+```{r, eval = F}
+library( mastif )
+```
+
 
 Most of these inputs are stochasiticized to vary structure of each data set. Here are inputs to the simulator for a species I'll call `acerRubr`:
 
 
 ```{r simSetup0, eval = F}
 seedNames  <- specNames  <- 'acerRubr'
-sim <- list( nplot=5, nyr=10, ntree=30,  ntrap=40, specNames = specNames, seedNames = seedNames )
+sim <- list( nplot=5, nyr=10, ntree=30,  ntrap=40, specNames = specNames, 
+             seedNames = seedNames )
 ```
 
 
@@ -256,16 +263,16 @@ inputs$SCALEBAR   <- T
 mastMap( inputs )
 ```
 
-Depending on the numbers of maps I adust `treeScale` and `trapScale` to see how seed accumulation compares with tree size or fecundity. In the above map, trees are shown as green circles and traps as gray squares.  The size of the circle comes from the input variable `treeSymbol`, which is set to tree diameter.  I could instead set it to the 'true' number of seeds produced by each tree, an output from `mastSim`.
+Depending on the numbers and sizes of maps I adust `treeScale` and `trapScale` to see how seed accumulation compares with tree size or fecundity. In the above map, trees are shown as green circles and traps as gray squares.  The size of the circle comes from the input variable `treeSymbol`, which is set to tree diameter.  I could instead set it to the 'true' number of seeds produced by each tree, an output from `mastSim`.
 
 ```{r map3, eval=F}
 inputs$treeSymbol <- trueValues$fec
-inputs$treeScale  <- 2
+inputs$treeScale  <- 1.5
 inputs$trapScale  <- 1
 mastMap( inputs )
 ```
 
-Which are reproductively mature?  Here are true values, showing just trees that are mature:
+Which are reproductive (mature)?  Here are true values, showing just trees that are mature:
 
 ```{r map4, eval=F}
 inputs$treeSymbol <- trueValues$repr
@@ -278,7 +285,7 @@ To fit the data, there must be sufficient seed traps, and sources must not be so
 Here is the frequency distribution of seeds ( observed ) and of fecundities ( unknown ) from the simulated data:
 
 ```{r hist0, eval = F}
-par( mfrow=c( 2, 1 ), bty='n', mar=c( 4, 4, 1, 1 ) )
+par( mfrow=c( 1, 2 ), bty='n', mar=c( 4, 4, 1, 1 ) )
 seedData  <- inputs$seedData
 seedNames <- inputs$seedNames
 
@@ -358,7 +365,7 @@ Other arguments passed to `mastPlot` in the `list plotPars` are given as example
 
 - `fecundity`: chains for fecundity parameters in $\beta^x$.
 
-- `dispersal parameter`: chains for dispersal parameter $u$.
+- `dispersal parameter`: chains for dispersal parameter $u$ showing prior distribution.
 
 - `variance sigma`: chains for error variance $\sigma^2$, RMSPE, and deviance.
 
@@ -382,7 +389,7 @@ Other arguments passed to `mastPlot` in the `list plotPars` are given as example
 The plots displayed by `mastPlot` include the MCMC chains that are not yet converged.  Again, I can restart where I left off by using `output` as the `inputs` to `mast`.  In addition, I predict the seed surface from the fitted model for a plot and year, as specified in `predList`.
 
 ```{r restart, eval=F}
-inputs$predList <- list( mapMeters = 3, plots = mapPlot, years = mapYears )
+output$predList <- list( mapMeters = 3, plots = mapPlot, years = mapYears )
 output   <- mastif( inputs = output, ng = 2000, burnin = 1000 )
 ```
 
@@ -392,10 +399,10 @@ To look closer at the predicted plot-year I generate a new map:
 ```{r mapout, eval = F}
 output$mapPlot    <- mapPlot
 output$mapYears   <- mapYears
-output$treeScale  <- 1.5
-output$trapScale  <- .8
-output$PREDICT <- T
-output$scaleValue <- 20
+output$treeScale  <- 1.2
+output$trapScale  <- .7
+output$PREDICT    <- T
+output$scaleValue <- 10
 output$plotScale  <- 1
 output$COLORSCALE <- T
 output$LEGEND     <- T
@@ -451,7 +458,7 @@ Here is the simulation with output objects with 2/3 of all seeds identified only
 
 ```{r sim, eval = F}
 inputs <- mastSim( sim )        # simulate dispersal data
-R      <- inputs$trueValues$R # species to seedNames probability matrix
+R      <- inputs$trueValues$R   # species to seedNames probability matrix
 round( R, 2 )
 ```
 
@@ -473,7 +480,7 @@ summary( output )
 Output plots will include chains for estimates in `M`.  There will also be estimates for each species included in `specNames`:
 
 ```{r pars0, eval = F}
-plotPars <- list( trueValues = inputs$trueValues ) 
+plotPars <- list( trueValues = inputs$trueValues, RMAT = TRUE ) 
 mastPlot( output, plotPars )
 ```
 
@@ -485,13 +492,24 @@ Here is a restart, now with `plots` and `years` specified for prediction in `pre
 
 ```{r again, eval=F}
 tab   <- with( inputs$seedData, table( plot, year ) )
-years <- as.numeric( colnames( tab )[tab[1, ] > 0] ) # years for 1st plot
-output$predList <- list( plots = 'p1', years = years ) 
+mapPlot <- 'p1'
+mapYears <- as.numeric( colnames( tab )[tab[1, ] > 0] )   # years for 1st plot
+output$predList <- list( plots = mapPlot, years = mapYears ) 
 output <- mastif( inputs = output, ng = 3000, burnin = 1500 )
-mastPlot( output )
+mastPlot( output, plotPars = list( trueValues = inputs$trueValues, MAPS = TRUE )  )
 ```
 
 Chains for the `matrix M` will converge for plots where there are sufficient trees and seeds to obtain an estimate.  They will not be identified on plots where one or the other are rare or absent.
+
+To map just the seed rain prediction maps, do this:
+
+```{r, eval = F}
+output$PREDICT  <- T
+output$LEGEND   <- T
+output$mapPlot  <- mapPlot
+output$mapYears <- mapYears
+mastMap( output )
+```
 
 `r bigskip( )`
 
@@ -503,7 +521,7 @@ In the many data sets where seeds of multiple species are not differentiated the
 ```{r, eval=F}
 specNames <- c( 'pinuTaed', 'pinuEchi' )
 
-#seeds never differentiated:
+#seeds not differentiated:
 seedNames <- c( 'pinuUNKN' ) 
 
 #one species sometimes differentiated:
@@ -568,7 +586,6 @@ Here I fit the model.
 ```{r fit, eval=F}
 formulaFec <- as.formula( ~ diam )    # fecundity model
 formulaRep <- as.formula( ~ diam )    # maturation model
-
 inputs   <- list( specNames = specNames, seedNames = seedNames, 
                  treeData = treeData, seedData = seedData, xytree = xytree, 
                  xytrap = xytrap )
@@ -1234,6 +1251,8 @@ Qui et al. (2023) introduced volatility and period to characterize and compare m
 
 The block of code that follows loads output from some trees in the genus *Abies* from western North America. Specifically, the estimates for fecundity by tree-year come from the object `output$prediction$fecPred`. it uses the function `mastVolatility` to compile volatility and periodicity on each tree and display summaries by ecoregion-species as density plots and as distributions of mean period estimates. 
 
+First, several more functions:
+
 ```{r, eval = F}
 getColor <- function( col, trans ){                  # transparent colors
   tmp <- col2rgb( col )
@@ -1241,31 +1260,124 @@ getColor <- function( col, trans ){                  # transparent colors
        alpha = 255*trans, names = paste( col, trans, sep = '_' ) )
 }
 
-# from output$prediction$fecPred and output$parameters$betaYrRand
+getPlotLayout <- function( np, WIDE = TRUE ){
+  
+  # np - no. plots
+  
+  if( np == 1 )return( list( mfrow = c( 1, 1 ), left = 1, bottom = c( 1, 2 ) ) )
+  if( np == 2 ){
+    if( WIDE )return( list( mfrow = c( 1, 2 ), left = 1, bottom = c( 1, 2 ) ) )
+    return( list( mfrow = c( 2, 1 ), left = c( 1, 2 ), bottom = 2 ) )
+  }
+  
+  if( np == 3 ){
+    if( WIDE )return( list( mfrow = c( 1, 3 ), left = 1, bottom = c( 1:3 ) ) )
+    return( list( mfrow = c( 3, 1 ), left = 1:3, bottom = 3 ) )
+  }
+  if( np <= 4 )return( list( mfrow = c( 2, 2 ), left = c( 1, 3 ), bottom = c( 3:4 ) ) )
+  if( np <= 6 ){
+    if( WIDE )return( list( mfrow = c( 2, 3 ), left = c( 1, 4 ), bottom = c( 4:6 ) ) )
+    return( list( mfrow = c( 3, 2 ), left = c( 1, 3, 5 ), bottom = 5:6 ) )
+  }
+  if( np <= 9 )return( list( mfrow = c( 3, 3 ), left = c( 1, 4, 7 ), bottom = c( 7:9 ) ) )
+  if( np <= 12 ){
+    if( WIDE )return( list( mfrow = c( 3, 4 ), left = c( 1, 5, 9 ), bottom = c( 9:12 ) ) )
+    return( list( mfrow = c( 4, 3 ), left = c( 1, 4, 7, 10 ), bottom = 10:12 ) )
+  }
+  if( np <= 16 )return( list( mfrow = c( 4, 4 ), left = c( 1, 5, 9, 13 ), 
+                            bottom = c( 13:16 ) ) )
+  if( np <= 20 ){
+    if( WIDE )return( list( mfrow = c( 4, 5 ), left = c( 1, 6, 11, 15 ), 
+                            bottom = c( 15:20 ) ) )
+    return( list( mfrow = c( 5, 4 ), left = c( 1, 5, 9, 13 ), bottom = 17:20 ) )
+  }
+  if( np <= 25 )return( list( mfrow = c( 5, 5 ), left = c( 1, 6, 11, 15, 20 ), 
+                            bottom = c( 20:25 ) ) )
+  if( np <= 25 ){
+    if( WIDE )return( list( mfrow = c( 5, 6 ), left = c( 1, 6, 11, 15, 20, 25 ), 
+                            bottom = c( 25:30 ) ) )
+    return( list( mfrow = c( 6, 5 ), left = c( 1, 6, 11, 16, 21, 26 ), bottom = 26:30 ) )
+  }
+  if( np <= 36 ){
+    return( list( mfrow = c( 6, 6 ), left = c( 1, 7, 13, 19, 25, 31 ), bottom = c( 31:36 ) ) )
+  }
+  return( list( mfrow = c( 7, 6 ), left = c( 1, 7, 13, 19, 25, 31, 37 ), bottom = c( 37:42 ) ) )
+}
+
+  plotFec <- function( fec, groups = NULL, LOG = F ){
+    
+    if( is.null(groups) ){
+      groupID <- rep(1, nrow(fec) )
+      ngroup  <- 1
+    }else{
+      group   <- fec[, groups]
+      groups  <- sort( unique( group ) )
+      groupID <- match( group, groups )
+      ngroup  <- length( groups )
+    }
+    
+    if( LOG )fec$fecEstMu <- log10(fec$fecEstMu)
+    
+    xlim  <- range( fec$year )
+    ylim  <- range( fec$fecEstMu, na.rm = T )
+    mfrow <- getPlotLayout(ngroup)
+    
+    par( mfrow = mfrow$mfrow, bty = 'n', mar = c(4,4,1,1), omi = c( .5, .5, .2, .2) )
+    
+    for( k in 1:ngroup ){
+      
+      fk    <- fec[ groupID == k, ]
+      tree  <- fk$treeID
+      trees <- sort( unique( tree ) )
+      ntree <- length( trees )
+      
+      plot( NA, xlim = xlim, ylim = ylim, xlab = '', ylab = '' )
+      
+      for(j in 1:ntree){
+        fj <- fk[ tree == trees[j], ]
+        lines( fj$year, fj$fecEstMu, lwd = 1 )
+      }
+      title( groups[k] )
+    }
+    mtext( 'Year', 1, outer = T, cex = 1.2 )
+    ytext <- 'Seeds per tree'
+    if( LOG ) ytext <- 'Seeds per tree (log_10)'
+    mtext( ytext, 2, outer = T, cex = 1.2 )
+  }
+```
+  
+Here is the volatility:
+
+```{r, eval = F}
+
 d <- "https://github.com/jimclarkatduke/mast/blob/master/outputAbies.rdata?raw=True"
 repmis::source_data( d )
 
 specs   <- sort( unique( fecPred$species ) )     # accumulate period estimates
 yseq    <- seq( 0, 10, length = 100 )       
 intVal  <- matrix( 0, length(specs), 100 )
+weight  <- intVal
 rownames( intVal ) <- specs
 plotSpecs <- sort( unique( fecPred$plotSpec ) )  # label trees in a plot-species group
 
-par( mfrow = c(1, 3), bty = 'n', mar = c(2,4,1,1), omi = c(.5,.1,.1,.1) )
+# time series for one species:
+plotFec( fec = fecPred[ fecPred$species == 'abiesGrandis', ], groups = 'species', LOG = T )
+  
+par( mfrow = c(1, 2), bty = 'n', mar = c(3,4,1,1), omi = c(.5,.1,.1,.1) )
 
-plot( NA, xlim = c(2, 20), ylim = c(.01, 1), xlab = '', ylab = 'Density/nyr', log = 'xy')
+plot( NA, xlim = c(1, 20), ylim = c(.01, 1), xlab = '', ylab = 'Density/nyr', log = 'xy')
 
 for( i in 1:length(plotSpecs) ){
   
   wi  <- which( fecPred$plotSpec == plotSpecs[i] ) # tree-years in group
   ci  <- fecPred$species[wi[1]]
   col <- match( ci, specs )                        # color by species
-  
   tmp <- mastVolatility( treeID = fecPred$treeID[wi], year = fecPred$year[wi], 
                          fec = fecPred$fecEstMu[wi] )
   if( is.null(tmp) )next
   
   intVal[ col, ] <- intVal[ col, ] + dnorm( yseq, tmp$stats['Period', 1], tmp$stats['Period', 2] )
+  weight[ col, ] <- weight[ col, ] + length( wi )
   
   # density +/- 1 SD
   dens <- tmp$statsDensity
@@ -1276,11 +1388,14 @@ for( i in 1:length(plotSpecs) ){
 title( 'a) Plot-species groups' )
 legend( 'topright', specs, text.col = c(1:length(specs)), bty = 'n', cex = .8 )
 
+intVal <- intVal*weight/weight
+
 plot( NA, xlim = c(2, 8), ylim = c(0, .12), xlab = '', ylab = 'Density' )  # density of mean intervals
 for( i in 1:length(specs) ){
   polygon( yseq, intVal[i,]/sum(intVal[i,]), border = i, col = getColor(i, .4) )
 }
 title( 'b) Period estimates' )
+mtext( 'Year', 1, outer = T, cex = 1.3 )
 ```
 
 The following block of code compiles the same densities and summaries for year effects, which remain after accounting for other predictors in the model. When fitted with year effects, with `yearEffect   <- list( groups = c( 'species', 'ecoCode' ) )`, the column `treeData$ecoCode` holds the ecoregion where the tree lives. The `ecoRegion_species` combinations represent random groups of year effects that are shared by all trees of the same species within the same ecoregion. These combinations are `rownames` in `output$parameters$betaYrRand`. Here I use the function `mastSpectralDensity` to evaluate individual rows in `betaYrRand`. 
@@ -1316,7 +1431,7 @@ title( 'c) Year effects' )
 mtext( 'Period (yr)', 1, line = 1, outer = T )
 
 keepRows   <- which(  is.finite(mastMatrix[,'Variance']) & mastMatrix[,'Variance'] != 0 )
-keepCols   <- which( colSums( frequency, na.rm=T ) > 0 )
+#keepCols   <- which( colSums( frequency, na.rm=T ) > 0 )
 mastMatrix <- mastMatrix[ keepRows, ]
 ```
 

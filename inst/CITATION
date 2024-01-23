@@ -1,12 +1,13 @@
 
-citEntry(entry = "Article",
+bibentry(
+  bibtype = "Article",
   title = "Masting as an unreliable resource: spatio-temporal host diversity merged with consumer movement, storage, and diet",
-  author = c( person(c('James','S.'),'Clark',role=c('aut','cre'), email='jimclark@duke.edu'),
+  author = c( person(c('James','S.'),'Clark', role = c('aut','cre'), email = 'jimclark@duke.edu'),
               person('Chase', 'Nunes'), 
               person('Bradley','Tomasek') ),
   year = "2019",
-  journal = 'Ecological Monographs',
-  url = "http://sites.nicholas.duke.edu/clarklab/code/",
-  textVersion  = paste("Clark, J.S., C. Nunes, and B. Tomasek (2019).","Fecundity of trees and the colonization-competition hypothesis. Ecological Monographs",
-          "e01381")
+  pages   = "e01381",
+  volume  = "89",
+  journal = "Ecological Monographs",
+  url = "https://esajournals.onlinelibrary.wiley.com/doi/10.1002/ecm.1381"
   )
