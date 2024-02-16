@@ -36,7 +36,7 @@ repmis::source_data( d )
 
 # all trees in a plot:
 
-wi  <- which( fecPred$plotSpec == 'BERK28 abiesGrandis' ) # tree-years in group
+wi  <- which( fecPred$plotSpec == 'BERK28 abiesGrandis' ) # tree-years in plot-species group
 tmp <- mastVolatility( treeID = fecPred$treeID[wi], year = fecPred$year[wi], 
                        fec = fecPred$fecEstMu[wi], minLength = 10 )
 period  <- 1/tmp$frequency

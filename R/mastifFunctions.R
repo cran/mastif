@@ -26,6 +26,89 @@ colorScaleLegend <- function( xleg, yleg, zlim, ncol = 10, units = '',
 }
 
 
+degreeDays <- function( tmin, tmax, thresholdHot = 3.8, thresholdCold = 7.2,
+                        freeze = 0 ){
+  
+  # assumes temp is daily
+  
+  hdd <- tmax - thresholdHot
+  hdd[ hdd < 0 ] <- 0
+  
+  cdd <- thresholdCold - tmin
+  cdd[ cdd < 0 ] <- 0
+  
+  
+  # late frost X hdd
+  fr <- freeze - tmin
+  fr[ fr < 0 ] <- 0
+ # fr <- fr*hdd
+  
+  hdd <- cumsum(hdd)
+  lfi <- cumsum( fr*hdd )
+  
+  cdd <- cumsum(cdd)
+  
+  freezeXhdd <- max(lfi)
+  
+  list( cdd = cdd, hdd = hdd, lfi = lfi, freezeXhdd = freezeXhdd ) 
+}
+
+shadeThreshold <- function( x, y, tmin = NULL, tmax = NULL, 
+                            ylim = range( c(y, tmin, tmax) ),
+                            border = 'brown', col = '#fed976', 
+                            xaxt = 's', yaxt = 's', add = T,
+                            LINES = F ){
+  
+  # LINES draws vertical lines at data points
+  
+  if( length(y) == 1 ){
+    if( !is.null( tmin ) )y <- rep( y, length(tmin) )
+    if( !is.null( tmax ) )y <- rep( y, length(tmax) )
+  }
+  if( !is.null( tmin ) )
+    if( length(tmin) == 1) tmin <- rep( tmin, length(y) )
+  if( !is.null( tmax ) )
+    if( length(tmax) == 1) tmax <- rep( tmax, length(y) )
+  
+  if( !add ){
+    plot( x, y, type = 'l', xaxt = 'n', xlab = '', 
+          xaxt = xaxt, yaxt = yaxt,
+          ylab = '', col = 'white', lwd = 6, ylim = ylim,
+          bty = 'n' )
+    lines( x, tmax, col = 'white', lwd = 6 )
+  }
+  
+  if( !is.null( tmin ) ){   # shade above tmin
+    pts <- intersectLines( x, y1 = y, y2 = tmin )
+    
+    if( length(pts$poly1) > 0 ){
+      for( j in 1:length( pts$poly1 ) )
+        polygon(pts$poly1[[j]][,1], pts$poly1[[j]][,2], border = border, col = col)
+    }
+  }
+  if( !is.null( tmax ) ){  # shade below tmax
+    
+    pts <- intersectLines( x, y1 = y, y2 = tmax )
+    
+    if( length(pts$poly2) > 0 ){
+      for( j in 1:length( pts$poly2 ) )
+        polygon(pts$poly2[[j]][,1], pts$poly2[[j]][,2], border = border, col = col)
+    }
+  }
+  if( LINES ){
+    
+    if( is.null(tmax) ){
+      ww <- which( y > tmin )
+      if( length(ww) > 0 )segments( x[ww], tmin[ww], x[ww], y[ww], col = border )
+    }
+    if( is.null(tmin) ){
+      ww <- which( y < tmax )
+      if( length(ww) > 0 )segments( x[ww], y[ww], x[ww], tmax[ww], col = border )
+    }
+    
+  }
+}
+
 intersectLines <- function (x, y1, y2){
   
   # intersection points and polygons for y1 > y2 and y2 > y1
@@ -41,7 +124,7 @@ intersectLines <- function (x, y1, y2){
  #   origin <- as.POSIXlt( as.Date(paste( min( xx[,1] ), '-01-01', sep = '' )) 
   }
   
-  tiny <- 1e-15
+  tiny <- 1e-12
   y1 <- y1 + rnorm( length(y1), 0, tiny )
   
   n <- length(x)
@@ -70,13 +153,6 @@ intersectLines <- function (x, y1, y2){
   pt1  <- rbind( c(x[1], y1[1]), ipoints, c(x[n], y1[n]) )
   pt2  <- rbind( c(x[1], y2[1]), ipoints, c(x[n], y2[n]) )
   
- # 
-  
- # w0 <- which( diff(pt1[,1]) == 0 )
- # if( length( w0 ) > 0 ){
- #   pt1[w0+1,1] <- pt1[w0+1,1] + tiny
- # }
-  
   pt2 <- pt2[ !duplicated(pt1[,1]), ]
   pt1 <- pt1[ !duplicated(pt1[,1]), ]
   
@@ -102,8 +178,42 @@ intersectLines <- function (x, y1, y2){
       p2 <- append( p2, list( pk ) )
     }
   }
+  if( length(p1) > 0 ){
+    for( k in 1:length(p1)){  # all above y2 
+      p1[[k]][ abs(p1[[k]][,2]) < 1e-10, 2] <- 0
+      pk <- p1[[k]]
+      pn   <- RANN::nn2( x, pk[,1], k = 1 )[[1]]
+      ymin <- y2[ pn ]
+      whi  <- which( pk[, 2] < ymin )
+      if( length( whi ) == 0 )next
+      pk[ whi, 2] <- ymin[ whi ]
+      p1[[k]] <- pk
+    }
+  }
+  if( length(p2) > 0 ){
+    for( k in 1:length(p2)){  # all below y2 
+      p2[[k]][ abs(p2[[k]][,2]) < 1e-10, 2] <- 0
+      pk   <- p2[[k]]
+      pn   <- RANN::nn2( x, pk[,1], k = 1 )[[1]]
+      ymax <- y2[ pn ]
+      whi  <- which( pk[, 2] > ymax )
+      if( length( whi ) == 0 )next
+      pk[ whi, 2] <- ymax[ whi ]
+      p2[[k]] <- pk
+    }
+  }
+  if( length( p1 ) > 1 ){
+    p1 <- p1[ which( !sapply( p1, var )[3,] == 0 ) ]
+  }else{
+    if( length(p1) == 1)p1 <- p1[ which( !sapply( p1, var )[4] == 0 ) ]
+  }
+  if( length( p1 ) > 1 ){
+    p2 <- p2[ which( !sapply( p2, var )[3,] == 0 ) ]
+  }else{
+    if( length(p2) == 1)p2 <- p2[ which( !sapply( p2, var )[4] == 0 ) ]
+  }
   
-  return( list(ipoints = ipoints, poly1 = p1, poly2 = p2) )
+  list(ipoints = ipoints, poly1 = p1, poly2 = p2) 
 }
 
 speciesRegion <- function( spec, reg ){
@@ -8672,8 +8782,6 @@ commas4numbers <- function( x ){
                     ncol = 2, byrow = TRUE )[, 2]
     }
   }
-  
-  print( vnames )
     
   rownames( vnames ) <- snames[ vnames[, 1]]
   colnames( vnames ) <- c( iname, xn )
@@ -9041,8 +9149,6 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   
   if( CONES ){
     
-    tdata$repr[ tdata$cropCount > 0] <- 1
-    
     if( is.null( seedTraits ) ){
       warning( 'cannot use treeData$cropCount without inputs$seedTraits, 
               assumed = 1' )
@@ -9164,16 +9270,19 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   zknown <- znew  # observed repr or above min diam
   
   all0 <- all1 <- last0*0
- # all0[ last0 >= nyr] <- 1
- # all1[ first1 == 1] <- 1
-  
   # mature first yr in data?
   fyr <- tapply( tdata$year, tdata$treeID, min )  # 1st yr in data
-  all1[ which( zknown[ cbind( names(fyr), as.character(fyr) ) ] == 1 ) ] <- 1
+  fm  <- cbind( names(fyr), as.character(fyr) )
+  w1  <- which( zknown[ fm ] == 1 )
+  ff  <- fm[ w1, 1] 
+  all1[ ff ] <- 1
   
   # immature last yr in data
-  fyr <- tapply( tdata$year, tdata$treeID, max )  # 1st yr in data
-  all0[ which( zknown[ cbind( names(fyr), as.character(fyr) ) ] == 0 )] <- 1
+  fyr <- tapply( tdata$year, tdata$treeID, max )  # last yr in data
+  fm  <- cbind( names(fyr), as.character(fyr) )
+  w1  <- which( zknown[ fm ] == 0 )
+  ff  <- fm[ w1, 1] 
+  all0[ ff ] <- 1
   
   last0first1 <- cbind( last0, first1, all0, all1 )
   
@@ -9192,7 +9301,7 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
     zk[ which( k >= first1 )] <- 1
     zknown[, k] <- zk
     
-    zk <- zmat[, k]
+    zk  <- zmat[, k]
     wna <- which( is.na( zk ) )
     zk[ k < matYr] <- 0
     zk[ k >= matYr] <- 1
@@ -10243,7 +10352,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = as.formula( "~diam" 
     
     if( verbose & SEEDDATA ){
       cat( '\nSeed count by plot:\n' )
-      print( seedTable )
+      print( head( seedTable ) )
     }
     
     if( AR ){
@@ -10511,7 +10620,7 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = as.formula( "~diam" 
   
   if( 'groupName' %in% colnames( tdata ) & 'site' %in% colnames( tdata ) & verbose ){
     cat( '\nTree-years by site and random group name\n' )
-    print( table( tdata$site, tdata$groupName ) )
+    print( head( table( tdata$site, tdata$groupName ) ) )
   }
   
   # reg variance
@@ -10569,8 +10678,6 @@ mastif <- function( inputs, formulaFec = NULL, formulaRep = as.formula( "~diam" 
     }
     tOptList = list( tOpt = tOpt, c1 = c1, c2 = c2, cn = cn, cq = cq )
   }
-  
-  
   
   
   if( FECWT ){
@@ -15745,12 +15852,21 @@ missingTreeData <- function( treeData, vname ){
   tvec
 }
 
+monthAxis <- function( at = c(1, 4, 7, 10 ), cex.axis = 1.2, tick = T ){
+  
+  mnames <- c('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec' )
+  
+  axis( 1, at = at, labels = mnames[at], cex.axis = cex.axis, tick = tick ) 
+  axis( 1, at = c(1,12), labels = F )
+}
+
 
 aspectAxis <- function( at = c(0, 90, 180, 270, 360), labels = c('N','E','S','W','N'), 
                         cex.axis = 1.2, tick = T ){
   
   axis( 1, at = at, labels = labels, 
         cex.axis = cex.axis, tick = tick ) 
+
 }
 
 treeSeedPlots <- function( tdata, sdata, xytree, xytrap, priorTable, 
@@ -16045,7 +16161,19 @@ rmQuad <- function( x ){
   if( length(wc) > 0 )x <- x[ ,!colnames(x) %in% qcol[wc] ]
   x
 }
- 
+
+columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
+  
+  omit <- character( 0 )
+  toMatch <- c("^2", ":", "Site")
+  omit <- colnames( x )[ 
+    grepl( paste( stringVec, collapse="|"), colnames( x ) ) 
+  ]
+  if( length( omit ) > 0 ){  
+    x <- x[, !colnames( x ) %in% omit ] 
+  }
+  list( x = x, removed = omit )
+}
 
 .setupData <- function( formulaFec, formulaRep, tdata, sdata, 
                        xytree, xytrap, specNames, seedNames, AR, YR, 
@@ -16213,15 +16341,16 @@ rmQuad <- function( x ){
   seedTraits    <- tmp$seedTraits
   tdata         <- tmp$tdata
   
-  xytree <- xytree[ xytree$treeID %in% tdata$treeID, ]
+  if( !is.null( xytree ) ){
+    xytree <- xytree[ xytree$treeID %in% tdata$treeID, ]
+    xytree$fit <- last0first1[ xytree$treeID, 'fit']
+  }
   
   if( verbose ){
     cat( '\nMaximum diameter:\n' )
     ww <- which.max( tdata$diam )
     print( tdata[ ww, c( 'plot', 'tree', 'species', 'year', 'diam' )] )
   }
-  
-  xytree$fit <- last0first1[ xytree$treeID, 'fit']
   
   if( SEEDDATA ){
     tdata$obsTrap <- addObsTrap( tdata, sdata )
@@ -16381,7 +16510,7 @@ rmQuad <- function( x ){
   specNames <- sort( unique( as.character( tdata$species ) ) )
   
   standX <- character( 0 )
-  xmean <- xsd <- numeric( 0 )
+  xmean  <- xsd <- numeric( 0 )
   
   wstand <- which( !colnames( tunstand ) %in% scode )
   notStandard <- scode
@@ -16426,6 +16555,8 @@ rmQuad <- function( x ){
   rowsBySpec <- rep(0, nspec)
   names( rowsBySpec ) <- specNames
   
+  omitSpecies <- character( 0 )
+  
   # excluded variables in notFit #####################
   for( m in 1:nspec ){
     
@@ -16438,15 +16569,22 @@ rmQuad <- function( x ){
     
     rowsBySpec[m] <- length(wrow)
     
-    if( rspec < ncol( xfecm ) ){
-      tmp    <- fullRank( xfecm )
-      
-      if( nrow(tmp) == nrow(xfecm) ){  # did not omit rows
-        notFit <- unique( c( notFit, 
-                             colnames( xfecm )[ !colnames( xfecm ) %in% colnames( tmp )] ) )
-        xfecm <- tmp
-      }
+    if( rspec <= ncol( xfecm ) ){
+      tmp <- columns2remove( xfecm, stringVec = c("^2", ":", "Site") )
+      xfecm <- tmp$x
+      omit  <- tmp$removed
+      if( length( omit ) > 0 )notFit <- unique( c( notFit, omit ) )
     }
+    
+    rspec <- qr( xfecm )$rank
+    if( rspec < ncol( xfecm ) ){
+      tmp <- columns2remove( xfecm, stringVec = c( "aspect", "cec", "ph" ) )
+      xfecm <- tmp$x
+      omit  <- tmp$removed
+      if( length( omit ) > 0 )notFit <- unique( c( notFit, omit ) )
+    }
+    
+    rowsBySpec[m] <- length(wrow)
     
     VIF <- 1000
     vex <- character(0)
@@ -16459,31 +16597,30 @@ rmQuad <- function( x ){
     VIF    <- .checkDesign( xfecm[drop=F,, !colnames(xfecm) %in% notCheck] )$VIF
     xcc    <- xfecm
     
+    if( all( VIF == 999 ) ){
+      omitSpecies <- c( omitSpecies, specNames[m] )
+      next
+    }
+    
     while( max(VIF, na.rm = T) > 10 ){
       
       vm     <- columnSplit( names(VIF), '_' )[,2]
       
       if( all( VIF > 10 ) ){
-        gi <- c( grep(':', colnames(xcc), fixed = T ),
-                 grep('^2', colnames(xcc), fixed = T ) )
-        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        
+        xcc <- columns2remove( xcc, c(':', '^2') )$x
         VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
         if( max(VIF, na.rm = T ) < 10 )break
       }
       if( all( VIF > 10 ) ){
-        gi <- c( grep('Site', colnames(xcc), fixed = T ),
-                 grep('cec', colnames(xcc), fixed = T ),
-                 grep('ph', colnames(xcc), fixed = T) )
         
-        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        xcc <- columns2remove( xcc, c('Site', 'site', 'ph' ) )$x
         VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
         if( max(VIF, na.rm = T ) < 10 )break
       }
       if( all( VIF > 10 ) ){
-        gi <- c( grep('slope', colnames(xcc), fixed = T ),
-                 grep('aspect', colnames(xcc), fixed = T ) )
         
-        if( length(gi) > 0 )xcc <- xcc[,-gi]
+        xcc <- columns2remove( xcc, c('slope', 'aspect' ) )$x
         VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
         if( max(VIF, na.rm = T ) < 10 )break
       }
@@ -16491,9 +16628,7 @@ rmQuad <- function( x ){
       ga <- grep('aspect', colnames(xcc) ) # if no slope
       
       if( vm[ which.max( VIF ) ] == 'slope' ){
-        gs <- unique( c(ga, grep( 'slope', colnames(xcc) ) ) )
-        notFit <- c( notFit,  colnames( xcc )[ga] )
-        xcc <- xcc[ ,-gs]
+        xcc <- columns2remove( xcc, c('slope','aspect') )$x
         VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
         if( max(VIF, na.rm = T ) < 10 )break
       }
@@ -16501,74 +16636,75 @@ rmQuad <- function( x ){
       ga <- grep('aspect', colnames(xcc) ) # if no slope
       gs <- grep('slope', colnames(xcc) )
       if( length(gs) == 0 & length(ga) > 0 ){
-        notFit <- c( notFit, colnames(xcc)[ga] )
-        xcc <- xcc[ ,-ga]
+        xcc <- columns2remove( xcc, c('aspect') )$x
       }
       
       VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
       if( max(VIF, na.rm = T ) < 10 )break
       
-      if( all( VIF > 10 ) ){
-        gi <- c( grep('aspect', colnames(xcc) ),
-                 grep('slope', colnames(xcc) ),
-                 grep('Site', colnames( xcc ) ) )
-        if( length(gi) > 0 )xcc <- xcc[ ,-gi]
-        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
-      }
+      cc <- columns2remove( xcc[, !colnames(xcc) %in% notCheck], 
+                            c('shade', 'diam') )$remove
+      vv <- VIF[ !names( VIF ) %in% cc ]
       
-      if( max(VIF, na.rm = T ) < 10 )break
-      
-      ga <- grep('aspect', names(VIF) )
-      if( length(ga) == 1 ){
-        aa <- paste( specNames[m], c('aspect1', 'aspect2'), sep = '_' )
-        wa <- which( !aa %in% colnames(xcc) )
-        
-        if( length( wa ) > 0 ){
-          xcc <- cbind( xcc, xfec[drop=F, wrow, aa[wa]] )
-        }
-        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
+      if( all( vv == 999 ) ){
+        xcc <- xcc[drop = F, ,!colnames(xcc) %in% names(vv) ]
+        break
       }
       
       vmax   <- names( which.max(VIF) )
+      
       ga <- grep('aspect', vmax )
+      
       if( length(ga) > 0 ){  # is biggest is aspect & both too high, rm both
+        
         va <- VIF[ paste( specNames[m], c('aspect1','aspect2'), sep = '_' ) ]
+        
         if( all(va > 10) ){
-          xcc <- xcc[ drop=F, , !colnames(xcc) %in% names(va) ]
+          xcc <- columns2remove( xcc, names(va) )$x
           VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
           if( max(VIF, na.rm = T ) < 10 )break
+        }else{    # only one aspect too large, keep both
+          break
         }
+        
         ga <- grep('aspect', names(VIF) )
-        if( all(VIF[-ga ] < 10 ) & any(VIF[ga] < 10) )break
+        
+        if( all(VIF[ -ga ] < 10 ) & any(VIF[ga] < 10) )break
         if( any(VIF[ga] < 10) ){
           notCheck <- c( notCheck, names(VIF[ga][ VIF[ga] > 10 ]) )
         }
       }else{
-        xcc <- xcc[drop=F, , !colnames(xcc) == vmax ]
+        xcc <- columns2remove( xcc, vmax )$x
       }
       
-      cx <- columnSplit( colnames(xcc), '_' )[,2]
+      cx   <- columnSplit( colnames(xcc), '_' )[,2]
       form <- as.formula( paste( '~', paste0(cx, collapse = ' + ') ) )
       terms <- rmInteractionsFormula( form )$terms
       terms <- paste( specNames[m], terms, sep = '_' )
-      xcc <- xcc[drop=F, , terms ]
-      xc    <- xcc[drop=F,, !colnames(xcc) %in% notCheck]
+      xcc <- xcc[ drop=F, , terms ]
+      xc  <- xcc[ drop=F, , !colnames(xcc) %in% notCheck]
+      xcc <- xc
       if( ncol(xc) == 0 )break
-      VIF <- .checkDesign( xc )$VIF
+      VIF <- .checkDesign( xcc )$VIF
       VIF <- VIF[ !names(VIF) %in% dname ]
     }
      
     notFit <- unique( c( notFit, 
                          colnames(xfecm)[!colnames(xfecm) %in% colnames(xcc) ] ) )
     # exclude slope, then exclude aspect
-    ss <- grep( 'slope', vex )
-    aa <- grep( 'aspect', vex )
-    if( length(ss) == 1 & length(aa) > 0 )notFit <- c( notFit,  vex[aa] )
+    ss <- grep( 'slope', notFit )
+    aa <- grep( 'aspect', notFit )
+    if( length(ss) == 1 & length(aa) > 0 )
+      notFit <- c( notFit,  columns2remove( xfecm, 'aspect' )$removed )
     
     # if one aspect included, then include both
-    aa <- grep( 'aspect', vex )
-    if( length(aa) == 1 )notFit <- notFit[ notFit != vex[aa] ]
+    aa <- grep( 'aspect', notFit )
+    if( length(aa) == 1 )notFit <- notFit[ notFit != notFit[aa] ]
   } 
+  
+  if( length( omitSpecies ) > 0 ){
+    rowsBySpec[ omitSpecies ] <- 0
+  }
   
   if( length( notFit ) > 0 ){  
     notFit <- unique( notFit )
@@ -16587,10 +16723,13 @@ rmQuad <- function( x ){
     ptab[ ss ] <- 1
     fc   <- colSums( ptab )
     keep <- names(fc)[ fc < nspec ]
+    
     SPEC <- T
     if( nspec == 1 )SPEC <- F
     formulaFec <- vars2formula( keep, SPEC = SPEC )
-    notFit <- notFit[ ss[,2] %in% keep ]  # keep only notFit still in full model
+    formulaFec <- rmInteractionsFormula( formulaFec )$form
+    wf <- which( ss[,2] %in% keep )
+    if( length(wf) > 0 )notFit <- notFit[ ss[,2] %in% keep ]  # keep only notFit still in full model
   }
   
   # species with too few observations
@@ -16605,7 +16744,8 @@ rmQuad <- function( x ){
     if( length(ss) > 0 )ptab[ ss ] <- ptab[ ss ] - 1
   }
 
-  ww <- which( rowSums( ptab ) > rowsBySpec )               # FIX THIS
+  ww <- which( rowSums( ptab ) > rowsBySpec )   # variables exceeds obs that are mature
+  
   if( length(ww) > 0 ){                                     # remove species
     specNames <- specNames[ !specNames %in% names( ww ) ]
     nspec <- length(specNames)
@@ -16773,6 +16913,8 @@ rmQuad <- function( x ){
     xt <- xt[wr,]
     xu <- xu[wr,]
     
+    xt <- columns2remove( xt, c('^2',':') )$x
+    
     s2 <- c( grep( '^2', colnames( xt ), fixed = TRUE ),
              grep( ':', colnames( xt ), fixed = TRUE ) )
     if( length( s2 ) > 0 )xt <- xt[, -s2 ]
@@ -16798,8 +16940,6 @@ rmQuad <- function( x ){
       cat( paste( '\n', specNames[ k], ':\n', sep = '' ) )
       print( cbind( VIF, xrange, cfx ) )
       
-      if( max( xcheck$VIF, na.rm = TRUE ) > 10 | is.na( max( xcheck$VIF ) ) )
-        cat( 'VIF too high or undefined--too many predictors\n' )
     }
   }
    
@@ -17644,7 +17784,7 @@ invertXX <- function( XX ){
 getVv <- function( x, y, sigma, priorIV = NULL ){
   
   XX <- 1/sigma*crossprod( x )
-  if( is.null(priorIV) ){  # Zellner's g
+  if( is.null(priorIV) ){      # Zellner's g
     XX <- XX*(1 + 1/nrow(x))
   }
   v  <- 1/sigma*crossprod( x, y )
@@ -17719,7 +17859,7 @@ getVv <- function( x, y, sigma, priorIV = NULL ){
       yg <- yg - reffect[ obsRows]
     }
     
-    zrow <- z[ obsRows]
+    zrow <- z[ obsRows ]
     
     if( sum( zrow ) <= ncol( xfz ) ){                     # insufficient mature trees
       return( list( bgFec = bgFec, bgRep = bgRep ) )
@@ -17802,7 +17942,8 @@ getVv <- function( x, y, sigma, priorIV = NULL ){
           optimumT <- -bgf[cn,]/2/bgf[cq,]
           
         }else{
-          tmp <- getVv( xfz[ zrow == 1, ], yg[ zrow == 1], sg )
+          w1  <- which( zrow == 1 )
+          tmp <- getVv( xfz[ w1, ], yg[ w1 ], sg )
           V   <- tmp$V
           v   <- tmp$v
         }
@@ -19096,6 +19237,7 @@ baselineHist <- function(y1, bins = NULL, ylim = NULL,
 .shadeInterval <- function( xvalues, loHi, col = 'grey', PLOT = TRUE, add = TRUE, 
                            xlab = ' ', ylab = ' ', xlim = NULL, ylim = NULL, 
                            LOG = FALSE, trans = .5 ){
+  tmp <- NULL
   
   #draw shaded interval
   
@@ -19103,7 +19245,7 @@ baselineHist <- function(y1, bins = NULL, ylim = NULL,
   tmp  <- smooth.na( xvalues, loHi )
 
   xvalues <- tmp[, 1]
-  loHi <- tmp[, -1]
+  loHi    <- tmp[, -1]
   
   xbound <- c( xvalues, rev( xvalues ) )
   ybound <- c( loHi[, 1], rev( loHi[, 2] ) )

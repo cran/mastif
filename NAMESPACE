@@ -22,7 +22,7 @@ importFrom("stats", "as.formula", "arima", "binomial", "contrasts", "cor", "cov"
            "qnorm", "qpois", "quantile", "rbinom", "rexp", "relevel", "rgamma", 
             "rnorm", "rpois", "runif", "runmed", "sd", "spectrum",
            "terms", "toeplitz", "ts", "var", "qchisq")
-importFrom("utils", "setTxtProgressBar", "txtProgressBar", 
+importFrom("utils", "head", "setTxtProgressBar", "txtProgressBar", 
            "read.table", "read.csv", "write.table")
 importFrom("robustbase", "fullRank")
 export(mastif, mastMap, mastPlot, mastSim, mastFillCensus, mastClimate, mastPriors, 

@@ -22,8 +22,8 @@ Seed production is estimated from censuses of trees and seed collections from tr
   \tabular{ll}{
   Package: \tab mastif\cr
   Type: \tab Package\cr
-  Version: \tab 2.1\cr
-  Date: \tab 2024-1-10\cr
+  Version: \tab 2.2\cr
+  Date: \tab 2024-2-16\cr
   License: \tab GPL (>= 2)\cr
   URL: \tab http://sites.nicholas.duke.edu/clarklab/code/\cr
   }
