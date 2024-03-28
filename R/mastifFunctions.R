@@ -1,26 +1,91 @@
 #  TOF
 
 
-colorScaleLegend <- function( xleg, yleg, zlim, ncol = 10, units = '',
-                              colorRamp, text.pos = 'left' ){
+colorScaleLegend <- function( xleg, yleg = NULL, zlim, 
+                              zlimLabs = zlim,
+                              xlim = NULL, ylim = NULL, ncol = 10, units = '',
+                              colRamp ){
   
-  lcol <- colorRampPalette(colorRamp)( ncol )
+  xchar <- max( strwidth( zlimLabs ) )
+  
+  xusr <- par('usr')[1:2]
+  yusr <- par('usr')[3:4]
+  
+  if( is.null( xlim ) )xlim <- xusr
+  if( is.null( ylim ) )ylim <- yusr
+  
+  dx <- diff( xlim )
+  dy <- diff( ylim )
+  
+  tpos <- 2
+  xtext <- xlim[2] - dx/150
+  
+  if( is.character( xleg ) ){
+    pos <- c('bottomleft', 'bottomright','topleft','topright')
+    if( !xleg %in% pos )
+      stop( paste( 'legend position must be:', paste0( pos, collapse = ', ' ) ) )
+    
+    xwide <- dx/25
+    yhigh <- dy/5
+    
+    pos <- xleg
+    
+    xleg  <- xlim[1] + c(-2*xwide, -xwide ) # bottomleft
+    yleg  <- ylim[1] + c(0, yhigh )
+    tpos  <- 4                              # right of scale
+    xtext <- xleg[2] + dx/150
+    
+    if( pos == 'topleft' )yleg <- ylim[2] + c(-yhigh, 0 )
+    
+    if( xusr[1] < xlim[1] ){
+      xleg <- xleg - xwide
+      xtext <- xtext - xwide
+    }
+    
+    if( pos == 'bottomright' ){
+      xleg <- xlim[2] + c(0, xwide )
+      yleg <- ylim[1] + c(0, yhigh )
+      tpos <- 2                     # left of scale
+      xtext <- xlim[2] - dx/150
+      if( xusr[2] > xlim[2] ){
+        xleg <- xleg + xwide
+        xtext <- xtext + xwide
+      }
+    }
+    if( pos == 'topright' ){
+      xleg <- xlim[2] + c(0, xwide )
+      yleg <- ylim[2] + c( -yhigh, 0 )
+      tpos <- 2                     # left of scale
+      xtext <- xleg[1] - dx/150
+      if( xusr[2] > xlim[2] ){
+        xleg <- xleg + xwide
+        xtext <- xtext + xwide
+      }
+    }
+  }
+  
+  xbox <- xleg
+  ybox <- yleg + dy/20*c(-1, 1)
+  if( nchar( units ) > 0 )ybox[2] <- ybox[2] + dy/20
+  if( tpos == 2 )xbox[1] <- xbox[1] - xchar - dx/10
+  if( tpos == 4 )xbox[2] <- xbox[2] + xchar + dx/10
+  
+  lcol <- colorRampPalette(colRamp)( ncol )
   zseq <- seq( yleg[1], yleg[2], length = ncol + 1 )
   
   par( xpd = T )
+  rect( xbox[1], ybox[1], xbox[2], ybox[2], col = 'white', border = NA )
   for( i in 1:ncol ){
     yi <- zseq[i:(i+1)]
     rect(xleg[1], yi[1], xleg[2], yi[2], col = lcol[i], border = NA )
   }
   
-  ytext <- yleg
-  xtext <- xleg[1] - 1.5*diff(xleg)
-  if( text.pos == 'right' )xtext <- xleg[2] + 1.5*diff(xleg)
+  textColor <- colorRampPalette(colRamp)( 2 )
+  text( rep( xtext, 2 ), yleg, zlimLabs, pos = tpos, col = textColor, 
+        cex = .9)
   
-  leg <- zlim
-  
-  text( xtext[ c(1,1)], ytext, leg, col = colorRampPalette(colorRamp)( 2 ) )
-  text( mean( xleg ), yleg[2] + diff(yleg)/2, units )
+  if( nchar( units ) > 0 )text( mean( xleg ), yleg[2] + diff(yleg)/5, units,
+                                cex = .9 )
   
   par( xpd = F )
 }
@@ -1125,7 +1190,7 @@ gen4code <- function( xx, nn = 4 ){   # needed for combineds runs
   xx
 }
 
-.appendMatrix <- function( m1, m2, fill = NA, SORT = FALSE, asNumbers = FALSE ){  
+.appendMatrix <- function( m1, m2, fill = 0, SORT = FALSE, asNumbers = FALSE ){  
   
   # matches matrices by column names
   # asNumbers: if column heads are numbers and SORT, then sort numerically
@@ -1174,11 +1239,14 @@ gen4code <- function( xx, nn = 4 ){   # needed for combineds runs
   
   nr <- length( allr )
   nc <- length( allc )
-  out <- matrix( 0, nr, nc )
+  out <- matrix( NA, nr, nc )
   colnames( out ) <- allc
   rownames( out ) <- allr
   
   out[ rownames( m1 ), colnames( m1 )] <- m1
+  otmp <- out[ rownames( m2 ), colnames( m2 )]
+  otmp[ is.na( otmp ) ] <- 0
+  out[ rownames( m2 ), colnames( m2 )] <- otmp
   out[ rownames( m2 ), colnames( m2 )] <- out[ rownames( m2 ), colnames( m2 )] + m2
   
   out
@@ -4707,18 +4775,24 @@ circularStats <- function( weight, degrees, nboot = 2000 ){
 
 
 loadBestFit <- function( genus, region, group = 'output', 
-                         output = NULL, verbose = T ){
+                         output = '', verbose = T ){
   
-  # output can be 'pathOnly', in which case nothing is loaded, if NULL, then group is loaded
+  # output can be 'pathOnly', in which case nothing is loaded, if '', then group is loaded
   # group can be: 'output','chains','data','fit','inputs','parameters', or 'prediction'
   
-  fitLog <- read.csv ( "fitLog.csv", row.names = 1 )
+  fitLog <- read.csv ( "fitLogs/fitLog.csv", row.names = 1 )
   fit    <- fitLog[ startsWith( rownames( fitLog ),
                                 paste( genus, region, sep = '_' ) ),  ]
   
-  specs <- read.csv( "fitSpecies.csv", row.names = 1 )
+  specs <- read.csv( "fitLogs/fitSpecies.csv", row.names = 1 )
   rs    <- columnSplit( rownames(specs), '_' )
-  specs <- specs[ rs[,1] == genus & rs[,2] == region, ]
+  
+  ww <- which( rs[,1] == genus & rs[,2] == region )
+  
+  if( length(ww) == 0 )return( NULL )
+  
+  specs <- specs[ ww, ]
+  
   rs    <- columnSplit( rownames(specs), '_' )
   spp   <- sort( unique( substr( rs[,4], 12, 100 ) ) )
   
@@ -4731,7 +4805,9 @@ loadBestFit <- function( genus, region, group = 'output',
   dir   <- paste0( tmp[ 3:1 ], collapse = '/' )
   file  <- paste( dir, '/', group, '.rdata', sep = '' )
   
-  if( !is.null(output) ){
+  if( output == 'pathOnly' )return( file )
+  
+  if( nchar( output ) > 0 ){
     obs   <- group
     if( obs == 'output' )obs <- c('chains','data','fit','inputs','parameters', 'prediction')
     file  <- paste( dir, '/', obs, '.rdata', sep = '' )
@@ -4742,14 +4818,14 @@ loadBestFit <- function( genus, region, group = 'output',
     
     if( !file.exists( ofile) )stop( paste('no file:', ofile ) )
     if( verbose )print( ofile )
-    load( ofile, verbose = verbose )
+    load( ofile, envir = .GlobalEnv, verbose = verbose )
     return(  )
     
   }
   
   if( !file.exists( file) )stop( paste('no file:', file ) )
   if( verbose )print( file )
-  load( file, verbose = verbose )
+  load( file, envir = .GlobalEnv, verbose = verbose )
 }
 
 xy2theta <- function( xy ){
@@ -5151,7 +5227,7 @@ mastPlot <- function( output, plotPars = NULL ){
   }
   if( ncol( ugibbs ) > 1 ){
     sord   <- order( colMeans( ugibbs ), decreasing = FALSE ) 
-    sord   <- colnames( ugibbs )[ sord]
+    sord   <- colnames( ugibbs )[ sord ]
     ugibbs <- ugibbs[, sord, drop = FALSE]
   }
 
@@ -5940,34 +6016,34 @@ mastPlot <- function( output, plotPars = NULL ){
     xlim <- range( bfec[,tcols] )
     xmu   <- colMeans( bfec[drop = F, ,tcols] )
     ymu   <- colMeans( bfec[drop = F, ,scols] )
+    
+    sfile <- 'slopeTPI.pdf'
+    if( SAVEPLOTS )pdf( file = .outFile( outFolder, sfile ) )
+    
+    par( bty = 'n' )
+    plot( NA, xlim = xlim, ylim = ylim, xlab = 'tpi', ylab = 'slope' )
+    abline( h = 0, lty = 2, lwd = 2, col = 'grey' )
+    abline( v = 0, lty = 2, lwd = 2, col = 'grey' )
+    
+    for( j in 1:length(scols) ){
       
-      sfile <- paste( 'slopeTPI_', speck, '.pdf', sep = '' )
-      if( SAVEPLOTS )pdf( file = .outFile( outFolder, sfile ) )
+      xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                          pr = .9 )$ellipse
+      polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .1 ) )
       
-      par( bty = 'n' )
-      plot( NA, xlim = xlim, ylim = ylim, xlab = 'tpi', ylab = 'slope' )
-      abline( h = 0, lty = 2, lwd = 2, col = 'grey' )
-      abline( v = 0, lty = 2, lwd = 2, col = 'grey' )
+      xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                          pr = .68 )$ellipse
+      polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .3 ) )
       
-      for( j in 1:length(scols) ){
-        
-        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
-                            pr = .9 )$ellipse
-        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .1 ) )
-        
-        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
-                            pr = .68 )$ellipse
-        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .3 ) )
-        
-        xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
-                            pr = .5 )$ellipse
-        polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .4 ) )
-        text( xmu[j], ymu[j], specs[j], col = specColors[specs[j]] )
-      }
-      
-      if( CONSOLE )readline( 'slope by tpi -- return to continue ' )
-      if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
-      if( is.null( RMD ) )graphics.off( )
+      xy <- biVarMoments( bfec[chainRows, tcols[j]], bfec[chainRows, scols[j]], PLOT = F,
+                          pr = .5 )$ellipse
+      polygon( xy[,1], xy[,2], border = NA, col = .getColor( specColors[specs[j]], .4 ) )
+      text( xmu[j], ymu[j], specs[j], col = specColors[specs[j]] )
+    }
+    
+    if( CONSOLE )readline( 'slope by tpi -- return to continue ' )
+    if( SAVEPLOTS )while (!is.null(dev.list())) dev.off()
+    if( is.null( RMD ) )graphics.off( )
     
   }
   
@@ -6396,15 +6472,15 @@ mastPlot <- function( output, plotPars = NULL ){
     dcol  <- grep( '_diam', colnames( xfec ) )
     dtcol <- grep( 'diam', colnames( tdata ) )
     lab60 <- tdata[, dtcol]
-    lab60 <- lab60[ lab60 != 0]
+    lab60 <- lab60[ lab60 != 0 ]
     lab60 <- quantile( lab60, qd )
-    lab60 <- signif( lab60, 1 )
+    lab60 <- signif( lab60, 2 )
     if( lab60 < 10 )lab60 <- 10
     ord <- order( tdata[, dtcol] )
     sdd <- tdata[ ord, dtcol]
     dd <- findInterval( lab60, sdd )
     lab60 <- sdd[ dd]
-    diam60 <- xfec[ ord[ dd], dcol]
+    diam60 <- xfec[ ord[ dd ], dcol]
     diam60 <- diam60[ diam60 != 0]
     
     # each group at mean for other predictors
@@ -6421,7 +6497,8 @@ mastPlot <- function( output, plotPars = NULL ){
       
       w0 <- which( xmu != 0 )       #insert diameter value
       w0 <- intersect( w0, dcol )
-      xmu[ w0] <- diam60
+      
+      xmu[ w0 ] <- diam60
       
       xbar <- rbind( xbar, xmu )
       rnames <- c( rnames, snames[ j] )
@@ -9113,34 +9190,36 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   if( !'repr' %in% colnames( tdata ) ){
     tdata$repr <- NA
   }else{
-    tdata$repr[ tdata$repr < .5] <- 0
-    tdata$repr[ tdata$repr >= .5] <- 1
+    ww <- which( tdata$repr < .5 )
+    if( length( ww ) > 0)tdata$repr[ ww ] <- 0
+    
+    ww <- which( tdata$repr >= .5 )
+    if( length( ww ) > 0)tdata$repr[ ww ] <- 1
   }
   if( 'cropCount' %in% colnames( tdata ) ){
-    tdata$repr[ tdata$cropCount > 0]  <- 1
+    ww <- which( tdata$cropCount > 0 )
+    if( length( ww ) > 0)tdata$repr[ ww ]  <- 1
   }
   if( 'cropMax' %in% colnames( tdata ) ){
-    tdata$repr[ tdata$cropMax > 0]  <- 1
+    ww <- which( tdata$cropMax > 0 )
+    if( length( ww ) > 0)tdata$repr[ ww ]  <- 1
   }
   if( 'cropMin' %in% colnames( tdata ) ){
-    tdata$repr[ tdata$cropMin > 0] <- 1
+    ww <- which( tdata$cropMin > 0 )
+    if( length( ww ) > 0)tdata$repr[ ww ] <- 1
   }
   
   if( !'fecMin' %in% colnames( tdata ) ){
     tdata$fecMin <- 1e-4
   }else{
     wm <- which( is.na( tdata$fecMin ) )
-    if( length( wm ) > 0 ){
-      tdata$fecMin[ wm] <- 1e-4
-    }
+    if( length( wm ) > 0 )tdata$fecMin[ wm] <- 1e-4
   }
   if( !'fecMax' %in% colnames( tdata ) ){
     tdata$fecMax <- maxF
   }else{
     wm <- which( is.na( tdata$fecMax ) | tdata$fecMax == 0 )
-    if( length( wm ) > 0 ){
-      tdata$fecMax[ wm] <- maxF[ wm]
-    }
+    if( length( wm ) > 0 )tdata$fecMax[ wm] <- maxF[ wm]
   }
   tdata$fecMin[ tdata$fecMin < 1e-4] <- 1e-4
   
@@ -9291,7 +9370,14 @@ setupZ <- function( tdata, xytree, specNames, years, minD, maxD, maxFec, CONES,
   zmat[ all0 == 1, ] <- 0
   zmat[ all1 == 1, ] <- 1
   
-  matYr <- round( ( last0 + first1 )/2 )
+  diamWt <- dmat - dminMat
+  diamWt[ diamWt <= (dminMat*1.5) ] <- 99999
+  matYr <- apply( diamWt, 1, which.min )
+  matYr[ matYr < last0 ] <- last0[ matYr < last0 ]
+  matYr[ matYr > first1 ] <- first1[ matYr > first1 ]
+  
+  
+ # matYr <- round( ( last0 + first1 )/2 )
   matYr[ matYr == 0] <- 1
   matYr[ all0 == 1] <- ncol( zmat ) + 1
   
@@ -16569,7 +16655,7 @@ columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
     
     rowsBySpec[m] <- length(wrow)
     
-    if( rspec <= ncol( xfecm ) ){
+    if( rspec < ncol( xfecm ) ){
       tmp <- columns2remove( xfecm, stringVec = c("^2", ":", "Site") )
       xfecm <- tmp$x
       omit  <- tmp$removed
@@ -16604,8 +16690,6 @@ columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
     
     while( max(VIF, na.rm = T) > 10 ){
       
-      vm     <- columnSplit( names(VIF), '_' )[,2]
-      
       if( all( VIF > 10 ) ){
         
         xcc <- columns2remove( xcc, c(':', '^2') )$x
@@ -16626,6 +16710,7 @@ columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
       }
       
       ga <- grep('aspect', colnames(xcc) ) # if no slope
+      vm <- columnSplit( names(VIF), '_' )[,2]
       
       if( vm[ which.max( VIF ) ] == 'slope' ){
         xcc <- columns2remove( xcc, c('slope','aspect') )$x
@@ -16675,6 +16760,7 @@ columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
         }
       }else{
         xcc <- columns2remove( xcc, vmax )$x
+        VIF <- .checkDesign( xcc[, !colnames(xcc) %in% notCheck] )$VIF
       }
       
       cx   <- columnSplit( colnames(xcc), '_' )[,2]
@@ -16718,6 +16804,9 @@ columns2remove <- function( x, stringVec = c("^2", ":", "Site") ){
     fft <- unique( fft )
     ss     <- columnSplit(notFit, '_' )
     fall   <- unique( c( fft, ss[,2] ) ) 
+   # sall   <- unique( c(specNames, ss[,1] ) )
+    notFit <- notFit[ ss[,1] %in% specNames ]
+    ss <- ss[ ss[,1] %in% specNames, ]
     
     ptab <- matrix( 0, nspec, length( fall ), dimnames = list( specNames, fall ) )
     ptab[ ss ] <- 1
@@ -17369,34 +17458,12 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
   tmp$max
 }
 
-
 .tnormMVNmatrix <- function(avec, muvec, smat, 
                             lo=matrix(-1000,nrow(muvec),ncol(muvec)), 
                             hi=matrix(1000,nrow(muvec),ncol(muvec)),
                             whichSample = c(1:nrow(smat)) ){
   
-  #lo, hi must be same dimensions as muvec,avec
-  
-  lo[lo < -1000] <- -1000
-  hi[hi > 1000]  <- 1000
-  
-  if(max(whichSample) > length(muvec))
-    stop('whichSample outside length(muvec)')
-  
-  r <- avec
-  a <- trMVNmatrixRcpp(avec, muvec, smat, lo, hi, whichSample, 
-                       idxALL = c(0:(nrow(smat)-1)) )  
-  r[,whichSample] <- a[,whichSample]
-  r
-}
-
-
-.tnormMVNmatrix <- function(avec, muvec, smat, 
-                            lo=matrix(-1000,nrow(muvec),ncol(muvec)), 
-                            hi=matrix(1000,nrow(muvec),ncol(muvec)),
-                            whichSample = c(1:nrow(smat)) ){
-  
-  #lo, hi must be same dimensions as muvec,avec
+  #lo, hi must be same dimensions as muvec, avec
   
   lo[lo < -1000] <- -1000
   hi[hi > 1000]  <- 1000
@@ -17727,6 +17794,7 @@ dtpois <- function( lo, hi, mu, index = NULL, tiny = 1e-10 ){
       ykk <- ykk[ -wna]
       xkk <- xkk[ -wna, ]
     }
+    
     
     ttt <- suppressWarnings( lm( ykk ~ xkk ) )
     tkk <- suppressWarnings( summary( ttt )$adj.r.squared )
@@ -19402,6 +19470,8 @@ loadChainMat <- function( region = 'east',
                           outFold = 'outputTempDefPhFreezeIsolate/',
                           cname = 'bfec', burnin = 1000, ng = 4000  ){
   
+  # if outfold is a vector, loads the best fit of included folders
+  
   chains <- NULL
   
   out <- paste( outFold[1], region, '/', sep='' )
@@ -19590,8 +19660,8 @@ chains2biplot <- function( chains,
   
   v1 <- paste( specs, xnames[1], sep = '_' )
   v2 <- paste( specs, xnames[2], sep = '_' )
-  c1 <- c1[,v1]
-  c2 <- c2[,v2]
+  c1 <- c1[,v1, drop = F]
+  c2 <- c2[,v2, drop = F]
   s1 <- columnSplit( colnames(c1), '_' )
   s2 <- columnSplit( colnames(c2), '_' )
   
@@ -19626,7 +19696,10 @@ chains2biplot <- function( chains,
   
  # par( bty = 'n', omi = c(.7, .7, .1, .1), xpd = F )
   
-  plot( NA, xlim = xlim, ylim = ylim, xlab = '', ylab = '' )
+  plot( NA, xlim = xlim, ylim = ylim, xlab = '', ylab = '', 
+        xaxt = 'n', yaxt = 'n', bty = 'n' )
+  axis(1, col = "white", col.ticks = "black" )
+  axis(2, col = "white", col.ticks = "black", las = 1 )
   
   par( xpd = T )
   
@@ -19705,7 +19778,7 @@ chains2biplot <- function( chains,
     xytext[k,] <- c(loc, pos )
   }
   
-  xytext <- xytext[ !is.na(xytext[,1]),]
+  xytext <- xytext[ drop = F,!is.na(xytext[, 1]),]
   
   text( xytext[,1], xytext[,2], rownames(xytext),  col = specColors[specs], cex = cex,
         pos = xytext[,3])
@@ -19717,9 +19790,10 @@ chains2biplot <- function( chains,
 
 chains2boxplot <- function( cmat, xnames, specColors, 
                             xlab = 'Standard deviations', xlim = NULL, cex = 1,
-                            above = F ){
+                            above = F, sigonly = F ){
   
   btab <- .chain2tab( cmat )
+  if( sigonly ) btab <- btab[ btab[,5] == '*', ]
   b    <- as.matrix( btab[drop=F, ,1:4] )
   
   tt    <- columnSplit( rownames(b), '_' )
@@ -19780,8 +19854,7 @@ coeff2boxplot <- function( b, specColors = NULL, xnames = NULL, xlim = NULL, cex
     colnames(stats) <- rownames( bk )
     
     stats <- stats[drop=F,,order( stats[3,] )]
-    
-    cols <- specColors[ colnames(stats) ]
+    cols  <- specColors[ colnames(stats) ]
     
     if( is.null( xlim) )xlim = range( stats )
     

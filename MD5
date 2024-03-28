@@ -1,12 +1,12 @@
-d996c237bbec2f64bb3a3603ea73325f *DESCRIPTION
+8097699860ad59d502afd407c741747c *DESCRIPTION
 62db3dd9cd042ef6d54e53dc75b1a1ce *NAMESPACE
 c468eb05c47708d90fe23e403b7fa417 *R/RcppExports.R
-8798d959985ef9fd48b8ab025c7b1a9a *R/mastifFunctions.R
-bc272fa9d14645ab6021fd7df2aa8b32 *build/vignette.rds
+03abdf1635b3daac6eb0add18cc8f16c *R/mastifFunctions.R
+a93fcc21d3fa36d715e1c9d00a866710 *build/vignette.rds
 bbfae31dbb9540a64dfaea96e0b836f5 *inst/CITATION
 8346cbe8fa10285f07eff5d94c302c55 *inst/doc/mastifVignette.R
 336d0b51488c1b8d670a52311f20284f *inst/doc/mastifVignette.Rmd
-d415d09897ef70a012add64e271dc488 *inst/doc/mastifVignette.html
+3dc5717c4c1241608e45643ad3c8bde2 *inst/doc/mastifVignette.html
 4ca8de863e425146b11afd5e08500211 *man/mastClimate.Rd
 0b022dec70935a39412a3039d567392d *man/mastFillCensus.Rd
 7be0ccf0d86e0e7d06872282aaa405cc *man/mastMap.Rd
@@ -15,7 +15,7 @@ d415d09897ef70a012add64e271dc488 *inst/doc/mastifVignette.html
 13bed51894e8768e4a549ad44b630bac *man/mastSim.Rd
 735b24a14f979c4c85ce0766036620eb *man/mastSpectralDensity.Rd
 ffcc0de35c4a6a5643fa1bb2086e7c88 *man/mastVolatility.Rd
-c29068be5b898521b4349ef0283520c5 *man/mastif-package.Rd
+f95bd61607a702fbc0164a5dbfff753d *man/mastif-package.Rd
 e3d16935b1b11c2fdd5234995a348544 *man/mastif.Rd
 e62585629948e7dd143efbad43c2a6eb *src/Makevars
 e62585629948e7dd143efbad43c2a6eb *src/Makevars.win
